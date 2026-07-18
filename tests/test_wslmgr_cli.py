@@ -1,0 +1,1261 @@
+"""
+単体テスト for wslmgr_cli.py
+
+実行方法 (リポジトリルートから):
+    python3 -m pytest tests/test_wslmgr_cli.py -v
+"""
+
+import argparse
+import io
+import json
+import os
+import subprocess
+import sys
+import unittest
+from unittest.mock import call, patch, mock_open, MagicMock
+
+# リポジトリルートを sys.path の先頭に挿入して wslmgr_cli をインポートできるようにする
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+import wslmgr_cli
+
+
+# ---------------------------------------------------------------------------
+# _format_table
+# ---------------------------------------------------------------------------
+
+class TestFormatTable(unittest.TestCase):
+    """_format_table のテスト。"""
+
+    def test_header_present(self):
+        """ヘッダ行に各列名が含まれる。"""
+        result = wslmgr_cli._format_table(["Name", "State"], [["Ubuntu", "Running"]])
+        lines = result.splitlines()
+        self.assertIn("Name", lines[0])
+        self.assertIn("State", lines[0])
+
+    def test_separator_line(self):
+        """ヘッダの次の行が区切り線 ('-' のみ) である。"""
+        result = wslmgr_cli._format_table(["Name"], [["Ubuntu"]])
+        lines = result.splitlines()
+        self.assertTrue(set(lines[1].strip()) <= {"-", " "})
+
+    def test_row_data_present(self):
+        """データ行の内容が出力に含まれる。"""
+        result = wslmgr_cli._format_table(
+            ["Name", "State"], [["Ubuntu", "Running"], ["Debian", "Stopped"]]
+        )
+        self.assertIn("Ubuntu", result)
+        self.assertIn("Running", result)
+        self.assertIn("Debian", result)
+        self.assertIn("Stopped", result)
+
+    def test_column_width_min(self):
+        """min_width 未満のヘッダ・データでも min_width 分の幅が確保される。"""
+        result = wslmgr_cli._format_table(["A"], [["1"]], min_width=10)
+        lines = result.splitlines()
+        # ヘッダ行の列幅が少なくとも min_width 文字分はある
+        self.assertGreaterEqual(len(lines[0].rstrip()), 1)
+        self.assertGreaterEqual(len(lines[1]), 10)
+
+    def test_column_width_grows_with_data(self):
+        """データの方が長い場合は列幅がデータ長に合わせて広がる。"""
+        long_value = "a" * 20
+        result = wslmgr_cli._format_table(["Name"], [[long_value]], min_width=4)
+        lines = result.splitlines()
+        self.assertIn(long_value, lines[2])
+
+    def test_empty_rows(self):
+        """データ行が0件でもヘッダと区切り線のみ出力される。"""
+        result = wslmgr_cli._format_table(["Name", "State"], [])
+        lines = result.splitlines()
+        self.assertEqual(len(lines), 2)
+        self.assertIn("Name", lines[0])
+
+    def test_multiple_columns_aligned(self):
+        """複数列が整列されて出力される (各行が同じ長さ)。"""
+        result = wslmgr_cli._format_table(
+            ["Name", "State", "Version"],
+            [["Ubuntu", "Running", "2"], ["D", "S", "1"]],
+        )
+        lines = result.splitlines()
+        # ヘッダ行とデータ行の長さが一致する (整列されている)
+        self.assertEqual(len(lines[0]), len(lines[2]))
+        self.assertEqual(len(lines[0]), len(lines[3]))
+
+    def test_returns_string(self):
+        """戻り値が str であることを確認する。"""
+        result = wslmgr_cli._format_table(["Name"], [["Ubuntu"]])
+        self.assertIsInstance(result, str)
+
+    def test_non_string_cell_converted(self):
+        """非文字列 (bool 等) のセルも文字列に変換されて出力される。"""
+        result = wslmgr_cli._format_table(["Default"], [[True]])
+        self.assertIn("True", result)
+
+
+# ---------------------------------------------------------------------------
+# _format_csv
+# ---------------------------------------------------------------------------
+
+class TestFormatCsv(unittest.TestCase):
+    """_format_csv のテスト。"""
+
+    def test_header_row(self):
+        """先頭行がヘッダになる。"""
+        result = wslmgr_cli._format_csv(["Name", "State"], [["Ubuntu", "Running"]])
+        lines = result.splitlines()
+        self.assertEqual(lines[0], "Name,State")
+
+    def test_data_row(self):
+        """データ行が正しくカンマ区切りで出力される。"""
+        result = wslmgr_cli._format_csv(["Name", "State"], [["Ubuntu", "Running"]])
+        lines = result.splitlines()
+        self.assertEqual(lines[1], "Ubuntu,Running")
+
+    def test_multiple_rows(self):
+        """複数行が正しく出力される。"""
+        result = wslmgr_cli._format_csv(
+            ["Name", "State"], [["Ubuntu", "Running"], ["Debian", "Stopped"]]
+        )
+        lines = result.splitlines()
+        self.assertEqual(len(lines), 3)
+        self.assertEqual(lines[2], "Debian,Stopped")
+
+    def test_empty_rows(self):
+        """データ行が0件の場合はヘッダのみ出力される。"""
+        result = wslmgr_cli._format_csv(["Name", "State"], [])
+        lines = result.splitlines()
+        self.assertEqual(len(lines), 1)
+        self.assertEqual(lines[0], "Name,State")
+
+    def test_value_with_comma_quoted(self):
+        """値にカンマが含まれる場合はダブルクォートで囲まれる。"""
+        result = wslmgr_cli._format_csv(["Name"], [["foo,bar"]])
+        self.assertIn('"foo,bar"', result)
+
+    def test_returns_string(self):
+        """戻り値が str であることを確認する。"""
+        result = wslmgr_cli._format_csv(["Name"], [["Ubuntu"]])
+        self.assertIsInstance(result, str)
+
+    def test_no_trailing_newline(self):
+        """末尾に余分な改行が残らない。"""
+        result = wslmgr_cli._format_csv(["Name"], [["Ubuntu"]])
+        self.assertFalse(result.endswith("\n"))
+
+
+# ---------------------------------------------------------------------------
+# argparse セットアップ
+# ---------------------------------------------------------------------------
+
+class TestMainParserSetup(unittest.TestCase):
+    """build_parser によるサブコマンド設定のテスト。"""
+
+    def setUp(self):
+        self.parser = wslmgr_cli.build_parser()
+
+    def test_list_subcommand_parses(self):
+        """list サブコマンドが解析できる。"""
+        args = self.parser.parse_args(["list"])
+        self.assertEqual(args.format, "table")
+        self.assertTrue(hasattr(args, "func"))
+
+    def test_list_format_json(self):
+        """list --format json が解析できる。"""
+        args = self.parser.parse_args(["list", "--format", "json"])
+        self.assertEqual(args.format, "json")
+
+    def test_list_format_csv(self):
+        """list --format csv が解析できる。"""
+        args = self.parser.parse_args(["list", "--format", "csv"])
+        self.assertEqual(args.format, "csv")
+
+    def test_list_invalid_format_raises(self):
+        """list --format に不正な値を渡すとエラーになる。"""
+        with self.assertRaises(SystemExit):
+            self.parser.parse_args(["list", "--format", "xml"])
+
+    def test_start_requires_name(self):
+        """start サブコマンドは name 引数が必須。"""
+        with self.assertRaises(SystemExit):
+            self.parser.parse_args(["start"])
+
+    def test_start_parses_name(self):
+        """start サブコマンドが name を正しく取得する。"""
+        args = self.parser.parse_args(["start", "Ubuntu"])
+        self.assertEqual(args.name, "Ubuntu")
+
+    def test_stop_parses_name(self):
+        """stop サブコマンドが name を正しく取得する。"""
+        args = self.parser.parse_args(["stop", "Debian"])
+        self.assertEqual(args.name, "Debian")
+
+    def test_shutdown_no_args(self):
+        """shutdown サブコマンドは引数なしで解析できる。"""
+        args = self.parser.parse_args(["shutdown"])
+        self.assertTrue(hasattr(args, "func"))
+
+    def test_status_default_format(self):
+        """status サブコマンドの既定フォーマットは table。"""
+        args = self.parser.parse_args(["status"])
+        self.assertEqual(args.format, "table")
+
+    def test_export_requires_two_args(self):
+        """export サブコマンドは name と path が必須。"""
+        args = self.parser.parse_args(["export", "Ubuntu", "C:\\backup.tar"])
+        self.assertEqual(args.name, "Ubuntu")
+        self.assertEqual(args.path, "C:\\backup.tar")
+
+    def test_export_missing_path_raises(self):
+        """export サブコマンドで path を省略するとエラーになる。"""
+        with self.assertRaises(SystemExit):
+            self.parser.parse_args(["export", "Ubuntu"])
+
+    def test_import_requires_three_args(self):
+        """import サブコマンドは name, install_path, image_path が必須。"""
+        args = self.parser.parse_args(
+            ["import", "NewDistro", "C:\\wsl\\NewDistro", "C:\\image.tar"]
+        )
+        self.assertEqual(args.name, "NewDistro")
+        self.assertEqual(args.install_path, "C:\\wsl\\NewDistro")
+        self.assertEqual(args.image_path, "C:\\image.tar")
+
+    def test_config_default_format(self):
+        """config サブコマンドの既定フォーマットは table。"""
+        args = self.parser.parse_args(["config"])
+        self.assertEqual(args.format, "table")
+
+    def test_unknown_subcommand_raises(self):
+        """未知のサブコマンドはエラーになる。"""
+        with self.assertRaises(SystemExit):
+            self.parser.parse_args(["frobnicate"])
+
+    def test_no_subcommand_no_func(self):
+        """サブコマンドなしの場合 func 属性が設定されない。"""
+        args = self.parser.parse_args([])
+        self.assertFalse(hasattr(args, "func"))
+
+
+# ---------------------------------------------------------------------------
+# cmd_list (subprocess をモック)
+# ---------------------------------------------------------------------------
+
+class TestCmdList(unittest.TestCase):
+    """cmd_list のテスト (subprocess.run をモック)。"""
+
+    TYPICAL_OUTPUT = (
+        "  NAME      STATE           VERSION\n"
+        "* Ubuntu    Running         2\n"
+        "  Debian    Stopped         2\n"
+    )
+
+    def _make_completed_process(self, stdout_text, returncode=0):
+        # 実際の wsl.exe は UTF-16LE (BOM 付き) で出力するため、それを模す
+        proc = MagicMock()
+        proc.returncode = returncode
+        proc.stdout = b"\xff\xfe" + stdout_text.encode("utf-16-le")
+        proc.stderr = b""
+        return proc
+
+    @patch("wslmgr_cli.subprocess.run")
+    def test_table_format_calls_parse_distro_list(self, mock_run):
+        """table フォーマットで wsl_core.parse_distro_list の結果が出力される。"""
+        mock_run.return_value = self._make_completed_process(self.TYPICAL_OUTPUT)
+        args = argparse.Namespace(format="table")
+        buf = io.StringIO()
+        with patch("sys.stdout", buf):
+            wslmgr_cli.cmd_list(args)
+        output = buf.getvalue()
+        self.assertIn("Ubuntu", output)
+        self.assertIn("Debian", output)
+        self.assertIn("Running", output)
+
+    @patch("wslmgr_cli.subprocess.run")
+    def test_default_marker_shown(self, mock_run):
+        """デフォルトディストロに '*' マーカーが表示される。"""
+        mock_run.return_value = self._make_completed_process(self.TYPICAL_OUTPUT)
+        args = argparse.Namespace(format="table")
+        buf = io.StringIO()
+        with patch("sys.stdout", buf):
+            wslmgr_cli.cmd_list(args)
+        output = buf.getvalue()
+        lines = [line for line in output.splitlines() if "Ubuntu" in line]
+        self.assertTrue(any("*" in line for line in lines))
+
+    @patch("wslmgr_cli.subprocess.run")
+    def test_json_format_valid_json(self, mock_run):
+        """json フォーマットの出力が有効な JSON でパース可能。"""
+        mock_run.return_value = self._make_completed_process(self.TYPICAL_OUTPUT)
+        args = argparse.Namespace(format="json")
+        buf = io.StringIO()
+        with patch("sys.stdout", buf):
+            wslmgr_cli.cmd_list(args)
+        data = json.loads(buf.getvalue())
+        self.assertEqual(len(data), 2)
+        self.assertEqual(data[0]["name"], "Ubuntu")
+
+    @patch("wslmgr_cli.subprocess.run")
+    def test_csv_format_header(self, mock_run):
+        """csv フォーマットの出力にヘッダ行が含まれる。"""
+        mock_run.return_value = self._make_completed_process(self.TYPICAL_OUTPUT)
+        args = argparse.Namespace(format="csv")
+        buf = io.StringIO()
+        with patch("sys.stdout", buf):
+            wslmgr_cli.cmd_list(args)
+        output = buf.getvalue()
+        self.assertIn("Name,State,Version,Default", output)
+
+    @patch("wslmgr_cli.subprocess.run")
+    def test_command_failure_exits_with_error(self, mock_run):
+        """wsl コマンドが失敗した場合 sys.exit(1) する。"""
+        proc = MagicMock()
+        proc.returncode = 1
+        proc.stdout = b""
+        proc.stderr = "エラー発生".encode("utf-8")
+        mock_run.return_value = proc
+        args = argparse.Namespace(format="table")
+        with self.assertRaises(SystemExit) as cm:
+            with patch("sys.stderr", io.StringIO()):
+                wslmgr_cli.cmd_list(args)
+        self.assertEqual(cm.exception.code, 1)
+
+    @patch("wslmgr_cli.subprocess.run")
+    def test_wsl_invoked_with_list_verbose(self, mock_run):
+        """subprocess.run が 'wsl --list --verbose' で呼ばれる。"""
+        mock_run.return_value = self._make_completed_process(self.TYPICAL_OUTPUT)
+        args = argparse.Namespace(format="table")
+        with patch("sys.stdout", io.StringIO()):
+            wslmgr_cli.cmd_list(args)
+        call_args = mock_run.call_args
+        self.assertEqual(call_args[0][0], ["wsl", "--list", "--verbose"])
+
+
+# ---------------------------------------------------------------------------
+# cmd_config (ファイル読み込みをモック)
+# ---------------------------------------------------------------------------
+
+class TestCmdConfig(unittest.TestCase):
+    """cmd_config のテスト (ファイル I/O をモック)。"""
+
+    WSLCONFIG_TEXT = "[wsl2]\nmemory=4GB\nprocessors=2\n"
+
+    @patch("wslmgr_cli.os.path.exists", return_value=True)
+    @patch("builtins.open", new_callable=mock_open, read_data=WSLCONFIG_TEXT)
+    def test_table_format_shows_keys(self, mock_file, mock_exists):
+        """table フォーマットで各キーが表示される。"""
+        args = argparse.Namespace(format="table")
+        buf = io.StringIO()
+        with patch("sys.stdout", buf):
+            wslmgr_cli.cmd_config(args)
+        output = buf.getvalue()
+        self.assertIn("[wsl2]", output)
+        self.assertIn("memory", output)
+        self.assertIn("4GB", output)
+        self.assertIn("processors", output)
+
+    @patch("wslmgr_cli.os.path.exists", return_value=True)
+    @patch("builtins.open", new_callable=mock_open, read_data=WSLCONFIG_TEXT)
+    def test_json_format_valid(self, mock_file, mock_exists):
+        """json フォーマットの出力が wsl_core.parse_wslconfig と一致する。"""
+        args = argparse.Namespace(format="json")
+        buf = io.StringIO()
+        with patch("sys.stdout", buf):
+            wslmgr_cli.cmd_config(args)
+        data = json.loads(buf.getvalue())
+        self.assertEqual(data, {"wsl2": {"memory": "4GB", "processors": "2"}})
+
+    @patch("wslmgr_cli.os.path.exists", return_value=False)
+    def test_missing_file_exits_with_error(self, mock_exists):
+        """.wslconfig が存在しない場合 sys.exit(1) する。"""
+        args = argparse.Namespace(format="table")
+        with self.assertRaises(SystemExit) as cm:
+            with patch("sys.stderr", io.StringIO()):
+                wslmgr_cli.cmd_config(args)
+        self.assertEqual(cm.exception.code, 1)
+
+    @patch("wslmgr_cli.os.path.exists", return_value=True)
+    @patch("builtins.open", new_callable=mock_open, read_data="")
+    def test_empty_config_shows_message(self, mock_file, mock_exists):
+        """空の .wslconfig では「設定項目がありません」を表示する。"""
+        args = argparse.Namespace(format="table")
+        buf = io.StringIO()
+        with patch("sys.stdout", buf):
+            wslmgr_cli.cmd_config(args)
+        self.assertIn("設定項目がありません", buf.getvalue())
+
+    @patch("wslmgr_cli.os.path.expanduser")
+    @patch("wslmgr_cli.os.path.exists", return_value=True)
+    @patch("builtins.open", new_callable=mock_open, read_data=WSLCONFIG_TEXT)
+    def test_uses_expanduser_path(self, mock_file, mock_exists, mock_expand):
+        """~/.wslconfig のパスが os.path.expanduser を経由して取得される。"""
+        mock_expand.return_value = "/home/test/.wslconfig"
+        args = argparse.Namespace(format="json")
+        with patch("sys.stdout", io.StringIO()):
+            wslmgr_cli.cmd_config(args)
+        mock_expand.assert_called_with("~/.wslconfig")
+
+
+# ---------------------------------------------------------------------------
+# _run_wsl_command
+# ---------------------------------------------------------------------------
+
+class TestRunWslCommand(unittest.TestCase):
+    """_run_wsl_command のテスト (subprocess.run をモック)。"""
+
+    @patch("wslmgr_cli.subprocess.run")
+    def test_success_decodes_output(self, mock_run):
+        """成功時に stdout/stderr がデコードされて返る。"""
+        proc = MagicMock()
+        proc.returncode = 0
+        # 実際の wsl.exe は UTF-16LE (BOM 付き) で出力するため、それを模す
+        proc.stdout = b"\xff\xfe" + "結果".encode("utf-16-le")
+        proc.stderr = b""
+        mock_run.return_value = proc
+        rc, out, err = wslmgr_cli._run_wsl_command(["--list"])
+        self.assertEqual(rc, 0)
+        self.assertEqual(out, "結果")
+
+    @patch("wslmgr_cli.subprocess.run", side_effect=__import__("subprocess").TimeoutExpired(cmd="wsl", timeout=10))
+    def test_timeout_returns_error(self, mock_run):
+        """タイムアウト時に returncode=-1 とエラーメッセージを返す。"""
+        rc, out, err = wslmgr_cli._run_wsl_command(["--list"])
+        self.assertEqual(rc, -1)
+        self.assertIn("タイムアウト", err)
+
+    @patch("wslmgr_cli.subprocess.run", side_effect=OSError("not found"))
+    def test_oserror_returns_error(self, mock_run):
+        """OSError 発生時に returncode=-1 とエラーメッセージを返す。"""
+        rc, out, err = wslmgr_cli._run_wsl_command(["--list"])
+        self.assertEqual(rc, -1)
+        self.assertIn("not found", err)
+
+    @patch("wslmgr_cli.subprocess.run")
+    def test_prepends_wsl_to_args(self, mock_run):
+        """渡した args の先頭に 'wsl' が付与されて実行される。"""
+        proc = MagicMock()
+        proc.returncode = 0
+        proc.stdout = b""
+        proc.stderr = b""
+        mock_run.return_value = proc
+        wslmgr_cli._run_wsl_command(["--terminate", "Ubuntu"])
+        call_args = mock_run.call_args
+        self.assertEqual(call_args[0][0], ["wsl", "--terminate", "Ubuntu"])
+
+
+# ---------------------------------------------------------------------------
+# cmd_import (validate_distro_name の利用確認)
+# ---------------------------------------------------------------------------
+
+class TestCmdImport(unittest.TestCase):
+    """cmd_import のテスト。"""
+
+    def test_invalid_name_exits_before_subprocess(self):
+        """不正な名前の場合、subprocess を呼ばずに sys.exit(1) する。"""
+        args = argparse.Namespace(
+            name="bad/name", install_path="C:\\wsl\\bad", image_path="C:\\image.tar"
+        )
+        with patch("wslmgr_cli.subprocess.run") as mock_run:
+            with self.assertRaises(SystemExit) as cm:
+                with patch("sys.stderr", io.StringIO()):
+                    wslmgr_cli.cmd_import(args)
+            mock_run.assert_not_called()
+        self.assertEqual(cm.exception.code, 1)
+
+    @patch("wslmgr_cli.subprocess.run")
+    def test_valid_name_invokes_wsl_import(self, mock_run):
+        """有効な名前の場合 'wsl --import' が呼ばれる。"""
+        proc = MagicMock()
+        proc.returncode = 0
+        proc.stdout = b""
+        proc.stderr = b""
+        mock_run.return_value = proc
+        args = argparse.Namespace(
+            name="NewDistro", install_path="C:\\wsl\\NewDistro", image_path="C:\\image.tar"
+        )
+        with patch("sys.stdout", io.StringIO()):
+            wslmgr_cli.cmd_import(args)
+        call_args = mock_run.call_args
+        self.assertEqual(
+            call_args[0][0],
+            ["wsl", "--import", "NewDistro", "C:\\wsl\\NewDistro", "C:\\image.tar"],
+        )
+
+
+# ---------------------------------------------------------------------------
+# _run_netsh_portproxy
+# ---------------------------------------------------------------------------
+
+class TestRunNetshPortproxy(unittest.TestCase):
+    """_run_netsh_portproxy のテスト (subprocess.run をモック)。"""
+
+    @patch("wslmgr_cli.subprocess.run")
+    def test_success_returns_text_output(self, mock_run):
+        """成功時に stdout/stderr がそのままのテキストとして返る。"""
+        proc = MagicMock()
+        proc.returncode = 0
+        proc.stdout = "結果テキスト"
+        proc.stderr = ""
+        mock_run.return_value = proc
+        rc, out, err = wslmgr_cli._run_netsh_portproxy(["show", "all"])
+        self.assertEqual(rc, 0)
+        self.assertEqual(out, "結果テキスト")
+
+    @patch("wslmgr_cli.subprocess.run")
+    def test_prepends_netsh_args(self, mock_run):
+        """渡した args の先頭に 'netsh interface portproxy' が付与される。"""
+        proc = MagicMock()
+        proc.returncode = 0
+        proc.stdout = ""
+        proc.stderr = ""
+        mock_run.return_value = proc
+        wslmgr_cli._run_netsh_portproxy(["show", "all"])
+        call_args = mock_run.call_args
+        self.assertEqual(
+            call_args[0][0], ["netsh", "interface", "portproxy", "show", "all"]
+        )
+        self.assertTrue(call_args[1]["text"])
+
+    @patch(
+        "wslmgr_cli.subprocess.run",
+        side_effect=subprocess.TimeoutExpired(cmd="netsh", timeout=15),
+    )
+    def test_timeout_returns_error(self, mock_run):
+        """タイムアウト時に returncode=-1 とエラーメッセージを返す。"""
+        rc, out, err = wslmgr_cli._run_netsh_portproxy(["show", "all"])
+        self.assertEqual(rc, -1)
+        self.assertIn("タイムアウト", err)
+
+    @patch("wslmgr_cli.subprocess.run", side_effect=OSError("not found"))
+    def test_oserror_returns_error(self, mock_run):
+        """OSError 発生時に returncode=-1 とエラーメッセージを返す。"""
+        rc, out, err = wslmgr_cli._run_netsh_portproxy(["show", "all"])
+        self.assertEqual(rc, -1)
+        self.assertIn("not found", err)
+
+
+# ---------------------------------------------------------------------------
+# _confirm_or_exit
+# ---------------------------------------------------------------------------
+
+class TestConfirmOrExit(unittest.TestCase):
+    """_confirm_or_exit のテスト。"""
+
+    def test_assume_yes_returns_immediately(self):
+        """assume_yes=True の場合は確認せずに戻る。"""
+        # input が呼ばれたら失敗させることで、確認をスキップしたことを検証する
+        with patch("builtins.input", side_effect=AssertionError("input が呼ばれてはいけない")):
+            wslmgr_cli._confirm_or_exit("続行しますか?", True)
+
+    @patch("sys.stdin.isatty", return_value=False)
+    def test_non_tty_without_yes_exits(self, mock_isatty):
+        """非対話環境で assume_yes=False の場合 exit 1 する。"""
+        with self.assertRaises(SystemExit) as cm:
+            with patch("sys.stderr", io.StringIO()):
+                wslmgr_cli._confirm_or_exit("続行しますか?", False)
+        self.assertEqual(cm.exception.code, 1)
+
+    @patch("sys.stdin.isatty", return_value=True)
+    @patch("builtins.input", return_value="y")
+    def test_tty_yes_input_continues(self, mock_input, mock_isatty):
+        """TTY で 'y' が入力された場合は例外を出さずに戻る。"""
+        wslmgr_cli._confirm_or_exit("続行しますか?", False)
+
+    @patch("sys.stdin.isatty", return_value=True)
+    @patch("builtins.input", return_value="YES")
+    def test_tty_yes_uppercase_continues(self, mock_input, mock_isatty):
+        """大文字の 'YES' も有効な肯定応答として扱われる。"""
+        wslmgr_cli._confirm_or_exit("続行しますか?", False)
+
+    @patch("sys.stdin.isatty", return_value=True)
+    @patch("builtins.input", return_value="n")
+    def test_tty_no_input_exits(self, mock_input, mock_isatty):
+        """TTY で 'n' が入力された場合は exit 1 する。"""
+        with self.assertRaises(SystemExit) as cm:
+            with patch("sys.stdout", io.StringIO()):
+                wslmgr_cli._confirm_or_exit("続行しますか?", False)
+        self.assertEqual(cm.exception.code, 1)
+
+    @patch("sys.stdin.isatty", return_value=True)
+    @patch("builtins.input", side_effect=EOFError)
+    def test_tty_eof_input_exits(self, mock_input, mock_isatty):
+        """TTY で入力が EOF (Ctrl-D) の場合は「いいえ」として exit 1 する。"""
+        with self.assertRaises(SystemExit) as cm:
+            with patch("sys.stdout", io.StringIO()):
+                wslmgr_cli._confirm_or_exit("続行しますか?", False)
+        self.assertEqual(cm.exception.code, 1)
+
+
+# ---------------------------------------------------------------------------
+# cmd_set_default
+# ---------------------------------------------------------------------------
+
+class TestCmdSetDefault(unittest.TestCase):
+    """cmd_set_default のテスト。"""
+
+    @patch("wslmgr_cli._run_wsl_command")
+    def test_success_message(self, mock_run):
+        """成功時に正しいメッセージが表示される。"""
+        mock_run.return_value = (0, "", "")
+        args = argparse.Namespace(name="Ubuntu")
+        buf = io.StringIO()
+        with patch("sys.stdout", buf):
+            wslmgr_cli.cmd_set_default(args)
+        self.assertIn("Ubuntu", buf.getvalue())
+        self.assertIn("デフォルトに設定しました", buf.getvalue())
+        mock_run.assert_called_once_with(["--set-default", "Ubuntu"], timeout=30.0)
+
+    @patch("wslmgr_cli._run_wsl_command")
+    def test_failure_exits_with_error(self, mock_run):
+        """失敗時に exit 1 する。"""
+        mock_run.return_value = (1, "", "エラー")
+        args = argparse.Namespace(name="Ubuntu")
+        with self.assertRaises(SystemExit) as cm:
+            with patch("sys.stderr", io.StringIO()):
+                wslmgr_cli.cmd_set_default(args)
+        self.assertEqual(cm.exception.code, 1)
+
+
+# ---------------------------------------------------------------------------
+# cmd_unregister
+# ---------------------------------------------------------------------------
+
+class TestCmdUnregister(unittest.TestCase):
+    """cmd_unregister のテスト。"""
+
+    @patch("wslmgr_cli._run_wsl_command")
+    def test_yes_flag_skips_confirmation(self, mock_run):
+        """--yes 指定時は確認なしで実行される。"""
+        mock_run.return_value = (0, "", "")
+        args = argparse.Namespace(name="Ubuntu", yes=True)
+        with patch("builtins.input", side_effect=AssertionError("input が呼ばれてはいけない")):
+            with patch("sys.stdout", io.StringIO()):
+                wslmgr_cli.cmd_unregister(args)
+        mock_run.assert_called_once_with(["--unregister", "Ubuntu"], timeout=120.0)
+
+    @patch("wslmgr_cli._run_wsl_command")
+    @patch("sys.stdin.isatty", return_value=False)
+    def test_non_tty_without_yes_exits_before_run(self, mock_isatty, mock_run):
+        """非対話環境で --yes なしの場合、コマンド実行前に exit 1 する。"""
+        args = argparse.Namespace(name="Ubuntu", yes=False)
+        with self.assertRaises(SystemExit) as cm:
+            with patch("sys.stderr", io.StringIO()):
+                wslmgr_cli.cmd_unregister(args)
+        self.assertEqual(cm.exception.code, 1)
+        mock_run.assert_not_called()
+
+    @patch("wslmgr_cli._run_wsl_command")
+    @patch("sys.stdin.isatty", return_value=True)
+    @patch("builtins.input", return_value="y")
+    def test_tty_yes_input_executes(self, mock_input, mock_isatty, mock_run):
+        """TTY で 'y' 入力の場合は実行される。"""
+        mock_run.return_value = (0, "", "")
+        args = argparse.Namespace(name="Ubuntu", yes=False)
+        with patch("sys.stdout", io.StringIO()):
+            wslmgr_cli.cmd_unregister(args)
+        mock_run.assert_called_once_with(["--unregister", "Ubuntu"], timeout=120.0)
+
+    @patch("wslmgr_cli._run_wsl_command")
+    @patch("sys.stdin.isatty", return_value=True)
+    @patch("builtins.input", return_value="n")
+    def test_tty_no_input_exits_before_run(self, mock_input, mock_isatty, mock_run):
+        """TTY で 'n' 入力の場合は exit 1 し、コマンドは実行されない。"""
+        args = argparse.Namespace(name="Ubuntu", yes=False)
+        with self.assertRaises(SystemExit) as cm:
+            with patch("sys.stdout", io.StringIO()):
+                wslmgr_cli.cmd_unregister(args)
+        self.assertEqual(cm.exception.code, 1)
+        mock_run.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# cmd_install
+# ---------------------------------------------------------------------------
+
+class TestCmdInstall(unittest.TestCase):
+    """cmd_install のテスト。"""
+
+    @patch("wslmgr_cli._run_wsl_command")
+    def test_success_invokes_wsl_install(self, mock_run):
+        """成功時に正しい wsl 引数で実行される。"""
+        mock_run.return_value = (0, "", "")
+        args = argparse.Namespace(name="Ubuntu")
+        buf = io.StringIO()
+        with patch("sys.stdout", buf):
+            wslmgr_cli.cmd_install(args)
+        mock_run.assert_called_once_with(
+            ["--install", "-d", "Ubuntu", "--no-launch"], timeout=1800.0
+        )
+        self.assertIn("インストールが完了しました", buf.getvalue())
+
+    @patch("wslmgr_cli._run_wsl_command")
+    def test_failure_exits_with_error(self, mock_run):
+        """失敗時に exit 1 する。"""
+        mock_run.return_value = (1, "", "エラー")
+        args = argparse.Namespace(name="Ubuntu")
+        with self.assertRaises(SystemExit) as cm:
+            with patch("sys.stdout", io.StringIO()):
+                with patch("sys.stderr", io.StringIO()):
+                    wslmgr_cli.cmd_install(args)
+        self.assertEqual(cm.exception.code, 1)
+
+
+# ---------------------------------------------------------------------------
+# cmd_optimize
+# ---------------------------------------------------------------------------
+
+class TestCmdOptimize(unittest.TestCase):
+    """cmd_optimize のテスト。"""
+
+    @patch("wslmgr_cli._run_wsl_command")
+    def test_sparse_terminates_then_manages(self, mock_run):
+        """--sparse 指定時、terminate してから --manage --set-sparse true が呼ばれる。"""
+        mock_run.return_value = (0, "", "")
+        args = argparse.Namespace(name="Ubuntu", sparse=True, compact=False)
+        with patch("sys.stdout", io.StringIO()):
+            wslmgr_cli.cmd_optimize(args)
+        self.assertEqual(
+            mock_run.call_args_list,
+            [
+                call(["--terminate", "Ubuntu"], timeout=30.0),
+                call(["--manage", "Ubuntu", "--set-sparse", "true"], timeout=120.0),
+            ],
+        )
+
+    @patch("wslmgr_cli._run_wsl_command")
+    def test_sparse_failure_exits_with_error(self, mock_run):
+        """--sparse の --manage が失敗した場合 exit 1 する。"""
+        mock_run.side_effect = [(0, "", ""), (1, "", "エラー")]
+        args = argparse.Namespace(name="Ubuntu", sparse=True, compact=False)
+        with self.assertRaises(SystemExit) as cm:
+            with patch("sys.stdout", io.StringIO()):
+                with patch("sys.stderr", io.StringIO()):
+                    wslmgr_cli.cmd_optimize(args)
+        self.assertEqual(cm.exception.code, 1)
+
+    @patch("wslmgr_cli._run_wsl_command")
+    @patch("wslmgr_cli._get_distro_vhdx_path", return_value=None)
+    def test_compact_vhdx_not_found_exits(self, mock_vhdx, mock_run):
+        """--compact で vhdx が見つからない場合 exit 1 する。"""
+        mock_run.return_value = (0, "", "")
+        args = argparse.Namespace(name="Ubuntu", sparse=False, compact=True)
+        with self.assertRaises(SystemExit) as cm:
+            with patch("sys.stdout", io.StringIO()):
+                with patch("sys.stderr", io.StringIO()):
+                    wslmgr_cli.cmd_optimize(args)
+        self.assertEqual(cm.exception.code, 1)
+
+    @patch("wslmgr_cli.os.remove")
+    @patch("wslmgr_cli.subprocess.run")
+    @patch("wslmgr_cli._get_distro_vhdx_path", return_value=r"C:\wsl\Ubuntu\ext4.vhdx")
+    @patch("wslmgr_cli._run_wsl_command")
+    def test_compact_vhdx_found_runs_diskpart(
+        self, mock_run_wsl, mock_vhdx, mock_subprocess_run, mock_remove
+    ):
+        """--compact で vhdx が見つかった場合、diskpart /s script_path が実行される。"""
+        mock_run_wsl.return_value = (0, "", "")
+        proc = MagicMock()
+        proc.returncode = 0
+        mock_subprocess_run.return_value = proc
+        args = argparse.Namespace(name="Ubuntu", sparse=False, compact=True)
+        buf = io.StringIO()
+        with patch("sys.stdout", buf):
+            wslmgr_cli.cmd_optimize(args)
+        call_args = mock_subprocess_run.call_args
+        self.assertEqual(call_args[0][0][0], "diskpart")
+        self.assertEqual(call_args[0][0][1], "/s")
+        self.assertIn("圧縮しました", buf.getvalue())
+        mock_remove.assert_called_once()
+
+    @patch("wslmgr_cli.os.remove")
+    @patch("wslmgr_cli.subprocess.run")
+    @patch("wslmgr_cli._get_distro_vhdx_path", return_value=r"C:\wsl\Ubuntu\ext4.vhdx")
+    @patch("wslmgr_cli._run_wsl_command")
+    def test_compact_diskpart_failure_exits(
+        self, mock_run_wsl, mock_vhdx, mock_subprocess_run, mock_remove
+    ):
+        """diskpart が失敗した (returncode != 0) 場合 exit 1 する。"""
+        mock_run_wsl.return_value = (0, "", "")
+        proc = MagicMock()
+        proc.returncode = 1
+        mock_subprocess_run.return_value = proc
+        args = argparse.Namespace(name="Ubuntu", sparse=False, compact=True)
+        with self.assertRaises(SystemExit) as cm:
+            with patch("sys.stdout", io.StringIO()):
+                with patch("sys.stderr", io.StringIO()):
+                    wslmgr_cli.cmd_optimize(args)
+        self.assertEqual(cm.exception.code, 1)
+
+
+# ---------------------------------------------------------------------------
+# cmd_set_version
+# ---------------------------------------------------------------------------
+
+class TestCmdSetVersion(unittest.TestCase):
+    """cmd_set_version のテスト。"""
+
+    @patch("wslmgr_cli._run_wsl_command")
+    def test_yes_flag_skips_confirmation(self, mock_run):
+        """--yes 指定時は確認なしで実行される。"""
+        mock_run.return_value = (0, "", "")
+        args = argparse.Namespace(name="Ubuntu", version="2", yes=True)
+        with patch("builtins.input", side_effect=AssertionError("input が呼ばれてはいけない")):
+            with patch("sys.stdout", io.StringIO()):
+                wslmgr_cli.cmd_set_version(args)
+        mock_run.assert_called_once_with(["--set-version", "Ubuntu", "2"], timeout=1800.0)
+
+    @patch("wslmgr_cli._run_wsl_command")
+    @patch("sys.stdin.isatty", return_value=False)
+    def test_non_tty_without_yes_exits_before_run(self, mock_isatty, mock_run):
+        """非対話環境で --yes なしの場合 exit 1 し、コマンドは実行されない。"""
+        args = argparse.Namespace(name="Ubuntu", version="1", yes=False)
+        with self.assertRaises(SystemExit) as cm:
+            with patch("sys.stderr", io.StringIO()):
+                wslmgr_cli.cmd_set_version(args)
+        self.assertEqual(cm.exception.code, 1)
+        mock_run.assert_not_called()
+
+    @patch("wslmgr_cli._run_wsl_command")
+    @patch("sys.stdin.isatty", return_value=True)
+    @patch("builtins.input", return_value="y")
+    def test_tty_yes_input_executes(self, mock_input, mock_isatty, mock_run):
+        """TTY で 'y' 入力の場合は実行される。"""
+        mock_run.return_value = (0, "", "")
+        args = argparse.Namespace(name="Ubuntu", version="2", yes=False)
+        with patch("sys.stdout", io.StringIO()):
+            wslmgr_cli.cmd_set_version(args)
+        mock_run.assert_called_once_with(["--set-version", "Ubuntu", "2"], timeout=1800.0)
+
+    @patch("wslmgr_cli._run_wsl_command")
+    @patch("sys.stdin.isatty", return_value=True)
+    @patch("builtins.input", return_value="n")
+    def test_tty_no_input_exits_before_run(self, mock_input, mock_isatty, mock_run):
+        """TTY で 'n' 入力の場合は exit 1 し、コマンドは実行されない。"""
+        args = argparse.Namespace(name="Ubuntu", version="2", yes=False)
+        with self.assertRaises(SystemExit) as cm:
+            with patch("sys.stdout", io.StringIO()):
+                wslmgr_cli.cmd_set_version(args)
+        self.assertEqual(cm.exception.code, 1)
+        mock_run.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# cmd_processes
+# ---------------------------------------------------------------------------
+
+class TestCmdProcesses(unittest.TestCase):
+    """cmd_processes のテスト。"""
+
+    PS_OUTPUT = (
+        "  PID USER     %CPU   RSS COMMAND\n"
+        "    1 root      0.5  2048 systemd\n"
+        "  100 user     10.0 40960 python3\n"
+    )
+
+    @patch("wslmgr_cli._run_wsl_command")
+    def test_table_format(self, mock_run):
+        """table フォーマットで parse_process_list の結果が出力される。"""
+        mock_run.return_value = (0, self.PS_OUTPUT, "")
+        args = argparse.Namespace(name="Ubuntu", format="table")
+        buf = io.StringIO()
+        with patch("sys.stdout", buf):
+            wslmgr_cli.cmd_processes(args)
+        output = buf.getvalue()
+        self.assertIn("systemd", output)
+        self.assertIn("python3", output)
+
+    @patch("wslmgr_cli._run_wsl_command")
+    def test_json_format_valid(self, mock_run):
+        """json フォーマットの出力が有効な JSON でパース可能。"""
+        mock_run.return_value = (0, self.PS_OUTPUT, "")
+        args = argparse.Namespace(name="Ubuntu", format="json")
+        buf = io.StringIO()
+        with patch("sys.stdout", buf):
+            wslmgr_cli.cmd_processes(args)
+        data = json.loads(buf.getvalue())
+        self.assertEqual(len(data), 2)
+        self.assertEqual(data[1]["command"], "python3")
+
+    @patch("wslmgr_cli._run_wsl_command")
+    def test_csv_format_header(self, mock_run):
+        """csv フォーマットの出力にヘッダ行が含まれる。"""
+        mock_run.return_value = (0, self.PS_OUTPUT, "")
+        args = argparse.Namespace(name="Ubuntu", format="csv")
+        buf = io.StringIO()
+        with patch("sys.stdout", buf):
+            wslmgr_cli.cmd_processes(args)
+        self.assertIn("PID,User,CPU(%),Memory(MB),Command", buf.getvalue())
+
+    @patch("wslmgr_cli._run_wsl_command")
+    def test_failure_exits_with_error(self, mock_run):
+        """wsl コマンドが失敗した場合 exit 1 する。"""
+        mock_run.return_value = (1, "", "エラー")
+        args = argparse.Namespace(name="Ubuntu", format="table")
+        with self.assertRaises(SystemExit) as cm:
+            with patch("sys.stderr", io.StringIO()):
+                wslmgr_cli.cmd_processes(args)
+        self.assertEqual(cm.exception.code, 1)
+
+    @patch("wslmgr_cli._run_wsl_command")
+    def test_invoked_with_ps_command(self, mock_run):
+        """wsl -d <name> -- sh -lc '<ps コマンド>' で呼び出される。"""
+        mock_run.return_value = (0, self.PS_OUTPUT, "")
+        args = argparse.Namespace(name="Ubuntu", format="table")
+        with patch("sys.stdout", io.StringIO()):
+            wslmgr_cli.cmd_processes(args)
+        call_args = mock_run.call_args
+        self.assertEqual(call_args[0][0][:3], ["-d", "Ubuntu", "--"])
+        self.assertIn("ps -eo pid,user,pcpu,rss,comm", call_args[0][0][-1])
+
+
+# ---------------------------------------------------------------------------
+# cmd_log
+# ---------------------------------------------------------------------------
+
+class TestCmdLog(unittest.TestCase):
+    """cmd_log のテスト。"""
+
+    LOG_TEXT = (
+        '{"timestamp": "2026-01-01T00:00:00", "operation": "起動", "target": "Ubuntu", "result": "成功"}\n'
+        '{"timestamp": "2026-01-02T00:00:00", "operation": "停止", "target": "Ubuntu", "result": "成功"}\n'
+        '{"timestamp": "2026-01-03T00:00:00", "operation": "起動", "target": "Debian", "result": "失敗"}\n'
+    )
+
+    @patch("wslmgr_cli.os.path.exists", return_value=False)
+    def test_missing_file_shows_message(self, mock_exists):
+        """ログファイルが存在しない場合、案内メッセージを表示し例外を出さない。"""
+        args = argparse.Namespace(tail=50, format="table")
+        buf = io.StringIO()
+        with patch("sys.stdout", buf):
+            wslmgr_cli.cmd_log(args)
+        self.assertIn("操作ログはまだありません。", buf.getvalue())
+
+    @patch("wslmgr_cli.os.path.exists", return_value=True)
+    @patch("builtins.open", new_callable=mock_open, read_data=LOG_TEXT)
+    def test_tail_applied_table_format(self, mock_file, mock_exists):
+        """--tail が適用され、指定件数分のみ table 形式で出力される。"""
+        args = argparse.Namespace(tail=2, format="table")
+        buf = io.StringIO()
+        with patch("sys.stdout", buf):
+            wslmgr_cli.cmd_log(args)
+        output = buf.getvalue()
+        lines = [line for line in output.splitlines() if line.strip()]
+        self.assertEqual(len(lines), 2)
+        self.assertIn("Debian", output)
+        self.assertNotIn("2026-01-01", output)
+
+    @patch("wslmgr_cli.os.path.exists", return_value=True)
+    @patch("builtins.open", new_callable=mock_open, read_data=LOG_TEXT)
+    def test_json_format_valid(self, mock_file, mock_exists):
+        """json フォーマットの出力が有効な JSON でパース可能。"""
+        args = argparse.Namespace(tail=50, format="json")
+        buf = io.StringIO()
+        with patch("sys.stdout", buf):
+            wslmgr_cli.cmd_log(args)
+        data = json.loads(buf.getvalue())
+        self.assertEqual(len(data), 3)
+
+    @patch("wslmgr_cli.os.path.exists", return_value=True)
+    @patch("builtins.open", side_effect=OSError("読み込み失敗"))
+    def test_read_oserror_exits(self, mock_file, mock_exists):
+        """ファイル読み込みで OSError が発生した場合 exit 1 する。"""
+        args = argparse.Namespace(tail=50, format="table")
+        with self.assertRaises(SystemExit) as cm:
+            with patch("sys.stderr", io.StringIO()):
+                wslmgr_cli.cmd_log(args)
+        self.assertEqual(cm.exception.code, 1)
+
+    @patch("wslmgr_cli.os.path.exists", return_value=True)
+    @patch("builtins.open", new_callable=mock_open, read_data=LOG_TEXT)
+    def test_uses_default_log_dir(self, mock_file, mock_exists):
+        """wsl_core.get_default_log_dir 配下の operations.jsonl を参照する。"""
+        args = argparse.Namespace(tail=50, format="table")
+        with patch("sys.stdout", io.StringIO()):
+            wslmgr_cli.cmd_log(args)
+        # mock_open は open() の呼び出し引数を記録している
+        opened_path = mock_file.call_args[0][0]
+        self.assertTrue(opened_path.endswith("operations.jsonl"))
+
+
+# ---------------------------------------------------------------------------
+# cmd_portproxy_list / cmd_portproxy_add / cmd_portproxy_delete
+# ---------------------------------------------------------------------------
+
+class TestCmdPortproxyList(unittest.TestCase):
+    """cmd_portproxy_list のテスト。"""
+
+    NETSH_OUTPUT = (
+        "Address         Port        Address         Port\n"
+        "--------------- ----------  --------------- ----------\n"
+        "0.0.0.0         8080        172.20.0.2      8080\n"
+    )
+
+    @patch("wslmgr_cli._run_netsh_portproxy")
+    def test_table_format_shows_rule(self, mock_run):
+        """table フォーマットでルールが表示される。"""
+        mock_run.return_value = (0, self.NETSH_OUTPUT, "")
+        args = argparse.Namespace(format="table")
+        buf = io.StringIO()
+        with patch("sys.stdout", buf):
+            wslmgr_cli.cmd_portproxy_list(args)
+        output = buf.getvalue()
+        self.assertIn("172.20.0.2", output)
+        self.assertIn("8080", output)
+
+    @patch("wslmgr_cli._run_netsh_portproxy")
+    def test_json_format_valid(self, mock_run):
+        """json フォーマットの出力が有効な JSON でパース可能。"""
+        mock_run.return_value = (0, self.NETSH_OUTPUT, "")
+        args = argparse.Namespace(format="json")
+        buf = io.StringIO()
+        with patch("sys.stdout", buf):
+            wslmgr_cli.cmd_portproxy_list(args)
+        data = json.loads(buf.getvalue())
+        self.assertEqual(data[0]["connect_address"], "172.20.0.2")
+
+    @patch("wslmgr_cli._run_netsh_portproxy")
+    def test_failure_exits_with_error(self, mock_run):
+        """netsh が失敗した場合 exit 1 する。"""
+        mock_run.return_value = (1, "", "アクセスが拒否されました")
+        args = argparse.Namespace(format="table")
+        with self.assertRaises(SystemExit) as cm:
+            with patch("sys.stderr", io.StringIO()):
+                wslmgr_cli.cmd_portproxy_list(args)
+        self.assertEqual(cm.exception.code, 1)
+
+    @patch("wslmgr_cli._run_netsh_portproxy")
+    def test_invoked_with_show_all(self, mock_run):
+        """'show all' 引数で _run_netsh_portproxy が呼ばれる。"""
+        mock_run.return_value = (0, self.NETSH_OUTPUT, "")
+        args = argparse.Namespace(format="table")
+        with patch("sys.stdout", io.StringIO()):
+            wslmgr_cli.cmd_portproxy_list(args)
+        mock_run.assert_called_once_with(["show", "all"])
+
+
+class TestCmdPortproxyAdd(unittest.TestCase):
+    """cmd_portproxy_add のテスト。"""
+
+    @patch("wslmgr_cli._run_netsh_portproxy")
+    def test_invalid_listen_port_exits_before_netsh(self, mock_run):
+        """listen_port が不正な場合、netsh を呼ばずに exit 1 する。"""
+        args = argparse.Namespace(
+            listen_port="not-a-port", connect_port="80",
+            connect_address="172.20.0.2", listen_address="0.0.0.0",
+        )
+        with self.assertRaises(SystemExit) as cm:
+            with patch("sys.stderr", io.StringIO()):
+                wslmgr_cli.cmd_portproxy_add(args)
+        self.assertEqual(cm.exception.code, 1)
+        mock_run.assert_not_called()
+
+    @patch("wslmgr_cli._run_netsh_portproxy")
+    def test_invalid_connect_port_exits_before_netsh(self, mock_run):
+        """connect_port が不正な場合、netsh を呼ばずに exit 1 する。"""
+        args = argparse.Namespace(
+            listen_port="8080", connect_port="99999",
+            connect_address="172.20.0.2", listen_address="0.0.0.0",
+        )
+        with self.assertRaises(SystemExit) as cm:
+            with patch("sys.stderr", io.StringIO()):
+                wslmgr_cli.cmd_portproxy_add(args)
+        self.assertEqual(cm.exception.code, 1)
+        mock_run.assert_not_called()
+
+    @patch("wslmgr_cli._run_netsh_portproxy")
+    def test_success_invokes_netsh_add(self, mock_run):
+        """成功時に正しい netsh 引数で呼ばれ、成功メッセージが表示される。"""
+        mock_run.return_value = (0, "", "")
+        args = argparse.Namespace(
+            listen_port="8080", connect_port="80",
+            connect_address="172.20.0.2", listen_address="0.0.0.0",
+        )
+        buf = io.StringIO()
+        with patch("sys.stdout", buf):
+            wslmgr_cli.cmd_portproxy_add(args)
+        mock_run.assert_called_once_with(
+            [
+                "add", "v4tov4",
+                "listenport=8080",
+                "listenaddress=0.0.0.0",
+                "connectport=80",
+                "connectaddress=172.20.0.2",
+            ]
+        )
+        self.assertIn("追加しました", buf.getvalue())
+
+    @patch("wslmgr_cli._run_netsh_portproxy")
+    def test_netsh_failure_exits_with_error(self, mock_run):
+        """netsh が失敗した場合 exit 1 し、管理者権限に関するメッセージを含む。"""
+        mock_run.return_value = (1, "", "アクセスが拒否されました")
+        args = argparse.Namespace(
+            listen_port="8080", connect_port="80",
+            connect_address="172.20.0.2", listen_address="0.0.0.0",
+        )
+        stderr_buf = io.StringIO()
+        with self.assertRaises(SystemExit) as cm:
+            with patch("sys.stderr", stderr_buf):
+                wslmgr_cli.cmd_portproxy_add(args)
+        self.assertEqual(cm.exception.code, 1)
+        self.assertIn("管理者権限", stderr_buf.getvalue())
+
+
+class TestCmdPortproxyDelete(unittest.TestCase):
+    """cmd_portproxy_delete のテスト。"""
+
+    @patch("wslmgr_cli._run_netsh_portproxy")
+    def test_invalid_listen_port_exits_before_netsh(self, mock_run):
+        """listen_port が不正な場合、netsh を呼ばずに exit 1 する。"""
+        args = argparse.Namespace(listen_port="0", listen_address="0.0.0.0")
+        with self.assertRaises(SystemExit) as cm:
+            with patch("sys.stderr", io.StringIO()):
+                wslmgr_cli.cmd_portproxy_delete(args)
+        self.assertEqual(cm.exception.code, 1)
+        mock_run.assert_not_called()
+
+    @patch("wslmgr_cli._run_netsh_portproxy")
+    def test_success_invokes_netsh_delete(self, mock_run):
+        """成功時に正しい netsh 引数で呼ばれ、成功メッセージが表示される。"""
+        mock_run.return_value = (0, "", "")
+        args = argparse.Namespace(listen_port="8080", listen_address="0.0.0.0")
+        buf = io.StringIO()
+        with patch("sys.stdout", buf):
+            wslmgr_cli.cmd_portproxy_delete(args)
+        mock_run.assert_called_once_with(
+            ["delete", "v4tov4", "listenport=8080", "listenaddress=0.0.0.0"]
+        )
+        self.assertIn("削除しました", buf.getvalue())
+
+    @patch("wslmgr_cli._run_netsh_portproxy")
+    def test_netsh_failure_exits_with_error(self, mock_run):
+        """netsh が失敗した場合 exit 1 し、管理者権限に関するメッセージを含む。"""
+        mock_run.return_value = (1, "", "アクセスが拒否されました")
+        args = argparse.Namespace(listen_port="8080", listen_address="0.0.0.0")
+        stderr_buf = io.StringIO()
+        with self.assertRaises(SystemExit) as cm:
+            with patch("sys.stderr", stderr_buf):
+                wslmgr_cli.cmd_portproxy_delete(args)
+        self.assertEqual(cm.exception.code, 1)
+        self.assertIn("管理者権限", stderr_buf.getvalue())
+
+
+# ---------------------------------------------------------------------------
+# _get_distro_vhdx_path
+# ---------------------------------------------------------------------------
+
+class TestGetDistroVhdxPath(unittest.TestCase):
+    """_get_distro_vhdx_path のテスト。"""
+
+    def test_winreg_import_error_returns_none(self):
+        """winreg が import できない環境 (Linux など) では None を返す。"""
+        # 開発環境 (Linux) では winreg が存在しないため、素の呼び出しで None を確認できる。
+        result = wslmgr_cli._get_distro_vhdx_path("Ubuntu")
+        self.assertIsNone(result)
+
+
+# ---------------------------------------------------------------------------
+# build_parser (拡張サブコマンド)
+# ---------------------------------------------------------------------------
+
+class TestBuildParserExtendedSubcommands(unittest.TestCase):
+    """新しいサブコマンドが build_parser で解析できることを確認する。"""
+
+    def setUp(self):
+        self.parser = wslmgr_cli.build_parser()
+
+    def test_set_default_parses(self):
+        args = self.parser.parse_args(["set-default", "Ubuntu"])
+        self.assertEqual(args.name, "Ubuntu")
+        self.assertTrue(hasattr(args, "func"))
+
+    def test_unregister_parses_with_yes(self):
+        args = self.parser.parse_args(["unregister", "Ubuntu", "--yes"])
+        self.assertEqual(args.name, "Ubuntu")
+        self.assertTrue(args.yes)
+
+    def test_unregister_default_yes_false(self):
+        args = self.parser.parse_args(["unregister", "Ubuntu"])
+        self.assertFalse(args.yes)
+
+    def test_install_parses(self):
+        args = self.parser.parse_args(["install", "Ubuntu"])
+        self.assertEqual(args.name, "Ubuntu")
+
+    def test_optimize_sparse_parses(self):
+        args = self.parser.parse_args(["optimize", "Ubuntu", "--sparse"])
+        self.assertTrue(args.sparse)
+        self.assertFalse(args.compact)
+
+    def test_optimize_compact_parses(self):
+        args = self.parser.parse_args(["optimize", "Ubuntu", "--compact"])
+        self.assertTrue(args.compact)
+
+    def test_optimize_requires_one_option(self):
+        """--sparse も --compact も指定しない場合はエラーになる。"""
+        with self.assertRaises(SystemExit):
+            self.parser.parse_args(["optimize", "Ubuntu"])
+
+    def test_optimize_mutually_exclusive(self):
+        """--sparse と --compact を同時に指定するとエラーになる。"""
+        with self.assertRaises(SystemExit):
+            self.parser.parse_args(["optimize", "Ubuntu", "--sparse", "--compact"])
+
+    def test_set_version_parses(self):
+        args = self.parser.parse_args(["set-version", "Ubuntu", "2", "--yes"])
+        self.assertEqual(args.version, "2")
+        self.assertTrue(args.yes)
+
+    def test_set_version_invalid_choice_raises(self):
+        with self.assertRaises(SystemExit):
+            self.parser.parse_args(["set-version", "Ubuntu", "3"])
+
+    def test_processes_default_format(self):
+        args = self.parser.parse_args(["processes", "Ubuntu"])
+        self.assertEqual(args.format, "table")
+
+    def test_processes_format_json(self):
+        args = self.parser.parse_args(["processes", "Ubuntu", "--format", "json"])
+        self.assertEqual(args.format, "json")
+
+    def test_log_default_tail(self):
+        args = self.parser.parse_args(["log"])
+        self.assertEqual(args.tail, 50)
+        self.assertEqual(args.format, "table")
+
+    def test_log_custom_tail(self):
+        args = self.parser.parse_args(["log", "--tail", "10", "--format", "json"])
+        self.assertEqual(args.tail, 10)
+        self.assertEqual(args.format, "json")
+
+    def test_portproxy_no_subcommand_has_func(self):
+        """portproxy のみ指定した場合でも func 属性が設定される (ヘルプ表示用)。"""
+        args = self.parser.parse_args(["portproxy"])
+        self.assertTrue(hasattr(args, "func"))
+
+    def test_portproxy_list_parses(self):
+        args = self.parser.parse_args(["portproxy", "list"])
+        self.assertEqual(args.format, "table")
+
+    def test_portproxy_add_parses(self):
+        args = self.parser.parse_args(
+            ["portproxy", "add", "8080", "80", "--connect-address", "172.20.0.2"]
+        )
+        self.assertEqual(args.listen_port, "8080")
+        self.assertEqual(args.connect_port, "80")
+        self.assertEqual(args.connect_address, "172.20.0.2")
+        self.assertEqual(args.listen_address, "0.0.0.0")
+
+    def test_portproxy_add_requires_connect_address(self):
+        with self.assertRaises(SystemExit):
+            self.parser.parse_args(["portproxy", "add", "8080", "80"])
+
+    def test_portproxy_delete_parses(self):
+        args = self.parser.parse_args(["portproxy", "delete", "8080"])
+        self.assertEqual(args.listen_port, "8080")
+        self.assertEqual(args.listen_address, "0.0.0.0")
+
+
+# ---------------------------------------------------------------------------
+
+if __name__ == "__main__":
+    unittest.main()

@@ -1,0 +1,55 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    name: Test (${{ matrix.os }}, py${{ matrix.python-version }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        python-version: ["3.9", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      # GUI を起動せずにバイトコードコンパイルだけ行う（tkinter 不要）
+      - name: Compile check
+        run: python -m py_compile wslmgr.py wsl_core.py
+
+      # 純粋ロジック (wsl_core) の単体テスト。どの OS でも実行可能
+      - name: Unit tests
+        run: python -m unittest discover -s tests -v
+
+      # Windows ランナーは tkinter / winreg が利用可能なため、
+      # GUI モジュールの import スモークテストまで実施できる
+      # (main() は __name__ ガードで実行されない)
+      - name: Import smoke test (wslmgr)
+        if: runner.os == 'Windows'
+        run: python -c "import wslmgr; print('import OK')"
+
+  lint:
+    name: Lint (ruff)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install ruff
+        run: pip install ruff
+
+      - name: Ruff check
+        run: ruff check .
