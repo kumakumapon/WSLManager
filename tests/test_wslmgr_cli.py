@@ -11,6 +11,7 @@ import json
 import os
 import subprocess
 import sys
+import tempfile
 import unittest
 from unittest.mock import call, patch, mock_open, MagicMock
 
@@ -1256,6 +1257,421 @@ class TestBuildParserExtendedSubcommands(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
+# snapshot / clone サブコマンド
+# ---------------------------------------------------------------------------
+
+DISTRO_LIST_OUTPUT = (
+    "  NAME      STATE           VERSION\n"
+    "* Ubuntu    Running         2\n"
+    "  Debian    Stopped         2\n"
+)
+
+
+def _write_snapshot(tmpdir, distro_name="Ubuntu", tar_file="Ubuntu_20260101-000000.tar",
+                     wsl_version="2", comment="", size_bytes=1024,
+                     created_at="2026-01-01T00:00:00", write_tar=True):
+    """テスト用のスナップショット (json + 任意で tar) をディレクトリに書き込むヘルパー。"""
+    if write_tar:
+        with open(os.path.join(tmpdir, tar_file), "wb") as f:
+            f.write(b"x" * size_bytes)
+    json_name = os.path.splitext(tar_file)[0] + ".json"
+    metadata = wslmgr_cli.wsl_core.build_snapshot_metadata(
+        distro_name, wsl_version, comment, size_bytes, created_at, tar_file
+    )
+    wslmgr_cli.wsl_core.write_snapshot_metadata(os.path.join(tmpdir, json_name), metadata)
+    return tar_file
+
+
+class TestCmdSnapshotCreate(unittest.TestCase):
+    """cmd_snapshot_create のテスト。"""
+
+    @patch("wslmgr_cli._run_wsl_command")
+    def test_success_creates_tar_and_json(self, mock_run):
+        """成功時に export が正しい引数で呼ばれ、json メタデータが書き込まれる。"""
+        mock_run.side_effect = [(0, DISTRO_LIST_OUTPUT, ""), (0, "", "")]
+        with tempfile.TemporaryDirectory() as tmpdir:
+            args = argparse.Namespace(name="Ubuntu", comment="test comment", dir=tmpdir)
+            with patch("sys.stdout", io.StringIO()):
+                wslmgr_cli.cmd_snapshot_create(args)
+
+            export_call = mock_run.call_args_list[1]
+            export_args = export_call[0][0]
+            self.assertEqual(export_args[0], "--export")
+            self.assertEqual(export_args[1], "Ubuntu")
+            tar_path = export_args[2]
+            self.assertTrue(tar_path.startswith(tmpdir))
+            self.assertTrue(tar_path.endswith(".tar"))
+
+            json_files = [f for f in os.listdir(tmpdir) if f.endswith(".json")]
+            self.assertEqual(len(json_files), 1)
+            with open(os.path.join(tmpdir, json_files[0]), encoding="utf-8") as f:
+                data = json.load(f)
+            self.assertEqual(data["distro_name"], "Ubuntu")
+            self.assertEqual(data["comment"], "test comment")
+            self.assertEqual(data["wsl_version"], "2")
+
+    @patch("wslmgr_cli._run_wsl_command")
+    def test_unknown_distro_exits(self, mock_run):
+        """存在しないディストロ名の場合、export を呼ばずに exit 1 する。"""
+        mock_run.return_value = (0, DISTRO_LIST_OUTPUT, "")
+        with tempfile.TemporaryDirectory() as tmpdir:
+            args = argparse.Namespace(name="NoSuchDistro", comment="", dir=tmpdir)
+            with self.assertRaises(SystemExit) as cm:
+                with patch("sys.stderr", io.StringIO()):
+                    wslmgr_cli.cmd_snapshot_create(args)
+            self.assertEqual(cm.exception.code, 1)
+            self.assertEqual(mock_run.call_count, 1)
+
+    @patch("wslmgr_cli._run_wsl_command")
+    def test_export_failure_exits(self, mock_run):
+        """export が失敗した場合 exit 1 し、json は書き込まれない。"""
+        mock_run.side_effect = [(0, DISTRO_LIST_OUTPUT, ""), (1, "", "エクスポート失敗")]
+        with tempfile.TemporaryDirectory() as tmpdir:
+            args = argparse.Namespace(name="Ubuntu", comment="", dir=tmpdir)
+            with self.assertRaises(SystemExit) as cm:
+                with patch("sys.stdout", io.StringIO()):
+                    with patch("sys.stderr", io.StringIO()):
+                        wslmgr_cli.cmd_snapshot_create(args)
+            self.assertEqual(cm.exception.code, 1)
+            self.assertEqual([f for f in os.listdir(tmpdir) if f.endswith(".json")], [])
+
+
+class TestCmdSnapshotList(unittest.TestCase):
+    """cmd_snapshot_list のテスト。"""
+
+    def test_empty_dir_shows_message(self):
+        """スナップショットが無い場合、案内メッセージを表示する。"""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            args = argparse.Namespace(dir=tmpdir, format="table")
+            buf = io.StringIO()
+            with patch("sys.stdout", buf):
+                wslmgr_cli.cmd_snapshot_list(args)
+            self.assertIn("スナップショットがありません。", buf.getvalue())
+
+    def test_table_format_shows_entries_and_total(self):
+        """table フォーマットでエントリと合計サイズが表示される。"""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            _write_snapshot(tmpdir, distro_name="Ubuntu", tar_file="Ubuntu_1.tar", size_bytes=2048)
+            args = argparse.Namespace(dir=tmpdir, format="table")
+            buf = io.StringIO()
+            with patch("sys.stdout", buf):
+                wslmgr_cli.cmd_snapshot_list(args)
+            output = buf.getvalue()
+            self.assertIn("Ubuntu", output)
+            self.assertIn("Ubuntu_1.tar", output)
+            self.assertIn("合計", output)
+
+    def test_json_format_valid(self):
+        """json フォーマットの出力が有効な JSON でパース可能。"""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            _write_snapshot(tmpdir, distro_name="Ubuntu", tar_file="Ubuntu_1.tar")
+            args = argparse.Namespace(dir=tmpdir, format="json")
+            buf = io.StringIO()
+            with patch("sys.stdout", buf):
+                wslmgr_cli.cmd_snapshot_list(args)
+            data = json.loads(buf.getvalue())
+            self.assertEqual(len(data), 1)
+            self.assertEqual(data[0]["distro_name"], "Ubuntu")
+            self.assertTrue(data[0]["tar_exists"])
+
+    def test_missing_tar_shown_as_missing(self):
+        """tar ファイルが欠損している場合 MISSING と表示される。"""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            _write_snapshot(tmpdir, tar_file="Gone.tar", write_tar=False)
+            args = argparse.Namespace(dir=tmpdir, format="table")
+            buf = io.StringIO()
+            with patch("sys.stdout", buf):
+                wslmgr_cli.cmd_snapshot_list(args)
+            self.assertIn("MISSING", buf.getvalue())
+
+
+class TestCmdSnapshotRestore(unittest.TestCase):
+    """cmd_snapshot_restore のテスト。"""
+
+    @patch("wslmgr_cli._run_wsl_command")
+    def test_success_with_explicit_name(self, mock_run):
+        """--name 指定時、その名前で import が呼ばれる。"""
+        mock_run.side_effect = [(0, DISTRO_LIST_OUTPUT, ""), (0, "", "")]
+        with tempfile.TemporaryDirectory() as tmpdir, tempfile.TemporaryDirectory() as install_dir:
+            _write_snapshot(tmpdir, distro_name="Ubuntu", tar_file="Ubuntu_1.tar", wsl_version="2")
+            args = argparse.Namespace(
+                tar_file="Ubuntu_1.tar", install_path=install_dir, name="Restored",
+                dir=tmpdir, yes=True,
+            )
+            with patch("sys.stdout", io.StringIO()):
+                wslmgr_cli.cmd_snapshot_restore(args)
+            import_call = mock_run.call_args_list[1]
+            import_args = import_call[0][0]
+            self.assertEqual(import_args[0], "--import")
+            self.assertEqual(import_args[1], "Restored")
+            self.assertEqual(import_args[2], install_dir)
+            self.assertTrue(import_args[3].endswith("Ubuntu_1.tar"))
+            self.assertEqual(import_args[4:], ["--version", "2"])
+
+    @patch("wslmgr_cli._run_wsl_command")
+    def test_success_with_auto_name(self, mock_run):
+        """--name 未指定時、default_clone_name による自動名で import が呼ばれる。"""
+        mock_run.side_effect = [(0, DISTRO_LIST_OUTPUT, ""), (0, "", "")]
+        with tempfile.TemporaryDirectory() as tmpdir, tempfile.TemporaryDirectory() as install_dir:
+            _write_snapshot(tmpdir, distro_name="Ubuntu", tar_file="Ubuntu_1.tar", wsl_version="2")
+            args = argparse.Namespace(
+                tar_file="Ubuntu_1.tar", install_path=install_dir, name=None,
+                dir=tmpdir, yes=True,
+            )
+            with patch("sys.stdout", io.StringIO()):
+                wslmgr_cli.cmd_snapshot_restore(args)
+            import_call = mock_run.call_args_list[1]
+            import_args = import_call[0][0]
+            self.assertEqual(import_args[1], "Ubuntu-copy")
+
+    def test_unknown_tar_file_exits(self):
+        """未知の tar_file を指定した場合 exit 1 する。"""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            args = argparse.Namespace(
+                tar_file="NoSuch.tar", install_path="/tmp/x", name=None, dir=tmpdir, yes=True,
+            )
+            with self.assertRaises(SystemExit) as cm:
+                with patch("sys.stderr", io.StringIO()):
+                    wslmgr_cli.cmd_snapshot_restore(args)
+            self.assertEqual(cm.exception.code, 1)
+
+    @patch("wslmgr_cli._run_wsl_command")
+    def test_duplicate_name_exits(self, mock_run):
+        """指定した --name が既存ディストロと重複する場合 exit 1 する。"""
+        mock_run.return_value = (0, DISTRO_LIST_OUTPUT, "")
+        with tempfile.TemporaryDirectory() as tmpdir:
+            _write_snapshot(tmpdir, distro_name="Ubuntu", tar_file="Ubuntu_1.tar")
+            args = argparse.Namespace(
+                tar_file="Ubuntu_1.tar", install_path="/tmp/x", name="Ubuntu",
+                dir=tmpdir, yes=True,
+            )
+            with self.assertRaises(SystemExit) as cm:
+                with patch("sys.stderr", io.StringIO()):
+                    wslmgr_cli.cmd_snapshot_restore(args)
+            self.assertEqual(cm.exception.code, 1)
+
+    def test_missing_tar_exits(self):
+        """tar ファイルが欠損している場合 exit 1 する。"""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            _write_snapshot(tmpdir, distro_name="Ubuntu", tar_file="Gone.tar", write_tar=False)
+            args = argparse.Namespace(
+                tar_file="Gone.tar", install_path="/tmp/x", name=None, dir=tmpdir, yes=True,
+            )
+            with self.assertRaises(SystemExit) as cm:
+                with patch("sys.stderr", io.StringIO()):
+                    wslmgr_cli.cmd_snapshot_restore(args)
+            self.assertEqual(cm.exception.code, 1)
+
+    @patch("wslmgr_cli._run_wsl_command")
+    @patch("builtins.input", return_value="n")
+    def test_confirmation_declined_aborts(self, mock_input, mock_run):
+        """確認プロンプトで 'n' の場合、import を呼ばずに中止する。"""
+        mock_run.return_value = (0, DISTRO_LIST_OUTPUT, "")
+        with tempfile.TemporaryDirectory() as tmpdir:
+            _write_snapshot(tmpdir, distro_name="Ubuntu", tar_file="Ubuntu_1.tar")
+            args = argparse.Namespace(
+                tar_file="Ubuntu_1.tar", install_path="/tmp/x", name="Restored",
+                dir=tmpdir, yes=False,
+            )
+            with self.assertRaises(SystemExit) as cm:
+                with patch("sys.stdout", io.StringIO()):
+                    wslmgr_cli.cmd_snapshot_restore(args)
+            self.assertEqual(cm.exception.code, 0)
+            self.assertEqual(mock_run.call_count, 1)
+
+
+class TestCmdSnapshotDelete(unittest.TestCase):
+    """cmd_snapshot_delete のテスト。"""
+
+    def test_yes_flag_deletes_files(self):
+        """--yes 指定時、確認なしで tar と json が削除される。"""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tar_file = _write_snapshot(tmpdir, tar_file="Ubuntu_1.tar")
+            args = argparse.Namespace(tar_file=tar_file, dir=tmpdir, yes=True)
+            with patch("builtins.input", side_effect=AssertionError("input が呼ばれてはいけない")):
+                with patch("sys.stdout", io.StringIO()):
+                    wslmgr_cli.cmd_snapshot_delete(args)
+            self.assertEqual(os.listdir(tmpdir), [])
+
+    def test_unknown_tar_file_exits(self):
+        """未知の tar_file を指定した場合 exit 1 する。"""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            args = argparse.Namespace(tar_file="NoSuch.tar", dir=tmpdir, yes=True)
+            with self.assertRaises(SystemExit) as cm:
+                with patch("sys.stderr", io.StringIO()):
+                    wslmgr_cli.cmd_snapshot_delete(args)
+            self.assertEqual(cm.exception.code, 1)
+
+    @patch("builtins.input", return_value="n")
+    def test_confirmation_declined_keeps_files(self, mock_input):
+        """確認プロンプトで 'n' の場合、ファイルは削除されない。"""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tar_file = _write_snapshot(tmpdir, tar_file="Ubuntu_1.tar")
+            args = argparse.Namespace(tar_file=tar_file, dir=tmpdir, yes=False)
+            with self.assertRaises(SystemExit) as cm:
+                with patch("sys.stdout", io.StringIO()):
+                    wslmgr_cli.cmd_snapshot_delete(args)
+            self.assertEqual(cm.exception.code, 0)
+            self.assertEqual(len(os.listdir(tmpdir)), 2)
+
+
+class TestCmdClone(unittest.TestCase):
+    """cmd_clone のテスト。"""
+
+    @patch("wslmgr_cli._run_wsl_command")
+    def test_success_exports_then_imports(self, mock_run):
+        """export の後に import が正しい引数で呼ばれ、中間 tar が渡される。"""
+        mock_run.side_effect = [(0, DISTRO_LIST_OUTPUT, ""), (0, "", ""), (0, "", "")]
+        with tempfile.TemporaryDirectory() as install_dir:
+            args = argparse.Namespace(
+                name="Ubuntu", new_name="Ubuntu-copy", install_path=install_dir, yes=True,
+            )
+            with patch("sys.stdout", io.StringIO()):
+                wslmgr_cli.cmd_clone(args)
+
+            export_call = mock_run.call_args_list[1]
+            import_call = mock_run.call_args_list[2]
+            export_args = export_call[0][0]
+            import_args = import_call[0][0]
+            self.assertEqual(export_args[0], "--export")
+            self.assertEqual(export_args[1], "Ubuntu")
+            tmp_tar = export_args[2]
+            self.assertTrue(tmp_tar.endswith(".tar"))
+
+            self.assertEqual(import_args[0], "--import")
+            self.assertEqual(import_args[1], "Ubuntu-copy")
+            self.assertEqual(import_args[2], install_dir)
+            self.assertEqual(import_args[3], tmp_tar)
+            self.assertEqual(import_args[4:], ["--version", "2"])
+
+            # 一時ファイル・ディレクトリは後始末される
+            self.assertFalse(os.path.exists(tmp_tar))
+            self.assertFalse(os.path.exists(os.path.dirname(tmp_tar)))
+
+    @patch("wslmgr_cli._run_wsl_command")
+    def test_invalid_new_name_exits_before_export(self, mock_run):
+        """new_name が不正な場合、export を呼ばずに exit 1 する。"""
+        mock_run.return_value = (0, DISTRO_LIST_OUTPUT, "")
+        args = argparse.Namespace(
+            name="Ubuntu", new_name="bad/name", install_path="/tmp/x", yes=True,
+        )
+        with self.assertRaises(SystemExit) as cm:
+            with patch("sys.stderr", io.StringIO()):
+                wslmgr_cli.cmd_clone(args)
+        self.assertEqual(cm.exception.code, 1)
+        self.assertEqual(mock_run.call_count, 1)
+
+    @patch("wslmgr_cli._run_wsl_command")
+    def test_export_failure_skips_import(self, mock_run):
+        """export が失敗した場合、import は呼ばれず exit 1 する。"""
+        mock_run.side_effect = [(0, DISTRO_LIST_OUTPUT, ""), (1, "", "エクスポート失敗")]
+        with tempfile.TemporaryDirectory() as install_dir:
+            args = argparse.Namespace(
+                name="Ubuntu", new_name="Ubuntu-copy", install_path=install_dir, yes=True,
+            )
+            with self.assertRaises(SystemExit) as cm:
+                with patch("sys.stdout", io.StringIO()):
+                    with patch("sys.stderr", io.StringIO()):
+                        wslmgr_cli.cmd_clone(args)
+            self.assertEqual(cm.exception.code, 1)
+            self.assertEqual(mock_run.call_count, 2)
+
+    @patch("wslmgr_cli._run_wsl_command")
+    @patch("builtins.input", return_value="n")
+    def test_confirmation_declined_aborts(self, mock_input, mock_run):
+        """確認プロンプトで 'n' の場合、export を呼ばずに中止する。"""
+        mock_run.return_value = (0, DISTRO_LIST_OUTPUT, "")
+        args = argparse.Namespace(
+            name="Ubuntu", new_name="Ubuntu-copy", install_path="/tmp/x", yes=False,
+        )
+        with self.assertRaises(SystemExit) as cm:
+            with patch("sys.stdout", io.StringIO()):
+                wslmgr_cli.cmd_clone(args)
+        self.assertEqual(cm.exception.code, 0)
+        self.assertEqual(mock_run.call_count, 1)
+
+
+class TestBuildParserSnapshotClone(unittest.TestCase):
+    """build_parser で snapshot / clone サブコマンドが解析できることを確認する。"""
+
+    def setUp(self):
+        self.parser = wslmgr_cli.build_parser()
+
+    def test_snapshot_no_subcommand_has_func(self):
+        args = self.parser.parse_args(["snapshot"])
+        self.assertTrue(hasattr(args, "func"))
+
+    def test_snapshot_create_parses(self):
+        args = self.parser.parse_args(["snapshot", "create", "Ubuntu", "--comment", "hi"])
+        self.assertEqual(args.name, "Ubuntu")
+        self.assertEqual(args.comment, "hi")
+        self.assertIsNone(args.dir)
+
+    def test_snapshot_list_default_format(self):
+        args = self.parser.parse_args(["snapshot", "list"])
+        self.assertEqual(args.format, "table")
+
+    def test_snapshot_restore_requires_install_path(self):
+        with self.assertRaises(SystemExit):
+            self.parser.parse_args(["snapshot", "restore", "Ubuntu_1.tar"])
+
+    def test_snapshot_restore_parses(self):
+        args = self.parser.parse_args(
+            ["snapshot", "restore", "Ubuntu_1.tar", "--install-path", "C:\\wsl\\R", "--yes"]
+        )
+        self.assertEqual(args.tar_file, "Ubuntu_1.tar")
+        self.assertEqual(args.install_path, "C:\\wsl\\R")
+        self.assertTrue(args.yes)
+
+    def test_snapshot_delete_parses(self):
+        args = self.parser.parse_args(["snapshot", "delete", "Ubuntu_1.tar"])
+        self.assertEqual(args.tar_file, "Ubuntu_1.tar")
+        self.assertFalse(args.yes)
+
+    def test_clone_requires_install_path(self):
+        with self.assertRaises(SystemExit):
+            self.parser.parse_args(["clone", "Ubuntu", "Ubuntu-copy"])
+
+    def test_clone_parses(self):
+        args = self.parser.parse_args(
+            ["clone", "Ubuntu", "Ubuntu-copy", "--install-path", "C:\\wsl\\C", "--yes"]
+        )
+        self.assertEqual(args.name, "Ubuntu")
+        self.assertEqual(args.new_name, "Ubuntu-copy")
+        self.assertEqual(args.install_path, "C:\\wsl\\C")
+        self.assertTrue(args.yes)
+
+
+class TestResolveSnapshotDir(unittest.TestCase):
+    """_resolve_snapshot_dir のテスト。"""
+
+    def test_explicit_dir_takes_precedence(self):
+        """--dir が指定されている場合、それを返す。"""
+        args = argparse.Namespace(dir="/custom/path")
+        with patch("wslmgr_cli.wsl_core.load_settings") as mock_load:
+            result = wslmgr_cli._resolve_snapshot_dir(args)
+        self.assertEqual(result, "/custom/path")
+        mock_load.assert_not_called()
+
+    def test_falls_back_to_settings(self):
+        """--dir 未指定時、設定ファイルの snapshot_dir を使う。"""
+        args = argparse.Namespace(dir=None)
+        with patch(
+            "wslmgr_cli.wsl_core.load_settings", return_value={"snapshot_dir": "/from/settings"}
+        ):
+            result = wslmgr_cli._resolve_snapshot_dir(args)
+        self.assertEqual(result, "/from/settings")
+
+    def test_falls_back_to_default_when_settings_empty(self):
+        """設定に snapshot_dir が無い場合、wsl_core.get_default_snapshot_dir() を使う。"""
+        args = argparse.Namespace(dir=None)
+        with patch("wslmgr_cli.wsl_core.load_settings", return_value={}):
+            with patch(
+                "wslmgr_cli.wsl_core.get_default_snapshot_dir", return_value="/default/dir"
+            ):
+                result = wslmgr_cli._resolve_snapshot_dir(args)
+        self.assertEqual(result, "/default/dir")
+
 
 if __name__ == "__main__":
     unittest.main()

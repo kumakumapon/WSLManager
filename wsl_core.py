@@ -16,24 +16,41 @@ import re
 import sys
 from datetime import datetime
 
+# WSL ディストロ名はレジストリキー名・\\wsl.localhost\<name> パス・
+# エクスポートファイル名として使われるため、Windows の予約デバイス名は
+# 大文字小文字を区別せず使用禁止とする。
+_WINDOWS_RESERVED_NAMES = frozenset(
+    {"CON", "PRN", "AUX", "NUL"}
+    | {f"COM{i}" for i in range(1, 10)}
+    | {f"LPT{i}" for i in range(1, 10)}
+)
+
 
 def decode_wsl_output(raw: bytes) -> str:
     """WSL コマンドの出力を適切なエンコーディングでデコードします。
 
     wsl.exe の出力は UTF-16 LE (BOM 付き) で返ることが多いため、
     まず UTF-16 LE を試み、失敗した場合は UTF-8 にフォールバックします。
+    BOM がない場合は、偶数バイト長かつ NUL バイトを含むときに限り
+    UTF-16 LE とみなします (``wsl -d <name> -- <cmd>`` の UTF-8 出力を
+    UTF-16 と誤判定して文字化けさせないためのヒューリスティックです)。
     """
     # BOM (FF FE) があれば取り除いてデコード
     if raw.startswith(b"\xff\xfe"):
         return raw[2:].decode("utf-16-le", errors="replace")
-    # BOM なしで UTF-16 LE を試みる
-    try:
-        text = raw.decode("utf-16-le", errors="strict")
-        # 意味のある文字列が得られたか簡易チェック
-        if text.strip():
-            return text
-    except (UnicodeDecodeError, ValueError):
-        pass
+    # BOM なしで UTF-16 LE を試みる。ただし偶数長の ASCII/UTF-8 バイト列も
+    # utf-16-le として「成功」してしまい CJK の文字化けになるため、
+    # NUL バイトを含む場合のみ試す。wsl.exe の UTF-16 LE 出力は ASCII 文字
+    # (改行・空白・英数字) を必ず含むため、その上位バイト 0x00 が現れる。
+    # 一方、UTF-8 / cp932 のテキスト出力に NUL バイトは通常含まれない。
+    if len(raw) % 2 == 0 and b"\x00" in raw:
+        try:
+            text = raw.decode("utf-16-le", errors="strict")
+            # 意味のある文字列が得られたか簡易チェック
+            if text.strip():
+                return text
+        except (UnicodeDecodeError, ValueError):
+            pass
     # フォールバック: UTF-8 / cp932
     for enc in ("utf-8", "cp932", "latin-1"):
         try:
@@ -448,10 +465,17 @@ def parse_uptime(text: str | None) -> str:
 def validate_distro_name(name: str) -> tuple[bool, str]:
     """WSL ディストリビューション名を検証して (有効かどうか, 理由) のタプルを返します。
 
-    以下のルールを検証します:
+    ディストロ名はレジストリキー名・``\\\\wsl.localhost\\<name>`` パス・
+    エクスポートファイル名として使われるため、Windows のファイル名規則に
+    反する名前を無効とします。以下のルールを検証します:
     - 空文字または空白のみは無効
     - 使用禁止文字 (/ \\ : * ? " < > |) は無効
     - 64 文字を超える場合は無効
+    - Windows の予約デバイス名 (CON, PRN, AUX, NUL, COM1〜9, LPT1〜9) および
+      それらに拡張子を付けた名前 (例: "nul.txt") は無効 (大文字小文字を区別しない)
+    - 末尾がドットまたは空白文字の場合は無効
+    - 先頭が空白文字の場合は無効
+    - 制御文字 (0x20 未満の文字) を含む場合は無効
 
     有効な場合は (True, "") を返します。
     無効な場合は (False, 理由の日本語文字列) を返します。
@@ -464,6 +488,15 @@ def validate_distro_name(name: str) -> tuple[bool, str]:
         return False, f"使用できない文字が含まれています: {''.join(sorted(set(found)))}"
     if len(name) > 64:
         return False, "ディストリビューション名は64文字以内にしてください"
+    stem = name.split(".", 1)[0]
+    if name.upper() in _WINDOWS_RESERVED_NAMES or stem.upper() in _WINDOWS_RESERVED_NAMES:
+        return False, "Windows の予約デバイス名は使用できません"
+    if name.endswith(".") or name[-1].isspace():
+        return False, "名前の末尾にドットや空白は使用できません"
+    if name[0].isspace():
+        return False, "名前の先頭に空白は使用できません"
+    if any(ord(c) < 0x20 for c in name):
+        return False, "制御文字は使用できません"
     return True, ""
 
 

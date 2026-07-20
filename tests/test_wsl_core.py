@@ -73,6 +73,27 @@ class TestDecodeWslOutput(unittest.TestCase):
         """空バイト列は空文字列を返す (utf-8 フォールバック)。"""
         self.assertEqual(wsl_core.decode_wsl_output(b""), "")
 
+    def test_even_length_ascii_utf8_not_misdetected(self):
+        """偶数長の ASCII (UTF-8) バイト列を UTF-16 と誤判定せずそのまま返す。"""
+        # 6 バイト (偶数) だが NUL バイトを含まないため UTF-8 として扱う。
+        # 旧実装では utf-16-le デコードが「成功」して CJK の文字化けになっていた。
+        self.assertEqual(wsl_core.decode_wsl_output(b"hello!"), "hello!")
+
+    def test_even_length_utf8_multiline_not_misdetected(self):
+        """wsl -d <name> -- <cmd> 相当の偶数長 UTF-8 出力が文字化けしない。"""
+        raw = b"PID USER\n123 root\n"  # 18 バイト (偶数)、NUL なし
+        self.assertEqual(wsl_core.decode_wsl_output(raw), "PID USER\n123 root\n")
+
+    def test_even_length_utf8_japanese_not_misdetected(self):
+        """偶数長の日本語 UTF-8 バイト列を UTF-8 としてデコードする。"""
+        raw = "テスト\n".encode("utf-8")  # 10 バイト (偶数)、NUL なし
+        self.assertEqual(wsl_core.decode_wsl_output(raw), "テスト\n")
+
+    def test_no_bom_utf16le_japanese_with_newline(self):
+        """BOM なし UTF-16LE の日本語+改行 (NUL バイトを含む) を正しくデコードする。"""
+        raw = "テスト 実行中\n".encode("utf-16-le")
+        self.assertEqual(wsl_core.decode_wsl_output(raw), "テスト 実行中\n")
+
 
 # ---------------------------------------------------------------------------
 # is_numeric
@@ -1047,6 +1068,63 @@ class TestValidateDistroName(unittest.TestCase):
         self.assertTrue(valid)
         self.assertEqual(reason, "")
 
+    def test_reserved_device_names(self):
+        """Windows の予約デバイス名は大文字小文字を区別せず無効。"""
+        reserved = ["CON", "con", "Nul", "COM1", "LPT9", "nul.txt"]
+        for name in reserved:
+            with self.subTest(name=name):
+                valid, reason = wsl_core.validate_distro_name(name)
+                self.assertFalse(valid)
+                self.assertNotEqual(reason, "")
+
+    def test_reserved_like_names_are_valid(self):
+        """予約名に似ているだけの名前 (前方一致しない) は有効。"""
+        for name in ["CONSOLE", "COM10", "LPT0", "falcon"]:
+            with self.subTest(name=name):
+                valid, reason = wsl_core.validate_distro_name(name)
+                self.assertTrue(valid)
+                self.assertEqual(reason, "")
+
+    def test_trailing_dot_invalid(self):
+        """末尾がドットの名前は無効。"""
+        valid, reason = wsl_core.validate_distro_name("ubuntu.")
+        self.assertFalse(valid)
+        self.assertNotEqual(reason, "")
+
+    def test_dot_not_at_end_valid(self):
+        """末尾以外のドットは有効。"""
+        valid, reason = wsl_core.validate_distro_name("ubuntu.22.04")
+        self.assertTrue(valid)
+        self.assertEqual(reason, "")
+
+    def test_trailing_whitespace_invalid(self):
+        """末尾が空白の名前は無効。"""
+        valid, reason = wsl_core.validate_distro_name("ubuntu ")
+        self.assertFalse(valid)
+        self.assertNotEqual(reason, "")
+
+    def test_leading_whitespace_invalid(self):
+        """先頭が空白の名前は無効。"""
+        valid, reason = wsl_core.validate_distro_name(" ubuntu")
+        self.assertFalse(valid)
+        self.assertNotEqual(reason, "")
+
+    def test_control_characters_invalid(self):
+        """制御文字を含む名前は無効。"""
+        for name in ["ubu\tntu", "ubu\x01ntu"]:
+            with self.subTest(name=name):
+                valid, reason = wsl_core.validate_distro_name(name)
+                self.assertFalse(valid)
+                self.assertNotEqual(reason, "")
+
+    def test_existing_valid_names_still_valid(self):
+        """既存の有効な名前は新ルール適用後も引き続き有効。"""
+        for name in ["Ubuntu-22.04", "Ubuntu", "my-distro"]:
+            with self.subTest(name=name):
+                valid, reason = wsl_core.validate_distro_name(name)
+                self.assertTrue(valid)
+                self.assertEqual(reason, "")
+
 
 # ---------------------------------------------------------------------------
 # default_clone_name
@@ -1117,6 +1195,12 @@ class TestValidateCloneName(unittest.TestCase):
         valid, reason = wsl_core.validate_clone_name("Ubuntu", ["Ubuntu", "Debian"])
         self.assertFalse(valid)
         self.assertIn("既に存在", reason)
+
+    def test_rejected_by_validate_distro_name_reserved_name(self):
+        """Windows 予約デバイス名は validate_distro_name によって無効と判定される。"""
+        valid, reason = wsl_core.validate_clone_name("CON", ["Ubuntu"])
+        self.assertFalse(valid)
+        self.assertNotEqual(reason, "")
 
     def test_casefold_duplicate(self):
         """大文字小文字の違いのみの重複も無効。"""

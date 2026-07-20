@@ -16,6 +16,8 @@ import os
 import subprocess
 import sys
 import tempfile
+import time
+from datetime import datetime
 
 import wsl_core
 
@@ -707,6 +709,305 @@ def _make_portproxy_help_func(parser: argparse.ArgumentParser):
 
 
 # ---------------------------------------------------------------------------
+# snapshot サブコマンド
+# ---------------------------------------------------------------------------
+
+def _resolve_snapshot_dir(args: argparse.Namespace) -> str:
+    """スナップショット保存先ディレクトリを解決します。
+
+    ``--dir`` が指定されていればそれを優先し、指定がなければ GUI と同様に
+    設定ファイル (``wsl_core.load_settings``) の ``snapshot_dir``、
+    それも未設定であれば ``wsl_core.get_default_snapshot_dir()`` を使います。
+    """
+    if getattr(args, "dir", None):
+        return args.dir
+    settings = wsl_core.load_settings(wsl_core.get_default_settings_path())
+    return settings.get("snapshot_dir") or wsl_core.get_default_snapshot_dir()
+
+
+def _find_snapshot_by_tar_file(snapshots: list[dict], tar_file: str) -> dict | None:
+    """スナップショット一覧から tar ファイル名 (ベース名) が一致するエントリを探します。"""
+    return next((s for s in snapshots if s.get("tar_file") == tar_file), None)
+
+
+def cmd_snapshot_create(args: argparse.Namespace) -> None:
+    """指定したディストリビューションのスナップショット (tar + メタデータ) を作成します。"""
+    name = args.name
+    returncode, stdout, stderr = _run_wsl_command(["--list", "--verbose"], timeout=15.0)
+    if returncode != 0:
+        msg = stderr.strip() or "ディストリビューション一覧の取得に失敗しました。"
+        print(f"エラー: {msg}", file=sys.stderr)
+        sys.exit(1)
+
+    distros = wsl_core.parse_distro_list(stdout)
+    matched = next((d for d in distros if d["name"] == name), None)
+    if matched is None:
+        print(f"エラー: 「{name}」というディストリビューションが見つかりません。", file=sys.stderr)
+        sys.exit(1)
+    wsl_version = str(matched.get("version") or "") or "2"
+
+    snap_dir = _resolve_snapshot_dir(args)
+    try:
+        os.makedirs(snap_dir, exist_ok=True)
+    except OSError as e:
+        print(f"エラー: {e}", file=sys.stderr)
+        sys.exit(1)
+
+    timestamp = time.strftime(wsl_core.SNAPSHOT_TIMESTAMP_FORMAT)
+    basename = wsl_core.build_snapshot_basename(name, timestamp)
+    tar_name = basename + ".tar"
+    tar_path = os.path.join(snap_dir, tar_name)
+    json_path = os.path.join(snap_dir, basename + ".json")
+
+    print(f"「{name}」のスナップショットをエクスポート中…")
+    returncode, _stdout, stderr = _run_wsl_command(["--export", name, tar_path], timeout=600.0)
+    if returncode != 0:
+        try:
+            os.remove(tar_path)
+        except OSError:
+            pass
+        msg = stderr.strip() or "不明なエラー"
+        print(f"エラー: 「{name}」のスナップショット作成に失敗しました: {msg}", file=sys.stderr)
+        sys.exit(1)
+
+    try:
+        size_bytes = os.path.getsize(tar_path)
+    except OSError:
+        size_bytes = 0
+
+    created_at = datetime.now().isoformat(timespec="seconds")
+    metadata = wsl_core.build_snapshot_metadata(
+        name, wsl_version, args.comment or "", size_bytes, created_at, tar_name
+    )
+    if not wsl_core.write_snapshot_metadata(json_path, metadata):
+        print("警告: メタデータの保存に失敗しました。", file=sys.stderr)
+
+    print(f"「{name}」のスナップショットを作成しました: {tar_path}")
+
+
+def cmd_snapshot_list(args: argparse.Namespace) -> None:
+    """保存されているスナップショットの一覧を表示します。"""
+    snap_dir = _resolve_snapshot_dir(args)
+    snapshots = wsl_core.load_snapshots(snap_dir)
+
+    if args.format == "json":
+        print(json.dumps(snapshots, ensure_ascii=False, indent=2))
+        return
+
+    if not snapshots:
+        print("スナップショットがありません。")
+        return
+
+    headers = ["Distro", "Created", "Size", "Comment", "File", "Exists"]
+    rows = [
+        [
+            s.get("distro_name", ""),
+            s.get("created_at", ""),
+            wsl_core.format_bytes(s.get("size_bytes", 0)),
+            s.get("comment", ""),
+            s.get("tar_file", ""),
+            "yes" if s.get("tar_exists", True) else "MISSING",
+        ]
+        for s in snapshots
+    ]
+
+    if args.format == "csv":
+        print(_format_csv(headers, rows))
+    else:
+        print(_format_table(headers, rows))
+        total = wsl_core.total_snapshots_size(snapshots)
+        print(f"合計: {wsl_core.format_bytes(total)} ({len(snapshots)} 件)")
+
+
+def cmd_snapshot_restore(args: argparse.Namespace) -> None:
+    """指定したスナップショットを新しいディストリビューションとして復元します。"""
+    snap_dir = _resolve_snapshot_dir(args)
+    snapshots = wsl_core.load_snapshots(snap_dir)
+    snap = _find_snapshot_by_tar_file(snapshots, args.tar_file)
+    if snap is None:
+        print(f"エラー: 「{args.tar_file}」というスナップショットが見つかりません。", file=sys.stderr)
+        sys.exit(1)
+    if not snap.get("tar_exists", True):
+        print(f"エラー: tar ファイルが見つかりません: {snap.get('tar_path', '')}", file=sys.stderr)
+        sys.exit(1)
+
+    returncode, stdout, stderr = _run_wsl_command(["--list", "--verbose"], timeout=15.0)
+    if returncode != 0:
+        msg = stderr.strip() or "ディストリビューション一覧の取得に失敗しました。"
+        print(f"エラー: {msg}", file=sys.stderr)
+        sys.exit(1)
+    distros = wsl_core.parse_distro_list(stdout)
+    existing = [d["name"] for d in distros]
+
+    distro_name = snap.get("distro_name", "")
+    if args.name:
+        new_name = args.name
+        valid, reason = wsl_core.validate_distro_name(new_name)
+        if not valid:
+            print(f"エラー: {reason}", file=sys.stderr)
+            sys.exit(1)
+        existing_casefold = {n.casefold() for n in existing}
+        if new_name.casefold() in existing_casefold:
+            print("エラー: 同名のディストリビューションが既に存在します。", file=sys.stderr)
+            sys.exit(1)
+    else:
+        new_name = wsl_core.default_clone_name(distro_name, existing)
+
+    install_path = args.install_path
+    version = snap.get("wsl_version") or "2"
+    tar_path = snap.get("tar_path", "")
+
+    if not args.yes:
+        print("次の内容で復元します。")
+        print(f"  名前: {new_name}")
+        print(f"  スナップショット: {os.path.basename(tar_path)}")
+        print(f"  保存先: {install_path}")
+        print(f"  バージョン: WSL{version}")
+        try:
+            answer = input("よろしいですか? [y/N]: ")
+        except EOFError:
+            answer = ""
+        if answer.strip().lower() not in ("y", "yes"):
+            print("中止しました。")
+            sys.exit(0)
+
+    print(f"「{new_name}」へ復元中…")
+    returncode, _stdout, stderr = _run_wsl_command(
+        ["--import", new_name, install_path, tar_path, "--version", version], timeout=1800.0
+    )
+    if returncode == 0:
+        print(f"「{new_name}」に復元しました。")
+    else:
+        msg = stderr.strip() or "不明なエラー"
+        print(f"エラー: 「{new_name}」への復元に失敗しました: {msg}", file=sys.stderr)
+        sys.exit(1)
+
+
+def cmd_snapshot_delete(args: argparse.Namespace) -> None:
+    """指定したスナップショットの tar / JSON ファイルを削除します。"""
+    snap_dir = _resolve_snapshot_dir(args)
+    snapshots = wsl_core.load_snapshots(snap_dir)
+    snap = _find_snapshot_by_tar_file(snapshots, args.tar_file)
+    if snap is None:
+        print(f"エラー: 「{args.tar_file}」というスナップショットが見つかりません。", file=sys.stderr)
+        sys.exit(1)
+
+    if not args.yes:
+        print("次のスナップショットを削除します。この操作は取り消せません。")
+        print(f"  ディストリビューション: {snap.get('distro_name', '')}")
+        print(f"  作成日時: {snap.get('created_at', '')}")
+        print(f"  ファイル: {snap.get('tar_file', '')}")
+        try:
+            answer = input("よろしいですか? [y/N]: ")
+        except EOFError:
+            answer = ""
+        if answer.strip().lower() not in ("y", "yes"):
+            print("中止しました。")
+            sys.exit(0)
+
+    errors: list[str] = []
+    tar_path = snap.get("tar_path", "")
+    json_path = snap.get("json_path", "")
+    if snap.get("tar_exists", True) and tar_path:
+        try:
+            os.remove(tar_path)
+        except OSError as e:
+            errors.append(str(e))
+    if json_path:
+        try:
+            os.remove(json_path)
+        except OSError as e:
+            errors.append(str(e))
+
+    if errors:
+        print("エラー: 削除に失敗しました: " + "; ".join(errors), file=sys.stderr)
+        sys.exit(1)
+
+    print("削除しました。")
+
+
+def _make_snapshot_help_func(parser: argparse.ArgumentParser):
+    """``wslmgr snapshot`` (サブサブコマンドなし) 実行時にヘルプを表示する関数を返します。"""
+    def _cmd_snapshot_help(_args: argparse.Namespace) -> None:
+        parser.print_help()
+        sys.exit(0)
+    return _cmd_snapshot_help
+
+
+# ---------------------------------------------------------------------------
+# clone サブコマンド
+# ---------------------------------------------------------------------------
+
+def cmd_clone(args: argparse.Namespace) -> None:
+    """指定したディストリビューションを複製します（エクスポート→インポートを自動実行）。"""
+    name = args.name
+    new_name = args.new_name
+    install_path = args.install_path
+
+    returncode, stdout, stderr = _run_wsl_command(["--list", "--verbose"], timeout=15.0)
+    if returncode != 0:
+        msg = stderr.strip() or "ディストリビューション一覧の取得に失敗しました。"
+        print(f"エラー: {msg}", file=sys.stderr)
+        sys.exit(1)
+
+    distros = wsl_core.parse_distro_list(stdout)
+    matched = next((d for d in distros if d["name"] == name), None)
+    if matched is None:
+        print(f"エラー: 「{name}」というディストリビューションが見つかりません。", file=sys.stderr)
+        sys.exit(1)
+    version = str(matched.get("version") or "") or "2"
+
+    existing = [d["name"] for d in distros]
+    valid, reason = wsl_core.validate_clone_name(new_name, existing)
+    if not valid:
+        print(f"エラー: {reason}", file=sys.stderr)
+        sys.exit(1)
+
+    if not args.yes:
+        print("次の内容で複製します。")
+        print(f"  複製元: {name}")
+        print(f"  複製先の名前: {new_name}")
+        print(f"  複製先フォルダ: {install_path}")
+        try:
+            answer = input("よろしいですか? [y/N]: ")
+        except EOFError:
+            answer = ""
+        if answer.strip().lower() not in ("y", "yes"):
+            print("中止しました。")
+            sys.exit(0)
+
+    tmp_dir = tempfile.mkdtemp(prefix="wslmgr_clone_")
+    tmp_tar = os.path.join(tmp_dir, wsl_core.sanitize_snapshot_name(new_name) + ".tar")
+    try:
+        print(f"「{name}」を複製中… (1/2 エクスポート)")
+        returncode, _stdout, stderr = _run_wsl_command(["--export", name, tmp_tar], timeout=1800.0)
+        if returncode != 0:
+            msg = stderr.strip() or "不明なエラー"
+            print(f"エラー: 「{name}」のエクスポートに失敗しました: {msg}", file=sys.stderr)
+            sys.exit(1)
+
+        print(f"「{name}」を複製中… (2/2 インポート)")
+        returncode, _stdout, stderr = _run_wsl_command(
+            ["--import", new_name, install_path, tmp_tar, "--version", version], timeout=1800.0
+        )
+        if returncode != 0:
+            msg = stderr.strip() or "不明なエラー"
+            print(f"エラー: 「{new_name}」のインポートに失敗しました: {msg}", file=sys.stderr)
+            sys.exit(1)
+
+        print(f"「{name}」を「{new_name}」として複製しました。")
+    finally:
+        try:
+            os.remove(tmp_tar)
+        except OSError:
+            pass
+        try:
+            os.rmdir(tmp_dir)
+        except OSError:
+            pass
+
+
+# ---------------------------------------------------------------------------
 # エントリーポイント
 # ---------------------------------------------------------------------------
 
@@ -877,6 +1178,69 @@ def build_parser() -> argparse.ArgumentParser:
         "--listen-address", default="0.0.0.0", help="リッスンする IP アドレス (既定: 0.0.0.0)"
     )
     p_portproxy_delete.set_defaults(func=cmd_portproxy_delete)
+
+    # snapshot
+    p_snapshot = subparsers.add_parser(
+        "snapshot", help="ディストリビューションのスナップショットを管理します"
+    )
+    p_snapshot.set_defaults(func=_make_snapshot_help_func(p_snapshot))
+    snapshot_subparsers = p_snapshot.add_subparsers(dest="snapshot_command")
+
+    p_snapshot_create = snapshot_subparsers.add_parser(
+        "create", help="ディストリビューションのスナップショットを作成します"
+    )
+    p_snapshot_create.add_argument("name", help="ディストリビューション名")
+    p_snapshot_create.add_argument("--comment", default="", help="スナップショットのコメント (任意)")
+    p_snapshot_create.add_argument("--dir", help="スナップショット保存先ディレクトリ (既定: 設定値)")
+    p_snapshot_create.set_defaults(func=cmd_snapshot_create)
+
+    p_snapshot_list = snapshot_subparsers.add_parser(
+        "list", help="スナップショットの一覧を表示します"
+    )
+    p_snapshot_list.add_argument("--dir", help="スナップショット保存先ディレクトリ (既定: 設定値)")
+    p_snapshot_list.add_argument(
+        "--format", choices=["table", "json", "csv"], default="table",
+        help="出力フォーマット (既定: table)",
+    )
+    p_snapshot_list.set_defaults(func=cmd_snapshot_list)
+
+    p_snapshot_restore = snapshot_subparsers.add_parser(
+        "restore", help="スナップショットを新しいディストリビューションとして復元します"
+    )
+    p_snapshot_restore.add_argument("tar_file", help="復元するスナップショットの tar ファイル名")
+    p_snapshot_restore.add_argument(
+        "--install-path", required=True, help="復元先のインストールディレクトリ"
+    )
+    p_snapshot_restore.add_argument(
+        "--name", help="復元先のディストリビューション名 (既定: 自動生成)"
+    )
+    p_snapshot_restore.add_argument("--dir", help="スナップショット保存先ディレクトリ (既定: 設定値)")
+    p_snapshot_restore.add_argument(
+        "--yes", "-y", action="store_true", help="確認プロンプトを表示せずに実行します"
+    )
+    p_snapshot_restore.set_defaults(func=cmd_snapshot_restore)
+
+    p_snapshot_delete = snapshot_subparsers.add_parser(
+        "delete", help="スナップショットを削除します"
+    )
+    p_snapshot_delete.add_argument("tar_file", help="削除するスナップショットの tar ファイル名")
+    p_snapshot_delete.add_argument("--dir", help="スナップショット保存先ディレクトリ (既定: 設定値)")
+    p_snapshot_delete.add_argument(
+        "--yes", "-y", action="store_true", help="確認プロンプトを表示せずに実行します"
+    )
+    p_snapshot_delete.set_defaults(func=cmd_snapshot_delete)
+
+    # clone
+    p_clone = subparsers.add_parser(
+        "clone", help="ディストリビューションを複製します（エクスポート→インポートを自動実行）"
+    )
+    p_clone.add_argument("name", help="複製元のディストリビューション名")
+    p_clone.add_argument("new_name", help="複製先の新しいディストリビューション名")
+    p_clone.add_argument("--install-path", required=True, help="複製先のインストールディレクトリ")
+    p_clone.add_argument(
+        "--yes", "-y", action="store_true", help="確認プロンプトを表示せずに実行します"
+    )
+    p_clone.set_defaults(func=cmd_clone)
 
     return parser
 
