@@ -484,6 +484,16 @@ class TestParseWslconfig(unittest.TestCase):
         self.assertIsInstance(result["wsl2"]["processors"], str)
         self.assertEqual(result["wsl2"]["processors"], "4")
 
+    def test_parse_wslconfig_raises_on_malformed_input(self):
+        """セクションヘッダーが閉じられていない不正な入力は WslConfigParseError を送出する。"""
+        text = "[section\nkey=val"
+        with self.assertRaises(wsl_core.WslConfigParseError):
+            wsl_core.parse_wslconfig(text)
+
+    def test_parse_wslconfig_empty_string_returns_empty_dict(self):
+        """空文字列は例外を送出せず {} を返す（回帰確認）。"""
+        self.assertEqual(wsl_core.parse_wslconfig(""), {})
+
 
 # ---------------------------------------------------------------------------
 # dump_wslconfig
@@ -2882,6 +2892,66 @@ class TestSaveSettings(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
+# atomic_write_text
+# ---------------------------------------------------------------------------
+
+class TestAtomicWriteText(unittest.TestCase):
+
+    def setUp(self):
+        self.tmpdir = tempfile.mkdtemp()
+
+    def tearDown(self):
+        shutil.rmtree(self.tmpdir, ignore_errors=True)
+
+    def test_writes_content_to_new_file(self):
+        """新規ファイルへの書き込みが読み戻せる。"""
+        path = os.path.join(self.tmpdir, "out.txt")
+        result = wsl_core.atomic_write_text(path, "hello world")
+        self.assertTrue(result)
+        with open(path, encoding="utf-8") as f:
+            self.assertEqual(f.read(), "hello world")
+
+    def test_replaces_existing_file(self):
+        """既存ファイルは新しい内容で完全に置き換えられる。"""
+        path = os.path.join(self.tmpdir, "out.txt")
+        with open(path, "w", encoding="utf-8") as f:
+            f.write("old content that is longer than new")
+        result = wsl_core.atomic_write_text(path, "new")
+        self.assertTrue(result)
+        with open(path, encoding="utf-8") as f:
+            self.assertEqual(f.read(), "new")
+
+    def test_no_partial_file_left_in_dir_on_success(self):
+        """成功後、ディレクトリ内には対象ファイルのみが残る（一時ファイルは残らない）。"""
+        path = os.path.join(self.tmpdir, "out.txt")
+        wsl_core.atomic_write_text(path, "content")
+        self.assertEqual(os.listdir(self.tmpdir), ["out.txt"])
+
+    def test_returns_false_when_dir_uncreatable(self):
+        """親ディレクトリの位置に既存ファイルがある場合は False を返し、対象ファイルは変化しない。"""
+        blocker = os.path.join(self.tmpdir, "blocker")
+        with open(blocker, "w", encoding="utf-8") as f:
+            f.write("dummy")
+        path = os.path.join(blocker, "out.txt")
+        result = wsl_core.atomic_write_text(path, "content")
+        self.assertFalse(result)
+        self.assertTrue(os.path.isfile(blocker))
+
+    def test_does_not_truncate_existing_on_write_error(self):
+        """os.replace が失敗しても既存ファイルは元の内容のまま残り、一時ファイルも残らない。"""
+        path = os.path.join(self.tmpdir, "out.txt")
+        with open(path, "w", encoding="utf-8") as f:
+            f.write("original content")
+        with mock.patch("os.replace", side_effect=OSError("boom")):
+            result = wsl_core.atomic_write_text(path, "new content")
+        self.assertFalse(result)
+        with open(path, encoding="utf-8") as f:
+            self.assertEqual(f.read(), "original content")
+        remaining = os.listdir(self.tmpdir)
+        self.assertEqual(remaining, ["out.txt"])
+
+
+# ---------------------------------------------------------------------------
 # estimate_transfer_progress
 # ---------------------------------------------------------------------------
 
@@ -3644,6 +3714,72 @@ class TestWriteSnapshotMetadata(unittest.TestCase):
         path = os.path.join(blocker, "snap.json")
         result = wsl_core.write_snapshot_metadata(path, {"distro_name": "Ubuntu"})
         self.assertFalse(result)
+
+
+# ---------------------------------------------------------------------------
+# partial_write_path / finalize_partial_write / discard_partial_write
+# ---------------------------------------------------------------------------
+
+class TestFinalizePartialWrite(unittest.TestCase):
+
+    def setUp(self):
+        self.tmpdir = tempfile.mkdtemp()
+
+    def tearDown(self):
+        shutil.rmtree(self.tmpdir, ignore_errors=True)
+
+    def test_partial_write_path_appends_suffix(self):
+        """partial_write_path は最終パスに規定のサフィックスを付与する。"""
+        final_path = os.path.join(self.tmpdir, "out.tar")
+        result = wsl_core.partial_write_path(final_path)
+        self.assertEqual(result, final_path + ".wslmgr-partial")
+
+    def test_finalize_moves_partial_to_final(self):
+        """部分ファイルを最終パスに移動する。"""
+        final_path = os.path.join(self.tmpdir, "out.tar")
+        partial_path = wsl_core.partial_write_path(final_path)
+        with open(partial_path, "w", encoding="utf-8") as f:
+            f.write("partial data")
+        result = wsl_core.finalize_partial_write(partial_path, final_path)
+        self.assertTrue(result)
+        self.assertFalse(os.path.exists(partial_path))
+        with open(final_path, encoding="utf-8") as f:
+            self.assertEqual(f.read(), "partial data")
+
+    def test_finalize_overwrites_existing_final(self):
+        """既存の最終ファイルは部分ファイルの内容で置き換えられる。"""
+        final_path = os.path.join(self.tmpdir, "out.tar")
+        with open(final_path, "w", encoding="utf-8") as f:
+            f.write("old data")
+        partial_path = wsl_core.partial_write_path(final_path)
+        with open(partial_path, "w", encoding="utf-8") as f:
+            f.write("new data")
+        result = wsl_core.finalize_partial_write(partial_path, final_path)
+        self.assertTrue(result)
+        with open(final_path, encoding="utf-8") as f:
+            self.assertEqual(f.read(), "new data")
+
+    def test_finalize_returns_false_when_partial_absent(self):
+        """部分ファイルが存在しない場合は False を返す。"""
+        final_path = os.path.join(self.tmpdir, "out.tar")
+        partial_path = wsl_core.partial_write_path(final_path)
+        result = wsl_core.finalize_partial_write(partial_path, final_path)
+        self.assertFalse(result)
+        self.assertFalse(os.path.exists(final_path))
+
+    def test_discard_removes_partial(self):
+        """部分ファイルを削除する。"""
+        final_path = os.path.join(self.tmpdir, "out.tar")
+        partial_path = wsl_core.partial_write_path(final_path)
+        open(partial_path, "w").close()
+        wsl_core.discard_partial_write(partial_path)
+        self.assertFalse(os.path.exists(partial_path))
+
+    def test_discard_noop_when_absent(self):
+        """部分ファイルが存在しない場合も例外を送出しない。"""
+        final_path = os.path.join(self.tmpdir, "out.tar")
+        partial_path = wsl_core.partial_write_path(final_path)
+        wsl_core.discard_partial_write(partial_path)  # 例外を送出しないことを確認
 
 
 # ---------------------------------------------------------------------------
