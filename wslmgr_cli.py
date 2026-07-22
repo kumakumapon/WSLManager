@@ -307,7 +307,11 @@ def cmd_config(args: argparse.Namespace) -> None:
         print(f"エラー: .wslconfig の読み込みに失敗しました: {e}", file=sys.stderr)
         sys.exit(1)
 
-    sections = wsl_core.parse_wslconfig(text)
+    try:
+        sections = wsl_core.parse_wslconfig(text)
+    except wsl_core.WslConfigParseError as e:
+        print(f"エラー: .wslconfig のパースに失敗しました: {e}", file=sys.stderr)
+        sys.exit(1)
 
     if args.format == "json":
         print(json.dumps(sections, ensure_ascii=False, indent=2))

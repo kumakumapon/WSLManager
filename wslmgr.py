@@ -573,23 +573,37 @@ class WslConfigDialog(tk.Toplevel):
         self.result: bool | None = None
         self._path = os.path.expanduser("~/.wslconfig")
         self._sections: dict[str, dict[str, str]] = {}
-        self._load_config()
+        try:
+            self._load_config()
+        except wsl_core.WslConfigParseError as e:
+            messagebox.showerror(
+                "読み込みエラー",
+                f".wslconfig のパースに失敗したためエディタを開けません:\n{self._path}\n\n{e}\n\n"
+                "既存の設定を保護するため、ファイルを手動で修正してから再度開いてください。",
+                parent=parent,
+            )
+            self.destroy()
+            return
         self._build_ui()
         self.transient(parent)
         self.grab_set()
         self.protocol("WM_DELETE_WINDOW", self._on_cancel)
 
     def _load_config(self) -> None:
-        """設定ファイルを読み込み self._sections を初期化します。"""
-        if os.path.exists(self._path):
-            try:
-                with open(self._path, encoding="utf-8") as f:
-                    text = f.read()
-                self._sections = wsl_core.parse_wslconfig(text)
-            except OSError:
-                self._sections = {}
-        else:
-            self._sections = {}
+        """設定ファイルを読み込み self._sections を初期化します。
+
+        パース失敗時は :class:`wsl_core.WslConfigParseError` を送出し、
+        呼び出し側 (__init__) はエラーダイアログを表示してダイアログを閉じます。
+        """
+        self._sections = {}
+        if not os.path.exists(self._path):
+            return
+        try:
+            with open(self._path, encoding="utf-8") as f:
+                text = f.read()
+        except OSError as e:
+            raise wsl_core.WslConfigParseError(f"読み込みに失敗しました: {e}") from e
+        self._sections = wsl_core.parse_wslconfig(text)
 
     def _build_ui(self) -> None:
         frame = ttk.Frame(self, padding=14)
@@ -890,7 +904,17 @@ class DistroConfDialog(tk.Toplevel):
             )
             self.destroy()
             return
-        self._sections = wsl_core.parse_wslconfig(text_or_err)
+        try:
+            self._sections = wsl_core.parse_wslconfig(text_or_err)
+        except wsl_core.WslConfigParseError as e:
+            messagebox.showerror(
+                "パースエラー",
+                f"「{self._distro}」の /etc/wsl.conf をパースできませんでした:\n{e}\n\n"
+                "既存の設定を保護するため、ファイルを手動で修正してから再度開いてください。",
+                parent=self,
+            )
+            self.destroy()
+            return
         for (section, key), var in self._field_vars.items():
             var.set(self._sections.get(section, {}).get(key, ""))
         self._set_form_enabled(True)
@@ -3055,7 +3079,11 @@ class WSLManager(tk.Tk):
         ):
             return
 
-        cmd_args = ["--export", name, export_path]
+        partial_path = wsl_core.partial_write_path(export_path)
+        # 前回失敗して残った部分ファイルがあれば掃除する（wsl --export は既存ファイルを拒否する）
+        wsl_core.discard_partial_write(partial_path)
+
+        cmd_args = ["--export", name, partial_path]
         if use_vhd:
             cmd_args.append("--vhd")
 
@@ -3073,16 +3101,19 @@ class WSLManager(tk.Tk):
 
         def _on_done(returncode: int, stderr_text: str, cancelled: bool) -> None:
             if cancelled:
-                # 書きかけのファイルを後始末する
-                try:
-                    os.remove(export_path)
-                except OSError:
-                    pass
+                wsl_core.discard_partial_write(partial_path)
                 self._log_operation("エクスポート", name, "キャンセル")
                 self._set_status(f"「{name}」のエクスポートをキャンセルしました。")
             elif returncode == 0:
-                self._set_status(f"「{name}」をエクスポートしました。")
+                if wsl_core.finalize_partial_write(partial_path, export_path):
+                    self._set_status(f"「{name}」をエクスポートしました。")
+                else:
+                    wsl_core.discard_partial_write(partial_path)
+                    self._set_status(
+                        f"「{name}」のエクスポートに失敗しました（一時ファイルの移動に失敗）。"
+                    )
             else:
+                wsl_core.discard_partial_write(partial_path)
                 self._set_status(
                     stderr_text or f"「{name}」のエクスポートに失敗しました。"
                 )
@@ -3093,7 +3124,7 @@ class WSLManager(tk.Tk):
             "エクスポート",
             f"「{name}」をエクスポート中…",
             cmd_args,
-            export_path,
+            partial_path,
             total_bytes,
             _on_done,
         )
@@ -3145,36 +3176,44 @@ class WSLManager(tk.Tk):
             except OSError:
                 total_bytes = None
 
+        partial_tar = wsl_core.partial_write_path(tar_path)
+        # 前回失敗して残った部分ファイルがあれば掃除する（wsl --export は既存ファイルを拒否する）
+        wsl_core.discard_partial_write(partial_tar)
+
         self._log_operation("スナップショット作成", name, tar_path)
         self._set_status(f"「{name}」のスナップショットを作成中…")
 
         def _on_done(returncode: int, stderr_text: str, cancelled: bool) -> None:
             if cancelled:
-                # 書きかけの tar ファイルを後始末する
-                try:
-                    os.remove(tar_path)
-                except OSError:
-                    pass
+                wsl_core.discard_partial_write(partial_tar)
                 self._log_operation("スナップショット作成", name, "キャンセル")
                 self._set_status(
                     f"「{name}」のスナップショット作成をキャンセルしました。"
                 )
             elif returncode == 0:
-                try:
-                    size = os.path.getsize(tar_path)
-                except OSError:
-                    size = 0
-                metadata = wsl_core.build_snapshot_metadata(
-                    name, wsl_version, comment, size, created_at, basename + ".tar"
-                )
-                if not wsl_core.write_snapshot_metadata(json_path, metadata):
+                if not wsl_core.finalize_partial_write(partial_tar, tar_path):
+                    wsl_core.discard_partial_write(partial_tar)
                     self._set_status(
-                        f"「{name}」のスナップショットを作成しましたが、"
-                        "メタデータの保存に失敗しました。"
+                        f"「{name}」のスナップショット作成に失敗しました"
+                        "（一時ファイルの移動に失敗）。"
                     )
                 else:
-                    self._set_status(f"「{name}」のスナップショットを作成しました。")
+                    try:
+                        size = os.path.getsize(tar_path)
+                    except OSError:
+                        size = 0
+                    metadata = wsl_core.build_snapshot_metadata(
+                        name, wsl_version, comment, size, created_at, basename + ".tar"
+                    )
+                    if not wsl_core.write_snapshot_metadata(json_path, metadata):
+                        self._set_status(
+                            f"「{name}」のスナップショットを作成しましたが、"
+                            "メタデータの保存に失敗しました。"
+                        )
+                    else:
+                        self._set_status(f"「{name}」のスナップショットを作成しました。")
             else:
+                wsl_core.discard_partial_write(partial_tar)
                 self._set_status(
                     stderr_text or f"「{name}」のスナップショット作成に失敗しました。"
                 )
@@ -3184,8 +3223,8 @@ class WSLManager(tk.Tk):
             self,
             "スナップショット作成",
             f"「{name}」のスナップショットを作成中…",
-            ["--export", name, tar_path],
-            tar_path,
+            ["--export", name, partial_tar],
+            partial_tar,
             total_bytes,
             _on_done,
         )
