@@ -913,18 +913,11 @@ def cmd_snapshot_delete(args: argparse.Namespace) -> None:
         print(f"エラー: 「{args.tar_file}」というスナップショットが見つかりません。", file=sys.stderr)
         sys.exit(1)
 
-    if not args.yes:
-        print("次のスナップショットを削除します。この操作は取り消せません。")
-        print(f"  ディストリビューション: {snap.get('distro_name', '')}")
-        print(f"  作成日時: {snap.get('created_at', '')}")
-        print(f"  ファイル: {snap.get('tar_file', '')}")
-        try:
-            answer = input("よろしいですか? [y/N]: ")
-        except EOFError:
-            answer = ""
-        if answer.strip().lower() not in ("y", "yes"):
-            print("中止しました。")
-            sys.exit(0)
+    print("次のスナップショットを削除します。この操作は取り消せません。")
+    print(f"  ディストリビューション: {snap.get('distro_name', '')}")
+    print(f"  作成日時: {snap.get('created_at', '')}")
+    print(f"  ファイル: {snap.get('tar_file', '')}")
+    _confirm_or_exit("よろしいですか?", args.yes)
 
     errors: list[str] = []
     tar_path = snap.get("tar_path", "")
@@ -984,16 +977,17 @@ def cmd_clone(args: argparse.Namespace) -> None:
         print(f"エラー: {reason}", file=sys.stderr)
         sys.exit(1)
 
+    print("次の内容で複製します。")
+    print(f"  複製元: {name}")
+    print(f"  複製先の名前: {new_name}")
+    print(f"  複製先フォルダ: {install_path}")
     if os.path.exists(os.path.join(install_path, "ext4.vhdx")):
-        print("次の内容で複製します。")
-        print(f"  複製元: {name}")
-        print(f"  複製先の名前: {new_name}")
-        print(f"  複製先フォルダ: {install_path}")
         print(
             f"警告: 「{install_path}」には既に仮想ディスク (ext4.vhdx) が存在します。"
             "上書きされます。"
         )
-        _confirm_or_exit("よろしいですか?", args.yes)
+    # 複製は新しいディストリビューションを登録する操作のため、常に確認する。
+    _confirm_or_exit("よろしいですか?", args.yes)
 
     tmp_dir = tempfile.mkdtemp(prefix="wslmgr_clone_")
     tmp_tar = os.path.join(tmp_dir, wsl_core.sanitize_snapshot_name(new_name) + ".tar")

@@ -2857,7 +2857,9 @@ class WSLManager(tk.Tk):
                 "警告", "ディストリビューションを選択してください。", parent=self
             )
             return
-        if not messagebox.askyesno("確認", f"「{name}」を停止しますか？"):
+        if not messagebox.askyesno(
+            "確認", f"「{name}」を停止しますか？", parent=self
+        ):
             return
         self._log_operation("停止", name, "実行")
         self._set_status(f"「{name}」を停止中…")
@@ -2869,7 +2871,7 @@ class WSLManager(tk.Tk):
 
     def _shutdown_all(self) -> None:
         if not messagebox.askyesno(
-            "確認", "すべての WSL ディストリビューションを停止しますか？"
+            "確認", "すべての WSL ディストリビューションを停止しますか？", parent=self
         ):
             return
         self._log_operation("全停止", "全ディストリビューション", "実行")
@@ -2973,6 +2975,7 @@ class WSLManager(tk.Tk):
                 messagebox.showwarning(
                     "警告",
                     f"「{name}」は停止中です。起動してからプロセスを確認してください。",
+                    parent=self,
                 )
                 return
 
@@ -3015,7 +3018,7 @@ class WSLManager(tk.Tk):
         new_name = new_name.strip()
         valid, reason = wsl_core.validate_clone_name(new_name, existing)
         if not valid:
-            messagebox.showwarning("警告", reason)
+            messagebox.showwarning("警告", reason, parent=self)
             return
 
         install_path = filedialog.askdirectory(title="複製先フォルダを選択")
@@ -3032,6 +3035,7 @@ class WSLManager(tk.Tk):
                 "複製中は一時 tar ファイルが複製先フォルダに作成され、"
                 "完了後に削除されます。"
             ),
+            parent=self,
         ):
             return
 
@@ -3125,6 +3129,7 @@ class WSLManager(tk.Tk):
         use_vhd = messagebox.askyesno(
             "エクスポート形式",
             "VHD 形式でエクスポートしますか？\n「いいえ」を選ぶと tar 形式でエクスポートします。",
+            parent=self,
         )
 
         if use_vhd:
@@ -3145,7 +3150,7 @@ class WSLManager(tk.Tk):
             return
 
         if os.path.exists(export_path) and not messagebox.askyesno(
-            "確認", f"既存ファイルを上書きしますか？\n{export_path}"
+            "確認", f"既存ファイルを上書きしますか？\n{export_path}", parent=self
         ):
             return
 
@@ -3226,7 +3231,7 @@ class WSLManager(tk.Tk):
         try:
             os.makedirs(snap_dir, exist_ok=True)
         except OSError as e:
-            messagebox.showerror("エラー", str(e))
+            messagebox.showerror("エラー", str(e), parent=self)
             return
 
         timestamp = time.strftime(wsl_core.SNAPSHOT_TIMESTAMP_FORMAT)
@@ -3356,7 +3361,7 @@ class WSLManager(tk.Tk):
             return
 
         if not messagebox.askyesno(
-            "確認", f"「{name}」をインストールしますか？"
+            "確認", f"「{name}」をインストールしますか？", parent=self
         ):
             return
 
@@ -3382,6 +3387,7 @@ class WSLManager(tk.Tk):
                 f"「{name}」をアンインストール（登録解除）します。\n"
                 "この操作は取り消せません。続行しますか？"
             ),
+            parent=self,
         ):
             return
 
@@ -3398,7 +3404,9 @@ class WSLManager(tk.Tk):
 
         if confirm_name.strip() != name:
             messagebox.showwarning(
-                "警告", "入力された名前が一致しないため、アンインストールを中止しました。"
+                "警告",
+                "入力された名前が一致しないため、アンインストールを中止しました。",
+                parent=self,
             )
             return
 
@@ -3420,7 +3428,7 @@ class WSLManager(tk.Tk):
         distro_name = distro_name.strip()
         valid, reason = wsl_core.validate_distro_name(distro_name)
         if not valid:
-            messagebox.showwarning("警告", reason)
+            messagebox.showwarning("警告", reason, parent=self)
             return
 
         image_path = filedialog.askopenfilename(
@@ -3440,6 +3448,7 @@ class WSLManager(tk.Tk):
         is_wsl2 = messagebox.askyesno(
             "WSL バージョン",
             "WSL2 としてインポートしますか？\n「いいえ」を選ぶと WSL1 としてインポートします。",
+            parent=self,
         )
         version = "2" if is_wsl2 else "1"
 
@@ -3452,6 +3461,7 @@ class WSLManager(tk.Tk):
                 f"保存先: {install_path}\n"
                 f"バージョン: WSL{version}"
             ),
+            parent=self,
         ):
             return
 
@@ -3481,6 +3491,7 @@ class WSLManager(tk.Tk):
                         "インポートを中断したため、不完全な登録が残っている\n"
                         f"可能性があります。「{distro_name}」の登録を解除しますか？"
                     ),
+                    parent=self,
                 ):
                     self._run_wsl_cmd(
                         ["--unregister", distro_name],
@@ -3580,6 +3591,7 @@ class WSLManager(tk.Tk):
                     f"「{name}」の仮想ディスク (ext4.vhdx) が見つかりません。\n"
                     "WSL1 か、ディスク情報を取得できない構成の可能性があります。"
                 ),
+                parent=self,
             )
             return
         DiskOptimizeDialog(self, name, vhdx)
@@ -3654,7 +3666,7 @@ class WSLManager(tk.Tk):
                 "ディスクサイズによっては数分かかることがあります。"
             )
 
-        if not messagebox.askyesno("確認", confirm_msg):
+        if not messagebox.askyesno("確認", confirm_msg, parent=self):
             return
 
         self._log_operation("バージョン変換", name, f"WSL{target}")
@@ -3801,6 +3813,7 @@ class WSLManager(tk.Tk):
         messagebox.showinfo(
             "WSL Manager について",
             "WSL Manager\n\nWSL2 ディストリビューション管理ツール\nWindows 10/11 + WSL2 環境用",
+            parent=self,
         )
 
     # ── 自動更新 ─────────────────────────────────────────────────────────
