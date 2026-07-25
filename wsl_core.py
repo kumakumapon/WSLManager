@@ -1,9 +1,13 @@
 """
 wsl_core - WSL Manager の純粋ロジックモジュール
 
-tkinter・winreg に依存しない純粋関数のみを提供します。
+tkinter・winreg に依存しないロジックを提供します。
 subprocess 呼び出しも含まず、テキスト解析・エンコード・設定ファイルの
 読み書きといったロジックを単体テスト可能な形で実装しています。
+
+大半は副作用のない純粋関数ですが、GUI のイベントループをブロックしない
+ための :class:`AsyncLogWriter` のみ状態とスレッドを持ちます (GUI に置くと
+単体テストできないため、あえてこのモジュールに置いています)。
 """
 
 from __future__ import annotations
@@ -12,9 +16,11 @@ import configparser
 import io
 import json
 import os
+import queue
 import re
 import sys
 import tempfile
+import threading
 from datetime import datetime
 
 # WSL ディストロ名はレジストリキー名・\\wsl.localhost\<name> パス・
@@ -947,6 +953,179 @@ def rotate_log_files(
 
     # 現在のログファイルを .1 にリネームする
     os.rename(base_path, backup_path(1))
+
+
+def log_file_paths(
+    log_dir: str,
+    base_name: str = "operations.jsonl",
+    max_backups: int = 10,
+) -> list[str]:
+    """操作ログ本体と回転済みバックアップの候補パスを列挙します。
+
+    実際にファイルが存在するかは確認しません。``rotate_log_files`` が生成する
+    ``operations.jsonl`` / ``operations.1.jsonl`` … と同じ命名規則を使います。
+    """
+    stem, ext = os.path.splitext(base_name)
+    paths = [os.path.join(log_dir, base_name)]
+    paths.extend(
+        os.path.join(log_dir, f"{stem}.{n}{ext}") for n in range(1, max_backups + 1)
+    )
+    return paths
+
+
+def delete_log_files(
+    log_dir: str,
+    base_name: str = "operations.jsonl",
+    max_backups: int = 10,
+) -> tuple[int, list[str]]:
+    """操作ログ本体と回転済みバックアップをすべて削除します。
+
+    存在しないファイルは黙ってスキップします。
+
+    Returns:
+        (削除できた件数, 削除に失敗したパスのリスト) のタプル。
+    """
+    deleted = 0
+    failed: list[str] = []
+    for path in log_file_paths(log_dir, base_name, max_backups):
+        if not os.path.exists(path):
+            continue
+        try:
+            os.remove(path)
+        except OSError:
+            failed.append(path)
+        else:
+            deleted += 1
+    return deleted, failed
+
+
+class AsyncLogWriter:
+    """操作ログを専用のデーモンスレッドで非同期に追記するライタ。
+
+    ``open`` / ``write`` / :func:`rotate_log_files` の同期 I/O を Tk の
+    イベントループから切り離すためのクラスです。:meth:`submit` は
+    ``queue.Queue`` に積むだけで呼び出し元をブロックしないため、
+    ``%APPDATA%`` がネットワークドライブ上にある環境などで書き込みが
+    遅くても GUI がカクつきません。
+
+    I/O エラーは元の同期実装と同様に握りつぶします (ログの永続化に失敗しても
+    アプリの操作自体は継続させるため)。
+    """
+
+    _SENTINEL = object()
+
+    def __init__(
+        self,
+        log_dir: str,
+        base_name: str = "operations.jsonl",
+        max_size: int = 1_048_576,
+        max_backups: int = 10,
+    ) -> None:
+        self._log_dir = log_dir
+        self._base_name = base_name
+        self._max_size = max_size
+        self._max_backups = max_backups
+        self._queue: queue.Queue = queue.Queue()
+        self._thread: threading.Thread | None = None
+        self._lock = threading.Lock()
+        self._stopped = False
+
+    @property
+    def log_path(self) -> str:
+        """ログ本体のフルパス。"""
+        return os.path.join(self._log_dir, self._base_name)
+
+    def submit(
+        self,
+        operation: str,
+        target: str,
+        result: str,
+        timestamp: str | None = None,
+    ) -> None:
+        """操作ログ1件を書き込みキューに積みます。ブロックしません。
+
+        :meth:`stop` 済みの場合は何もしません。
+        """
+        if self._stopped:
+            return
+        line = serialize_log_entry(operation, target, result, timestamp)
+        if not self._ensure_thread():
+            return
+        self._queue.put(line)
+
+    def flush(self, timeout: float = 2.0) -> bool:
+        """キューに積まれた全エントリが書き込まれるまで待ちます。
+
+        キュー末尾にバリア (``threading.Event``) を積み、ライタスレッドが
+        そこまで処理し終えるのを待ちます。
+
+        Returns:
+            時間内に書き込みが完了すれば True、タイムアウトすれば False。
+        """
+        with self._lock:
+            thread = self._thread
+        if thread is None or not thread.is_alive():
+            return self._queue.empty()
+        barrier = threading.Event()
+        self._queue.put(barrier)
+        return barrier.wait(timeout)
+
+    def stop(self, timeout: float = 2.0) -> bool:
+        """残りのエントリを書き込んでからライタスレッドを終了させます。
+
+        以降の :meth:`submit` は無視されます。冪等です。
+
+        Returns:
+            時間内にスレッドが終了すれば True、しなければ False。
+        """
+        with self._lock:
+            self._stopped = True
+            thread = self._thread
+        if thread is None or not thread.is_alive():
+            return True
+        self._queue.put(self._SENTINEL)
+        thread.join(timeout)
+        return not thread.is_alive()
+
+    # ── 内部実装 ──────────────────────────────────────────────────────
+
+    def _ensure_thread(self) -> bool:
+        """ライタスレッドが動いていなければ起動します。
+
+        Returns:
+            スレッドが利用可能なら True、:meth:`stop` 済みなら False。
+        """
+        with self._lock:
+            if self._stopped:
+                return False
+            if self._thread is not None and self._thread.is_alive():
+                return True
+            self._thread = threading.Thread(
+                target=self._run, name="wslmgr-log-writer", daemon=True
+            )
+            self._thread.start()
+            return True
+
+    def _run(self) -> None:
+        while True:
+            item = self._queue.get()
+            if item is self._SENTINEL:
+                return
+            if isinstance(item, threading.Event):
+                item.set()
+                continue
+            self._write(item)
+
+    def _write(self, line: str) -> None:
+        try:
+            os.makedirs(self._log_dir, exist_ok=True)
+            with open(self.log_path, "a", encoding="utf-8") as f:
+                f.write(line + "\n")
+            rotate_log_files(
+                self._log_dir, self._base_name, self._max_size, self._max_backups
+            )
+        except OSError:
+            pass
 
 
 def tail_entries(entries: list, n: int) -> list:

@@ -250,6 +250,12 @@ def cmd_export(args: argparse.Namespace) -> None:
     """指定したディストリビューションをエクスポートします。"""
     name = args.name
     path = args.path
+
+    if os.path.exists(path):
+        _confirm_or_exit(
+            f"「{path}」は既に存在します。上書きします。続行しますか?", args.yes
+        )
+
     print(f"「{name}」を「{path}」にエクスポート中…")
     returncode, _stdout, stderr = _run_wsl_command(
         ["--export", name, path], timeout=600.0
@@ -276,6 +282,13 @@ def cmd_import(args: argparse.Namespace) -> None:
     if not valid:
         print(f"エラー: {reason}", file=sys.stderr)
         sys.exit(1)
+
+    if os.path.exists(os.path.join(install_path, "ext4.vhdx")):
+        _confirm_or_exit(
+            f"「{install_path}」には既に仮想ディスク (ext4.vhdx) が存在します。"
+            "上書きします。続行しますか?",
+            args.yes,
+        )
 
     print(f"「{name}」を「{install_path}」にインポート中…")
     returncode, _stdout, stderr = _run_wsl_command(
@@ -483,6 +496,11 @@ def cmd_optimize(args: argparse.Namespace) -> None:
     if vhdx_path is None:
         print(f"エラー: 「{name}」の仮想ディスク (ext4.vhdx) が見つかりません。", file=sys.stderr)
         sys.exit(1)
+
+    _confirm_or_exit(
+        f"「{name}」の仮想ディスクを圧縮します。この操作は取り消せません。続行しますか?",
+        args.yes,
+    )
 
     print("管理者権限が必要な場合があります。")
 
@@ -861,19 +879,18 @@ def cmd_snapshot_restore(args: argparse.Namespace) -> None:
     version = snap.get("wsl_version") or "2"
     tar_path = snap.get("tar_path", "")
 
-    if not args.yes:
-        print("次の内容で復元します。")
-        print(f"  名前: {new_name}")
-        print(f"  スナップショット: {os.path.basename(tar_path)}")
-        print(f"  保存先: {install_path}")
-        print(f"  バージョン: WSL{version}")
-        try:
-            answer = input("よろしいですか? [y/N]: ")
-        except EOFError:
-            answer = ""
-        if answer.strip().lower() not in ("y", "yes"):
-            print("中止しました。")
-            sys.exit(0)
+    print("次の内容で復元します。")
+    print(f"  名前: {new_name}")
+    print(f"  スナップショット: {os.path.basename(tar_path)}")
+    print(f"  保存先: {install_path}")
+    print(f"  バージョン: WSL{version}")
+    if os.path.exists(os.path.join(install_path, "ext4.vhdx")):
+        print(
+            f"警告: 「{install_path}」には既に仮想ディスク (ext4.vhdx) が存在します。"
+            "上書きされます。"
+        )
+    # 復元は新しいディストリビューションを登録する操作のため、常に確認する。
+    _confirm_or_exit("よろしいですか?", args.yes)
 
     print(f"「{new_name}」へ復元中…")
     returncode, _stdout, stderr = _run_wsl_command(
@@ -967,18 +984,16 @@ def cmd_clone(args: argparse.Namespace) -> None:
         print(f"エラー: {reason}", file=sys.stderr)
         sys.exit(1)
 
-    if not args.yes:
+    if os.path.exists(os.path.join(install_path, "ext4.vhdx")):
         print("次の内容で複製します。")
         print(f"  複製元: {name}")
         print(f"  複製先の名前: {new_name}")
         print(f"  複製先フォルダ: {install_path}")
-        try:
-            answer = input("よろしいですか? [y/N]: ")
-        except EOFError:
-            answer = ""
-        if answer.strip().lower() not in ("y", "yes"):
-            print("中止しました。")
-            sys.exit(0)
+        print(
+            f"警告: 「{install_path}」には既に仮想ディスク (ext4.vhdx) が存在します。"
+            "上書きされます。"
+        )
+        _confirm_or_exit("よろしいですか?", args.yes)
 
     tmp_dir = tempfile.mkdtemp(prefix="wslmgr_clone_")
     tmp_tar = os.path.join(tmp_dir, wsl_core.sanitize_snapshot_name(new_name) + ".tar")
@@ -1057,6 +1072,9 @@ def build_parser() -> argparse.ArgumentParser:
     p_export = subparsers.add_parser("export", help="ディストリビューションをエクスポートします")
     p_export.add_argument("name", help="ディストリビューション名")
     p_export.add_argument("path", help="エクスポート先のファイルパス")
+    p_export.add_argument(
+        "--yes", "-y", action="store_true", help="確認プロンプトを表示せずに実行します"
+    )
     p_export.set_defaults(func=cmd_export)
 
     # import
@@ -1064,6 +1082,9 @@ def build_parser() -> argparse.ArgumentParser:
     p_import.add_argument("name", help="ディストリビューション名")
     p_import.add_argument("install_path", help="インストール先ディレクトリ")
     p_import.add_argument("image_path", help="インポートするイメージ (tar) のパス")
+    p_import.add_argument(
+        "--yes", "-y", action="store_true", help="確認プロンプトを表示せずに実行します"
+    )
     p_import.set_defaults(func=cmd_import)
 
     # config
@@ -1107,6 +1128,9 @@ def build_parser() -> argparse.ArgumentParser:
     )
     optimize_group.add_argument(
         "--compact", action="store_true", help="仮想ディスクを圧縮します"
+    )
+    p_optimize.add_argument(
+        "--yes", "-y", action="store_true", help="確認プロンプトを表示せずに実行します"
     )
     p_optimize.set_defaults(func=cmd_optimize)
 

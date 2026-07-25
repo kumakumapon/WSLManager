@@ -3783,6 +3783,259 @@ class TestFinalizePartialWrite(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
+# log_file_paths / delete_log_files
+# ---------------------------------------------------------------------------
+
+
+class TestLogFilePaths(unittest.TestCase):
+
+    def test_includes_base_and_backups(self):
+        paths = wsl_core.log_file_paths("/logs", max_backups=3)
+        self.assertEqual(
+            paths,
+            [
+                os.path.join("/logs", "operations.jsonl"),
+                os.path.join("/logs", "operations.1.jsonl"),
+                os.path.join("/logs", "operations.2.jsonl"),
+                os.path.join("/logs", "operations.3.jsonl"),
+            ],
+        )
+
+    def test_respects_custom_base_name(self):
+        paths = wsl_core.log_file_paths("/logs", base_name="audit.log", max_backups=1)
+        self.assertEqual(
+            paths,
+            [
+                os.path.join("/logs", "audit.log"),
+                os.path.join("/logs", "audit.1.log"),
+            ],
+        )
+
+    def test_matches_rotate_log_files_naming(self):
+        """rotate_log_files が作るバックアップ名と一致することを確認する。"""
+        tmpdir = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, tmpdir, True)
+        base = os.path.join(tmpdir, "operations.jsonl")
+        with open(base, "w", encoding="utf-8") as f:
+            f.write("x" * 32)
+        wsl_core.rotate_log_files(tmpdir, max_size=8)
+        rotated = os.path.join(tmpdir, "operations.1.jsonl")
+        self.assertTrue(os.path.exists(rotated))
+        self.assertIn(rotated, wsl_core.log_file_paths(tmpdir))
+
+
+class TestDeleteLogFiles(unittest.TestCase):
+
+    def setUp(self):
+        self.tmpdir = tempfile.mkdtemp()
+
+    def tearDown(self):
+        shutil.rmtree(self.tmpdir, ignore_errors=True)
+
+    def _touch(self, name):
+        path = os.path.join(self.tmpdir, name)
+        with open(path, "w", encoding="utf-8") as f:
+            f.write("entry\n")
+        return path
+
+    def test_deletes_base_and_rotated_files(self):
+        base = self._touch("operations.jsonl")
+        b1 = self._touch("operations.1.jsonl")
+        b2 = self._touch("operations.2.jsonl")
+        deleted, failed = wsl_core.delete_log_files(self.tmpdir)
+        self.assertEqual(deleted, 3)
+        self.assertEqual(failed, [])
+        for path in (base, b1, b2):
+            self.assertFalse(os.path.exists(path))
+
+    def test_skips_missing_files(self):
+        deleted, failed = wsl_core.delete_log_files(self.tmpdir)
+        self.assertEqual(deleted, 0)
+        self.assertEqual(failed, [])
+
+    def test_leaves_unrelated_files_untouched(self):
+        keep = self._touch("settings.json")
+        self._touch("operations.jsonl")
+        deleted, failed = wsl_core.delete_log_files(self.tmpdir)
+        self.assertEqual(deleted, 1)
+        self.assertEqual(failed, [])
+        self.assertTrue(os.path.exists(keep))
+
+    def test_reports_failed_paths(self):
+        base = self._touch("operations.jsonl")
+        with mock.patch("wsl_core.os.remove", side_effect=OSError("busy")):
+            deleted, failed = wsl_core.delete_log_files(self.tmpdir)
+        self.assertEqual(deleted, 0)
+        self.assertEqual(failed, [base])
+        self.assertTrue(os.path.exists(base))
+
+    def test_partial_failure_still_deletes_others(self):
+        base = os.path.join(self.tmpdir, "operations.jsonl")
+        self._touch("operations.jsonl")
+        self._touch("operations.1.jsonl")
+        real_remove = os.remove
+
+        def _remove(path):
+            if path == base:
+                raise OSError("busy")
+            real_remove(path)
+
+        with mock.patch("wsl_core.os.remove", side_effect=_remove):
+            deleted, failed = wsl_core.delete_log_files(self.tmpdir)
+        self.assertEqual(deleted, 1)
+        self.assertEqual(failed, [base])
+
+
+# ---------------------------------------------------------------------------
+# AsyncLogWriter
+# ---------------------------------------------------------------------------
+
+
+class TestAsyncLogWriter(unittest.TestCase):
+
+    def setUp(self):
+        self.tmpdir = tempfile.mkdtemp()
+        self.writer = None
+
+    def tearDown(self):
+        if self.writer is not None:
+            self.writer.stop()
+        shutil.rmtree(self.tmpdir, ignore_errors=True)
+
+    def _make(self, **kwargs):
+        self.writer = wsl_core.AsyncLogWriter(self.tmpdir, **kwargs)
+        return self.writer
+
+    def _read_entries(self):
+        with open(self.writer.log_path, encoding="utf-8") as f:
+            return wsl_core.deserialize_log_entries(f.read())
+
+    def test_log_path_uses_base_name(self):
+        writer = self._make()
+        self.assertEqual(
+            writer.log_path, os.path.join(self.tmpdir, "operations.jsonl")
+        )
+
+    def test_submit_writes_entry_after_flush(self):
+        writer = self._make()
+        writer.submit("停止", "Ubuntu", "実行")
+        self.assertTrue(writer.flush(timeout=5.0))
+        entries = self._read_entries()
+        self.assertEqual(len(entries), 1)
+        self.assertEqual(entries[0]["operation"], "停止")
+        self.assertEqual(entries[0]["target"], "Ubuntu")
+        self.assertEqual(entries[0]["result"], "実行")
+
+    def test_preserves_submit_order(self):
+        writer = self._make()
+        for i in range(20):
+            writer.submit("操作", f"distro-{i}", "実行")
+        self.assertTrue(writer.flush(timeout=5.0))
+        entries = self._read_entries()
+        self.assertEqual(
+            [e["target"] for e in entries], [f"distro-{i}" for i in range(20)]
+        )
+
+    def test_appends_to_existing_file(self):
+        writer = self._make()
+        writer.submit("一件目", "A", "実行")
+        self.assertTrue(writer.flush(timeout=5.0))
+        writer.submit("二件目", "B", "実行")
+        self.assertTrue(writer.flush(timeout=5.0))
+        entries = self._read_entries()
+        self.assertEqual([e["operation"] for e in entries], ["一件目", "二件目"])
+
+    def test_creates_missing_log_dir(self):
+        nested = os.path.join(self.tmpdir, "a", "b")
+        self.writer = wsl_core.AsyncLogWriter(nested)
+        self.writer.submit("操作", "A", "実行")
+        self.assertTrue(self.writer.flush(timeout=5.0))
+        self.assertTrue(os.path.exists(os.path.join(nested, "operations.jsonl")))
+
+    def test_explicit_timestamp_is_used(self):
+        writer = self._make()
+        writer.submit("操作", "A", "実行", timestamp="2026-01-01T00:00:00")
+        self.assertTrue(writer.flush(timeout=5.0))
+        self.assertEqual(self._read_entries()[0]["timestamp"], "2026-01-01T00:00:00")
+
+    def test_rotates_when_over_max_size(self):
+        writer = self._make(max_size=64, max_backups=2)
+        for i in range(20):
+            writer.submit("操作", f"distro-{i}", "実行")
+        self.assertTrue(writer.flush(timeout=5.0))
+        self.assertTrue(
+            os.path.exists(os.path.join(self.tmpdir, "operations.1.jsonl"))
+        )
+
+    def test_flush_returns_true_when_nothing_submitted(self):
+        writer = self._make()
+        self.assertTrue(writer.flush(timeout=5.0))
+
+    def test_write_errors_are_swallowed(self):
+        writer = self._make()
+        with mock.patch("wsl_core.open", side_effect=OSError("disk full")):
+            writer.submit("操作", "A", "実行")
+            self.assertTrue(writer.flush(timeout=5.0))
+        # スレッドは生存し、以降の書き込みは成功する
+        writer.submit("操作", "B", "実行")
+        self.assertTrue(writer.flush(timeout=5.0))
+        self.assertEqual([e["target"] for e in self._read_entries()], ["B"])
+
+    def test_stop_flushes_pending_entries(self):
+        writer = self._make()
+        writer.submit("操作", "A", "実行")
+        self.assertTrue(writer.stop(timeout=5.0))
+        self.assertEqual([e["target"] for e in self._read_entries()], ["A"])
+
+    def test_submit_after_stop_is_ignored(self):
+        writer = self._make()
+        writer.submit("操作", "A", "実行")
+        self.assertTrue(writer.stop(timeout=5.0))
+        writer.submit("操作", "B", "実行")
+        self.assertEqual([e["target"] for e in self._read_entries()], ["A"])
+
+    def test_stop_is_idempotent(self):
+        writer = self._make()
+        writer.submit("操作", "A", "実行")
+        self.assertTrue(writer.stop(timeout=5.0))
+        self.assertTrue(writer.stop(timeout=5.0))
+
+    def test_stop_without_submit_does_not_start_thread(self):
+        writer = self._make()
+        self.assertTrue(writer.stop(timeout=5.0))
+        self.assertFalse(os.path.exists(writer.log_path))
+
+    def test_flush_after_stop_returns_true(self):
+        writer = self._make()
+        writer.submit("操作", "A", "実行")
+        self.assertTrue(writer.stop(timeout=5.0))
+        self.assertTrue(writer.flush(timeout=5.0))
+
+    def test_writer_thread_is_daemon(self):
+        writer = self._make()
+        writer.submit("操作", "A", "実行")
+        self.assertTrue(writer.flush(timeout=5.0))
+        self.assertTrue(writer._thread.daemon)
+
+    def test_delete_log_files_after_flush_removes_everything(self):
+        """#9: クリア相当の操作でファイルが残らないことを確認する。"""
+        writer = self._make(max_size=64, max_backups=3)
+        for i in range(20):
+            writer.submit("操作", f"distro-{i}", "実行")
+        self.assertTrue(writer.flush(timeout=5.0))
+        deleted, failed = wsl_core.delete_log_files(
+            self.tmpdir, max_backups=3
+        )
+        self.assertGreaterEqual(deleted, 2)
+        self.assertEqual(failed, [])
+        self.assertEqual(
+            [p for p in wsl_core.log_file_paths(self.tmpdir, max_backups=3)
+             if os.path.exists(p)],
+            [],
+        )
+
+
+# ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
     unittest.main()

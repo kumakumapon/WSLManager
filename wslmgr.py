@@ -1735,6 +1735,7 @@ class TransferProgressDialog(tk.Toplevel):
         watch_path: str | None,
         total_bytes: int | None,
         on_done: "callable",
+        cancel_prompt: str | None = None,
     ) -> None:
         super().__init__(parent)
         self.title(title)
@@ -1742,6 +1743,7 @@ class TransferProgressDialog(tk.Toplevel):
         self._watch_path = watch_path
         self._total_bytes = total_bytes
         self._on_done = on_done
+        self._cancel_prompt = cancel_prompt or "処理をキャンセルしますか？"
         self._cancelled = False
         self._finished = False
         self._start_time = time.monotonic()
@@ -1848,9 +1850,7 @@ class TransferProgressDialog(tk.Toplevel):
         """キャンセルボタン / 閉じるボタン押下時の処理。"""
         if self._finished or self._cancelled:
             return
-        if not messagebox.askyesno(
-            "確認", "処理をキャンセルしますか？", parent=self
-        ):
+        if not messagebox.askyesno("確認", self._cancel_prompt, parent=self):
             return
         if self._finished:  # 確認ダイアログ表示中に完了した場合
             return
@@ -2156,6 +2156,16 @@ class WSLManager(tk.Tk):
     # 状態の日本語表示マッピング
     STATE_JP = {"Running": "実行中", "Stopped": "停止中"}
 
+    # リソース使用量(CPU/メモリ)取得のタイムアウト秒数。
+    # VM 初期化直後や、ログインシェルの起動が重い/プロセス数が多い
+    # ディストリビューションでは 2 秒では応答が返らないことがあるため、
+    # 余裕を持たせた値にしている。
+    RESOURCE_QUERY_TIMEOUT = 8.0
+
+    # IP アドレス取得のタイムアウト秒数。理由は RESOURCE_QUERY_TIMEOUT と同様
+    # (VM 初期化直後 / ログインシェルが重い / プロセス数が多い場合に備える)。
+    IP_QUERY_TIMEOUT = 8.0
+
     def __init__(self) -> None:
         super().__init__()
         self.title("WSL Manager")
@@ -2171,6 +2181,8 @@ class WSLManager(tk.Tk):
         self._operation_log: list[str] = []
         self._log_dir = wsl_core.get_default_log_dir()
         self._log_file = os.path.join(self._log_dir, "operations.jsonl")
+        # ログ書き込みは Tk のイベントループを塞がないよう専用スレッドに委譲する
+        self._log_writer = wsl_core.AsyncLogWriter(self._log_dir)
         self._load_persisted_log()
         self._settings_path = wsl_core.get_default_settings_path()
         self._settings = wsl_core.load_settings(self._settings_path)
@@ -2450,6 +2462,12 @@ class WSLManager(tk.Tk):
         # ダブルクリックでターミナルを開く
         self._tree.bind("<Double-1>", lambda _e: self._open_terminal())
 
+        # Enter キーでもダブルクリックと同じ動作にする（メニューの
+        # accelerator="Return" 表示に合わせる）。フィルタ入力欄で
+        # Enter を打っても誤発火しないよう、bind_all ではなく
+        # Treeview ウィジェットに直接バインドする。
+        self._tree.bind("<Return>", self._on_tree_return)
+
         # 右クリックコンテキストメニュー
         self._tree.bind("<Button-3>", self._show_context_menu)
 
@@ -2494,7 +2512,7 @@ class WSLManager(tk.Tk):
                 ],
                 capture_output=True,
                 creationflags=CREATE_NO_WINDOW,
-                timeout=2.0,
+                timeout=self.RESOURCE_QUERY_TIMEOUT,
             )
         except (OSError, subprocess.TimeoutExpired):
             return "-", "-"
@@ -2512,7 +2530,7 @@ class WSLManager(tk.Tk):
                 ["wsl", "-d", name, "--", "hostname", "-I"],
                 capture_output=True,
                 creationflags=CREATE_NO_WINDOW,
-                timeout=2.0,
+                timeout=self.IP_QUERY_TIMEOUT,
             )
         except (OSError, subprocess.TimeoutExpired):
             return "-"
@@ -2601,7 +2619,9 @@ class WSLManager(tk.Tk):
 
         def _run() -> None:
             distros, err = self._get_distros()
-            self.after(0, lambda: self._apply_refresh_result(distros, err, selected))
+            self._call_soon_safe(
+                lambda: self._apply_refresh_result(distros, err, selected)
+            )
 
         threading.Thread(target=_run, daemon=True).start()
 
@@ -2704,6 +2724,31 @@ class WSLManager(tk.Tk):
     def _set_status(self, msg: str) -> None:
         self._status_var.set(msg)
 
+    def _call_soon_safe(self, fn: "callable") -> None:
+        """バックグラウンドスレッドから UI 更新を安全にスケジュールします。
+
+        長時間コマンドの実行中にウィンドウが閉じられると ``self`` は destroy
+        済みになり、素の ``after(0, ...)`` は ``tk.TclError`` を送出します。
+        スレッド内での例外は誰も捕まえないため、スケジュール時と実行時の
+        両方をここでガードします。ウィンドウが既に無い場合は黙って捨てます。
+        """
+        def _guarded() -> None:
+            try:
+                if self.winfo_exists():
+                    fn()
+            except tk.TclError:
+                pass
+
+        try:
+            self.after(0, _guarded)
+        except (tk.TclError, RuntimeError):
+            # destroy 済み、または mainloop 終了後にスケジュールしようとした場合
+            pass
+
+    def _set_status_safe(self, msg: str) -> None:
+        """バックグラウンドスレッドからステータスバーを更新します。"""
+        self._call_soon_safe(lambda: self._set_status(msg))
+
     # ── 操作ログ ─────────────────────────────────────────────────────────
 
     def _load_persisted_log(self) -> None:
@@ -2720,15 +2765,13 @@ class WSLManager(tk.Tk):
             pass
 
     def _persist_log_entry(self, operation: str, target: str, result: str) -> None:
-        """操作ログ1件をファイルに追記します。"""
-        try:
-            os.makedirs(self._log_dir, exist_ok=True)
-            line = wsl_core.serialize_log_entry(operation, target, result)
-            with open(self._log_file, "a", encoding="utf-8") as f:
-                f.write(line + "\n")
-            wsl_core.rotate_log_files(self._log_dir)
-        except OSError:
-            pass
+        """操作ログ1件をファイルに追記します（実際の書き込みは別スレッド）。
+
+        呼び出しはキューへの投入のみで完了するため、イベントループを
+        ブロックしません。書き込み失敗は :class:`wsl_core.AsyncLogWriter`
+        側で無視されます。
+        """
+        self._log_writer.submit(operation, target, result)
 
     def _log_operation(self, operation: str, target: str, result: str) -> None:
         """操作ログにエントリを追加し、ファイルにも永続化します。
@@ -2748,10 +2791,24 @@ class WSLManager(tk.Tk):
 
     def _show_log_viewer(self) -> None:
         """操作ログビューアーダイアログを開きます。"""
-        def _clear() -> None:
-            self._operation_log.clear()
+        dialog: LogViewerDialog | None = None
 
-        LogViewerDialog(self, self._operation_log, _clear)
+        def _clear() -> None:
+            # キューに残った書き込みを先に片付けないと、削除直後に
+            # 書き戻されて「消したログが復活する」ように見えてしまう
+            self._log_writer.flush()
+            _deleted, failed = wsl_core.delete_log_files(self._log_dir)
+            self._operation_log.clear()
+            if failed:
+                messagebox.showwarning(
+                    "警告",
+                    "一部のログファイルを削除できませんでした。\n"
+                    "他のプロセスが使用中の可能性があります:\n"
+                    + "\n".join(failed),
+                    parent=dialog if dialog is not None else self,
+                )
+
+        dialog = LogViewerDialog(self, self._operation_log, _clear)
 
     # ── WSL コマンド実行 ──────────────────────────────────────────────────
 
@@ -2773,18 +2830,17 @@ class WSLManager(tk.Tk):
                     timeout=timeout,
                 )
                 if result.returncode == 0:
-                    self.after(0, lambda: self._set_status(success_msg))
+                    self._set_status_safe(success_msg)
                 else:
                     stderr = wsl_core.decode_wsl_output(result.stderr).strip()
                     msg = error_msg or stderr or f"エラー (終了コード {result.returncode})"
-                    self.after(0, lambda: self._set_status(msg))
+                    self._set_status_safe(msg)
             except subprocess.TimeoutExpired:
-                self.after(0, lambda: self._set_status("WSL の応答がタイムアウトしました。"))
+                self._set_status_safe("WSL の応答がタイムアウトしました。")
             except OSError as e:
-                err_text = str(e)
-                self.after(0, lambda: self._set_status(err_text))
+                self._set_status_safe(str(e))
             finally:
-                self.after(0, self._refresh)
+                self._call_soon_safe(self._refresh)
 
         threading.Thread(target=_run, daemon=True).start()
 
@@ -2797,7 +2853,9 @@ class WSLManager(tk.Tk):
     def _stop_distro(self) -> None:
         name = self._selected_name()
         if not name:
-            messagebox.showwarning("警告", "ディストリビューションを選択してください。")
+            messagebox.showwarning(
+                "警告", "ディストリビューションを選択してください。", parent=self
+            )
             return
         if not messagebox.askyesno("確認", f"「{name}」を停止しますか？"):
             return
@@ -2825,7 +2883,9 @@ class WSLManager(tk.Tk):
     def _set_default(self) -> None:
         name = self._selected_name()
         if not name:
-            messagebox.showwarning("警告", "ディストリビューションを選択してください。")
+            messagebox.showwarning(
+                "警告", "ディストリビューションを選択してください。", parent=self
+            )
             return
         self._log_operation("デフォルト設定", name, "実行")
         self._set_status(f"「{name}」をデフォルトに設定中…")
@@ -2843,7 +2903,9 @@ class WSLManager(tk.Tk):
         """
         name = self._selected_name()
         if not name:
-            messagebox.showwarning("警告", "ディストリビューションを選択してください。")
+            messagebox.showwarning(
+                "警告", "ディストリビューションを選択してください。", parent=self
+            )
             return
         try:
             # Windows Terminal を優先
@@ -2874,11 +2936,24 @@ class WSLManager(tk.Tk):
         except OSError as e:
             self._set_status(f"ターミナルを開けませんでした: {e}")
 
+    def _on_tree_return(self, _event: object = None) -> None:
+        """Treeview 上で Return キーが押されたときの処理。
+
+        ダブルクリックと同じくターミナルを開くが、選択行が無い状態で
+        Enter を押しても警告ダイアログは出さず、何もしない
+        （空撃ちを無害な no-op にする）。
+        """
+        if not self._selected_name():
+            return
+        self._open_terminal()
+
     def _show_detail(self) -> None:
         """選択したディストリビューションの詳細情報ダイアログを開きます。"""
         name = self._selected_name()
         if not name:
-            messagebox.showwarning("警告", "ディストリビューションを選択してください。")
+            messagebox.showwarning(
+                "警告", "ディストリビューションを選択してください。", parent=self
+            )
             return
         DistroDetailDialog(self, name)
 
@@ -2886,7 +2961,9 @@ class WSLManager(tk.Tk):
         """選択したディストリビューションのプロセス一覧ウィンドウを開きます。"""
         name = self._selected_name()
         if not name:
-            messagebox.showwarning("警告", "ディストリビューションを選択してください。")
+            messagebox.showwarning(
+                "警告", "ディストリビューションを選択してください。", parent=self
+            )
             return
 
         sel = self._tree.selection()
@@ -2917,7 +2994,9 @@ class WSLManager(tk.Tk):
         """選択したディストリビューションを複製します（エクスポート→インポートを自動実行）。"""
         name = self._selected_name()
         if not name:
-            messagebox.showwarning("警告", "ディストリビューションを選択してください。")
+            messagebox.showwarning(
+                "警告", "ディストリビューションを選択してください。", parent=self
+            )
             return
 
         existing = [d["name"] for d in self._all_distros]
@@ -2972,8 +3051,7 @@ class WSLManager(tk.Tk):
                 )
                 os.close(fd)
             except OSError as e:
-                err_text = str(e)
-                self.after(0, lambda: self._set_status(err_text))
+                self._set_status_safe(str(e))
                 return
 
             try:
@@ -2985,27 +3063,19 @@ class WSLManager(tk.Tk):
                         timeout=3600,
                     )
                 except subprocess.TimeoutExpired:
-                    self.after(
-                        0, lambda: self._set_status("複製処理がタイムアウトしました。")
-                    )
+                    self._set_status_safe("複製処理がタイムアウトしました。")
                     return
                 except OSError as e:
-                    err_text = str(e)
-                    self.after(0, lambda: self._set_status(err_text))
+                    self._set_status_safe(str(e))
                     return
 
                 if export_result.returncode != 0:
                     stderr = wsl_core.decode_wsl_output(export_result.stderr).strip()
                     msg = stderr or f"「{name}」のエクスポートに失敗しました。"
-                    self.after(0, lambda: self._set_status(msg))
+                    self._set_status_safe(msg)
                     return
 
-                self.after(
-                    0,
-                    lambda: self._set_status(
-                        f"「{name}」を複製中… (2/2 インポート)"
-                    ),
-                )
+                self._set_status_safe(f"「{name}」を複製中… (2/2 インポート)")
 
                 import_args = ["wsl", "--import", new_name, install_path, tmp_tar]
                 if version in ("1", "2"):
@@ -3019,29 +3089,27 @@ class WSLManager(tk.Tk):
                         timeout=3600,
                     )
                 except subprocess.TimeoutExpired:
-                    self.after(
-                        0, lambda: self._set_status("複製処理がタイムアウトしました。")
-                    )
+                    self._set_status_safe("複製処理がタイムアウトしました。")
                     return
                 except OSError as e:
-                    err_text = str(e)
-                    self.after(0, lambda: self._set_status(err_text))
+                    self._set_status_safe(str(e))
                     return
 
                 if import_result.returncode != 0:
                     stderr = wsl_core.decode_wsl_output(import_result.stderr).strip()
                     msg = stderr or f"「{new_name}」のインポートに失敗しました。"
-                    self.after(0, lambda: self._set_status(msg))
+                    self._set_status_safe(msg)
                     return
 
-                success_msg = f"「{name}」を「{new_name}」として複製しました。"
-                self.after(0, lambda: self._set_status(success_msg))
+                self._set_status_safe(
+                    f"「{name}」を「{new_name}」として複製しました。"
+                )
             finally:
                 try:
                     os.remove(tmp_tar)
                 except OSError:
                     pass
-                self.after(0, self._refresh)
+                self._call_soon_safe(self._refresh)
 
         threading.Thread(target=_run, daemon=True).start()
 
@@ -3049,7 +3117,9 @@ class WSLManager(tk.Tk):
         """選択したディストリビューションをエクスポートします（tar または VHD 形式）。"""
         name = self._selected_name()
         if not name:
-            messagebox.showwarning("警告", "ディストリビューションを選択してください。")
+            messagebox.showwarning(
+                "警告", "ディストリビューションを選択してください。", parent=self
+            )
             return
 
         use_vhd = messagebox.askyesno(
@@ -3139,7 +3209,9 @@ class WSLManager(tk.Tk):
         """選択したディストリビューションのスナップショット (tar + メタデータ) を作成します。"""
         name = self._selected_name()
         if not name:
-            messagebox.showwarning("警告", "ディストリビューションを選択してください。")
+            messagebox.showwarning(
+                "警告", "ディストリビューションを選択してください。", parent=self
+            )
             return
 
         comment = simpledialog.askstring(
@@ -3266,7 +3338,7 @@ class WSLManager(tk.Tk):
 
         def _fetch() -> None:
             candidates, err = self._get_online_distros()
-            self.after(0, lambda: self._open_install_dialog(candidates, err))
+            self._call_soon_safe(lambda: self._open_install_dialog(candidates, err))
 
         threading.Thread(target=_fetch, daemon=True).start()
 
@@ -3299,7 +3371,9 @@ class WSLManager(tk.Tk):
         """選択したディストリビューションを個別アンインストールします。"""
         name = self._selected_name()
         if not name:
-            messagebox.showwarning("警告", "ディストリビューションを選択してください。")
+            messagebox.showwarning(
+                "警告", "ディストリビューションを選択してください。", parent=self
+            )
             return
 
         if not messagebox.askyesno(
@@ -3450,7 +3524,9 @@ class WSLManager(tk.Tk):
         """選択したディストリビューションの wsl.conf エディタダイアログを開きます。"""
         name = self._selected_name()
         if not name:
-            messagebox.showwarning("警告", "ディストリビューションを選択してください。")
+            messagebox.showwarning(
+                "警告", "ディストリビューションを選択してください。", parent=self
+            )
             return
         dialog = DistroConfDialog(self, name)
         self.wait_window(dialog)
@@ -3492,7 +3568,9 @@ class WSLManager(tk.Tk):
         """選択したディストリビューションのディスク最適化ダイアログを開きます。"""
         name = self._selected_name()
         if not name:
-            messagebox.showwarning("警告", "ディストリビューションを選択してください。")
+            messagebox.showwarning(
+                "警告", "ディストリビューションを選択してください。", parent=self
+            )
             return
         vhdx = _get_distro_vhdx_path(name)
         if not vhdx:
@@ -3510,7 +3588,9 @@ class WSLManager(tk.Tk):
         """選択したディストリビューションのファイルシステムをエクスプローラーで開きます。"""
         name = self._selected_name()
         if not name:
-            messagebox.showwarning("警告", "ディストリビューションを選択してください。")
+            messagebox.showwarning(
+                "警告", "ディストリビューションを選択してください。", parent=self
+            )
             return
         try:
             subprocess.Popen(
@@ -3541,7 +3621,9 @@ class WSLManager(tk.Tk):
         """選択したディストリビューションの WSL バージョンを変換します(WSL1↔WSL2)。"""
         name = self._selected_name()
         if not name:
-            messagebox.showwarning("警告", "ディストリビューションを選択してください。")
+            messagebox.showwarning(
+                "警告", "ディストリビューションを選択してください。", parent=self
+            )
             return
 
         sel = self._tree.selection()
@@ -3575,11 +3657,40 @@ class WSLManager(tk.Tk):
         if not messagebox.askyesno("確認", confirm_msg):
             return
 
+        self._log_operation("バージョン変換", name, f"WSL{target}")
         self._set_status(f"「{name}」を WSL{target} に変換中…")
-        self._run_wsl_cmd(
+
+        def _on_done(returncode: int, stderr_text: str, cancelled: bool) -> None:
+            if cancelled:
+                self._log_operation("バージョン変換", name, "キャンセル")
+                self._set_status(
+                    f"「{name}」の WSL バージョン変換を中断しました"
+                    "（状態が不完全な可能性があります）。"
+                )
+            elif returncode == 0:
+                self._set_status(f"「{name}」を WSL{target} に変換しました。")
+            else:
+                self._set_status(
+                    stderr_text or f"「{name}」の WSL バージョン変換に失敗しました。"
+                )
+            self._refresh()
+
+        # ``--set-version`` は大きなディストリビューションで数分〜数十分かかるため
+        # 固定タイムアウトの _run_wsl_cmd ではなく Popen ベースの進捗ダイアログを使う。
+        # 進捗を監視できる出力ファイルは無いので watch_path は None（経過時間表示）。
+        TransferProgressDialog(
+            self,
+            "WSL バージョン変換",
+            f"「{name}」を WSL{target} に変換しています…",
             ["--set-version", name, target],
-            f"「{name}」を WSL{target} に変換しました。",
-            f"「{name}」の WSL バージョン変換に失敗しました。",
+            None,
+            None,
+            _on_done,
+            cancel_prompt=(
+                "変換をキャンセルしますか？\n"
+                "変換の中断はディストリビューションが不完全な状態で"
+                "残る可能性があります。"
+            ),
         )
 
     def _show_wsl_version(self) -> None:
@@ -3617,7 +3728,7 @@ class WSLManager(tk.Tk):
                     lines = ["WSL のバージョン情報を取得できませんでした。"]
                 WslVersionDialog(self, lines, self._update_wsl)
 
-            self.after(0, _show)
+            self._call_soon_safe(_show)
 
         threading.Thread(target=_run, daemon=True).start()
 
@@ -3681,7 +3792,7 @@ class WSLManager(tk.Tk):
                     self._set_status(message)
                     messagebox.showerror("WSL を更新", message, parent=self)
 
-            self.after(0, _done)
+            self._call_soon_safe(_done)
 
         threading.Thread(target=_run, daemon=True).start()
 
@@ -3741,6 +3852,8 @@ class WSLManager(tk.Tk):
         if self._refresh_job:
             self.after_cancel(self._refresh_job)
         self._save_settings()
+        # キューに残った操作ログを書き終えてからライタスレッドを終了させる
+        self._log_writer.stop()
         self.destroy()
 
 
