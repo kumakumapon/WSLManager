@@ -15,8 +15,10 @@ import tempfile
 import threading
 import time
 import tkinter as tk
+from collections.abc import Callable
 from datetime import datetime
 from tkinter import filedialog, messagebox, simpledialog, ttk
+from typing import ClassVar
 
 import wsl_core
 
@@ -323,13 +325,12 @@ class ProcessWindow(tk.Toplevel):
 
         displayed = 0
         for p in self._all_processes:
-            if filter_text:
-                if (
-                    filter_text not in str(p["pid"]).casefold()
-                    and filter_text not in p["user"].casefold()
-                    and filter_text not in p["command"].casefold()
-                ):
-                    continue
+            if filter_text and (
+                filter_text not in str(p["pid"]).casefold()
+                and filter_text not in p["user"].casefold()
+                and filter_text not in p["command"].casefold()
+            ):
+                continue
             self._tree.insert(
                 "", tk.END,
                 values=(p["pid"], p["user"], p["cpu"], p["memory"], p["command"]),
@@ -380,7 +381,10 @@ class ProcessWindow(tk.Toplevel):
         command = str(values[4])
 
         if signal == "KILL":
-            confirm_msg = f"PID {pid} ({command}) にシグナルを送信しますか？\n(SIGKILL: 強制終了します)"
+            confirm_msg = (
+                f"PID {pid} ({command}) にシグナルを送信しますか？\n"
+                "(SIGKILL: 強制終了します)"
+            )
         else:
             confirm_msg = f"PID {pid} ({command}) にシグナルを送信しますか？"
 
@@ -476,9 +480,9 @@ class InstallDialog(tk.Toplevel):
         frame = ttk.Frame(self, padding=12)
         frame.pack(fill=tk.BOTH, expand=True)
 
-        ttk.Label(frame, text="インストールするディストリビューションを選択または入力してください:").pack(
-            anchor=tk.W, pady=(0, 6)
-        )
+        ttk.Label(
+            frame, text="インストールするディストリビューションを選択または入力してください:"
+        ).pack(anchor=tk.W, pady=(0, 6))
 
         if self._candidates:
             list_frame = ttk.Frame(frame)
@@ -556,7 +560,7 @@ class WslConfigDialog(tk.Toplevel):
 
     # [wsl2] セクションで編集するキーの定義
     # (キー名, ラベルテキスト, ウィジェット種別, Combobox 選択肢 or None)
-    _WSL2_FIELDS: list[tuple[str, str, str, list[str] | None]] = [
+    _WSL2_FIELDS: ClassVar[list[tuple[str, str, str, list[str] | None]]] = [
         ("memory",               "memory",               "entry",   None),
         ("processors",           "processors",           "entry",   None),
         ("swap",                 "swap",                 "entry",   None),
@@ -697,7 +701,9 @@ class WslConfigDialog(tk.Toplevel):
             with open(self._path, "w", encoding="utf-8") as f:
                 f.write(text)
         except OSError as e:
-            messagebox.showerror("保存エラー", f".wslconfig の書き込みに失敗しました:\n{e}", parent=self)
+            messagebox.showerror(
+                "保存エラー", f".wslconfig の書き込みに失敗しました:\n{e}", parent=self
+            )
             return
 
         self.result = True
@@ -724,7 +730,7 @@ class DistroConfDialog(tk.Toplevel):
     """
 
     # (セクション, キー, ラベル, ウィジェット種別, Combobox 選択肢 or None)
-    _FIELDS: list[tuple[str, str, str, str, list[str] | None]] = [
+    _FIELDS: ClassVar[list[tuple[str, str, str, str, list[str] | None]]] = [
         ("boot", "systemd", "systemd", "combo", ["", "true", "false"]),
         ("boot", "command", "command", "entry", None),
         ("user", "default", "default", "entry", None),
@@ -737,7 +743,7 @@ class DistroConfDialog(tk.Toplevel):
     ]
 
     # (セクション, キー) -> バリデータ関数 (未登録のキーは検証なし)
-    _VALIDATORS = {
+    _VALIDATORS: ClassVar[dict[tuple[str, str], Callable[[str], tuple[bool, str]]]] = {
         ("boot", "systemd"): wsl_core.validate_wslconf_bool,
         ("user", "default"): wsl_core.validate_linux_username,
         ("automount", "enabled"): wsl_core.validate_wslconf_bool,
@@ -1754,7 +1760,7 @@ class TransferProgressDialog(tk.Toplevel):
 
         try:
             self._proc = subprocess.Popen(
-                ["wsl"] + wsl_args,
+                ["wsl", *wsl_args],
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 creationflags=CREATE_NO_WINDOW,
@@ -2155,7 +2161,7 @@ class WSLManager(tk.Tk):
     """WSL2 ディストリビューション管理メインウィンドウ。"""
 
     # 状態の日本語表示マッピング
-    STATE_JP = {"Running": "実行中", "Stopped": "停止中"}
+    STATE_JP: ClassVar[dict[str, str]] = {"Running": "実行中", "Stopped": "停止中"}
 
     # リソース使用量(CPU/メモリ)取得のタイムアウト秒数。
     # VM 初期化直後や、ログインシェルの起動が重い/プロセス数が多い
@@ -2360,7 +2366,12 @@ class WSLManager(tk.Tk):
         self.bind_all("<Control-p>", lambda e: self._show_processes())
         self.bind_all("<Control-comma>", lambda e: self._open_wslconfig())
         self.bind_all("<Control-l>", lambda e: self._show_log_viewer())
-        self.bind_all("<Delete>", lambda e: self._stop_distro() if not isinstance(e.widget, (tk.Entry, ttk.Entry)) else None)
+        self.bind_all(
+            "<Delete>",
+            lambda e: self._stop_distro()
+            if not isinstance(e.widget, (tk.Entry, ttk.Entry))
+            else None,
+        )
         self.bind_all("<Control-Shift-Q>", lambda e: self._shutdown_all())
         self.bind_all("<F5>", lambda e: self._refresh())
 
@@ -2650,12 +2661,14 @@ class WSLManager(tk.Tk):
                 1 for d in distros if filter_text in d["name"].casefold()
             )
             self._set_status(
-                f"ディストリビューション数: {count}  (実行中: {running} / 停止中: {count - running})"
+                f"ディストリビューション数: {count}  "
+                f"(実行中: {running} / 停止中: {count - running})"
                 f"  （フィルタ表示: {filtered_count} 件）"
             )
         else:
             self._set_status(
-                f"ディストリビューション数: {count}  (実行中: {running} / 停止中: {count - running})"
+                f"ディストリビューション数: {count}  "
+                f"(実行中: {running} / 停止中: {count - running})"
             )
 
         self._refresh_in_progress = False
@@ -2825,7 +2838,7 @@ class WSLManager(tk.Tk):
         def _run() -> None:
             try:
                 result = subprocess.run(
-                    ["wsl"] + args,
+                    ["wsl", *args],
                     capture_output=True,
                     creationflags=CREATE_NO_WINDOW,
                     timeout=timeout,

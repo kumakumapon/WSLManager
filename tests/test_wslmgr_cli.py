@@ -438,21 +438,24 @@ class TestRunWslCommand(unittest.TestCase):
         proc.stdout = b"\xff\xfe" + "結果".encode("utf-16-le")
         proc.stderr = b""
         mock_run.return_value = proc
-        rc, out, err = wslmgr_cli._run_wsl_command(["--list"])
+        rc, out, _err = wslmgr_cli._run_wsl_command(["--list"])
         self.assertEqual(rc, 0)
         self.assertEqual(out, "結果")
 
-    @patch("wslmgr_cli.subprocess.run", side_effect=__import__("subprocess").TimeoutExpired(cmd="wsl", timeout=10))
+    @patch(
+        "wslmgr_cli.subprocess.run",
+        side_effect=__import__("subprocess").TimeoutExpired(cmd="wsl", timeout=10),
+    )
     def test_timeout_returns_error(self, mock_run):
         """タイムアウト時に returncode=-1 とエラーメッセージを返す。"""
-        rc, out, err = wslmgr_cli._run_wsl_command(["--list"])
+        rc, _out, err = wslmgr_cli._run_wsl_command(["--list"])
         self.assertEqual(rc, -1)
         self.assertIn("タイムアウト", err)
 
     @patch("wslmgr_cli.subprocess.run", side_effect=OSError("not found"))
     def test_oserror_returns_error(self, mock_run):
         """OSError 発生時に returncode=-1 とエラーメッセージを返す。"""
-        rc, out, err = wslmgr_cli._run_wsl_command(["--list"])
+        rc, _out, err = wslmgr_cli._run_wsl_command(["--list"])
         self.assertEqual(rc, -1)
         self.assertIn("not found", err)
 
@@ -512,7 +515,10 @@ class TestCmdExport(unittest.TestCase):
                         wslmgr_cli.cmd_export(args)
             self.assertEqual(cm.exception.code, 1)
 
-    @patch("wslmgr_cli.subprocess.run", side_effect=subprocess.TimeoutExpired(cmd="wsl", timeout=600))
+    @patch(
+        "wslmgr_cli.subprocess.run",
+        side_effect=subprocess.TimeoutExpired(cmd="wsl", timeout=600),
+    )
     def test_timeout_exits_with_error(self, mock_run):
         """エクスポートがタイムアウトした場合 exit 1 する。"""
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -719,7 +725,7 @@ class TestRunNetshPortproxy(unittest.TestCase):
         proc.stdout = "結果テキスト"
         proc.stderr = ""
         mock_run.return_value = proc
-        rc, out, err = wslmgr_cli._run_netsh_portproxy(["show", "all"])
+        rc, out, _err = wslmgr_cli._run_netsh_portproxy(["show", "all"])
         self.assertEqual(rc, 0)
         self.assertEqual(out, "結果テキスト")
 
@@ -744,14 +750,14 @@ class TestRunNetshPortproxy(unittest.TestCase):
     )
     def test_timeout_returns_error(self, mock_run):
         """タイムアウト時に returncode=-1 とエラーメッセージを返す。"""
-        rc, out, err = wslmgr_cli._run_netsh_portproxy(["show", "all"])
+        rc, _out, err = wslmgr_cli._run_netsh_portproxy(["show", "all"])
         self.assertEqual(rc, -1)
         self.assertIn("タイムアウト", err)
 
     @patch("wslmgr_cli.subprocess.run", side_effect=OSError("not found"))
     def test_oserror_returns_error(self, mock_run):
         """OSError 発生時に returncode=-1 とエラーメッセージを返す。"""
-        rc, out, err = wslmgr_cli._run_netsh_portproxy(["show", "all"])
+        rc, _out, err = wslmgr_cli._run_netsh_portproxy(["show", "all"])
         self.assertEqual(rc, -1)
         self.assertIn("not found", err)
 
@@ -1015,7 +1021,9 @@ class TestCmdOptimize(unittest.TestCase):
     def test_compact_without_yes_requires_confirmation(
         self, mock_run_wsl, mock_vhdx, mock_subprocess_run
     ):
-        """--compact は --yes なしでは常に確認プロンプトを表示し、'n' の場合 diskpart を呼ばない。"""
+        # 日本語の1文なので途中改行は読みにくく、() による暗黙連結では
+        # docstring の見た目が不自然になるため、1 行のまま noqa で許容する。
+        """--compact は --yes なしでは常に確認プロンプトを表示し、'n' の場合 diskpart を呼ばない。"""  # noqa: E501
         mock_run_wsl.return_value = (0, "", "")
         args = argparse.Namespace(name="Ubuntu", sparse=False, compact=True, yes=False)
         with patch("sys.stdin.isatty", return_value=True):
@@ -1043,7 +1051,10 @@ class TestCmdOptimize(unittest.TestCase):
         self.assertEqual(cm.exception.code, 1)
         mock_subprocess_run.assert_not_called()
 
-    @patch("wslmgr_cli.subprocess.run", side_effect=subprocess.TimeoutExpired(cmd="diskpart", timeout=600))
+    @patch(
+        "wslmgr_cli.subprocess.run",
+        side_effect=subprocess.TimeoutExpired(cmd="diskpart", timeout=600),
+    )
     @patch("wslmgr_cli._get_distro_vhdx_path", return_value=r"C:\wsl\Ubuntu\ext4.vhdx")
     @patch("wslmgr_cli._run_wsl_command")
     def test_compact_diskpart_timeout_exits(self, mock_run_wsl, mock_vhdx, mock_subprocess_run):
@@ -1071,9 +1082,13 @@ class TestCmdOptimize(unittest.TestCase):
                     wslmgr_cli.cmd_optimize(args)
         self.assertEqual(cm.exception.code, 1)
 
-    @patch("wslmgr_cli.subprocess.run", side_effect=subprocess.TimeoutExpired(cmd="wsl", timeout=120))
+    @patch(
+        "wslmgr_cli.subprocess.run", side_effect=subprocess.TimeoutExpired(cmd="wsl", timeout=120)
+    )
     def test_sparse_manage_timeout_exits(self, mock_subprocess_run):
-        """--sparse の --manage がタイムアウトした場合 exit 1 する (subprocess.run を直接タイムアウトさせる)。"""
+        # 日本語の1文なので途中改行は読みにくく、() による暗黙連結では
+        # docstring の見た目が不自然になるため、1 行のまま noqa で許容する。
+        """--sparse の --manage がタイムアウトした場合 exit 1 する (subprocess.run を直接タイムアウトさせる)。"""  # noqa: E501
         args = argparse.Namespace(name="Ubuntu", sparse=True, compact=False)
         with self.assertRaises(SystemExit) as cm:
             with patch("sys.stdout", io.StringIO()):
@@ -1221,9 +1236,12 @@ class TestCmdLog(unittest.TestCase):
     """cmd_log のテスト。"""
 
     LOG_TEXT = (
-        '{"timestamp": "2026-01-01T00:00:00", "operation": "起動", "target": "Ubuntu", "result": "成功"}\n'
-        '{"timestamp": "2026-01-02T00:00:00", "operation": "停止", "target": "Ubuntu", "result": "成功"}\n'
-        '{"timestamp": "2026-01-03T00:00:00", "operation": "起動", "target": "Debian", "result": "失敗"}\n'
+        '{"timestamp": "2026-01-01T00:00:00", "operation": "起動", '
+        '"target": "Ubuntu", "result": "成功"}\n'
+        '{"timestamp": "2026-01-02T00:00:00", "operation": "停止", '
+        '"target": "Ubuntu", "result": "成功"}\n'
+        '{"timestamp": "2026-01-03T00:00:00", "operation": "起動", '
+        '"target": "Debian", "result": "失敗"}\n'
     )
 
     @patch("wslmgr_cli.os.path.exists", return_value=False)
@@ -2085,7 +2103,9 @@ class TestCmdClone(unittest.TestCase):
     @patch("sys.stdin.isatty", return_value=True)
     @patch("builtins.input", return_value="n")
     def test_confirmation_declined_aborts(self, mock_input, mock_isatty, mock_run):
-        """複製先に ext4.vhdx が既に存在し、確認プロンプトで 'n' の場合、export を呼ばずに中止する。"""
+        # 日本語の1文なので途中改行は読みにくく、() による暗黙連結では
+        # docstring の見た目が不自然になるため、1 行のまま noqa で許容する。
+        """複製先に ext4.vhdx が既に存在し、確認プロンプトで 'n' の場合、export を呼ばずに中止する。"""  # noqa: E501
         mock_run.return_value = (0, DISTRO_LIST_OUTPUT, "")
         with tempfile.TemporaryDirectory() as install_dir:
             with open(os.path.join(install_dir, "ext4.vhdx"), "wb") as f:
@@ -2102,7 +2122,9 @@ class TestCmdClone(unittest.TestCase):
     @patch("wslmgr_cli._run_wsl_command")
     @patch("sys.stdin.isatty", return_value=False)
     def test_non_tty_without_yes_exits_when_vhdx_exists(self, mock_isatty, mock_run):
-        """非対話環境で複製先に ext4.vhdx が存在し --yes なしの場合、export を呼ばずに exit 1 する。"""
+        # 日本語の1文なので途中改行は読みにくく、() による暗黙連結では
+        # docstring の見た目が不自然になるため、1 行のまま noqa で許容する。
+        """非対話環境で複製先に ext4.vhdx が存在し --yes なしの場合、export を呼ばずに exit 1 する。"""  # noqa: E501
         mock_run.return_value = (0, DISTRO_LIST_OUTPUT, "")
         with tempfile.TemporaryDirectory() as install_dir:
             with open(os.path.join(install_dir, "ext4.vhdx"), "wb") as f:

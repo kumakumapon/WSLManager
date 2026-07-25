@@ -150,7 +150,8 @@ def parse_online_distros(output: str) -> list[str]:
 
 
 def parse_process_list(output: str) -> list[dict]:
-    """``ps -eo pid,user,pcpu,rss,comm`` のデコード済みテキスト出力を解析してプロセス一覧を返します。
+    """``ps -eo pid,user,pcpu,rss,comm`` のデコード済みテキスト出力を解析して
+    プロセス一覧を返します。
 
     先頭1行はヘッダ行としてスキップします。各行を最大5フィールドで分割し、
     5フィールド未満や数値変換失敗の行はスキップします。
@@ -216,7 +217,8 @@ class WslConfigParseError(ValueError):
 
 
 def parse_wslconfig(text: str) -> dict[str, dict[str, str]]:
-    """INI 形式の ``.wslconfig`` テキストをパースして ``{section: {key: value}}`` の dict を返します。
+    """INI 形式の ``.wslconfig`` テキストをパースして
+    ``{section: {key: value}}`` の dict を返します。
 
     空文字や None を渡した場合は空 dict を返します。
     重複セクションや不正な行に対しては ``strict=False`` で可能な範囲でパースしますが、
@@ -683,7 +685,10 @@ def validate_memory_string(value: str) -> tuple[bool, str]:
     if value == "":
         return True, ""
     if not _MEMORY_RE.match(value):
-        return False, "メモリサイズは数値と単位 (KB/MB/GB/TB) の組み合わせで入力してください (例: 4GB)"
+        return False, (
+            "メモリサイズは数値と単位 (KB/MB/GB/TB) の組み合わせで"
+            "入力してください (例: 4GB)"
+        )
     # 先頭の数値部分を取り出して 0 より大きいことを確認
     num_part = re.match(r"^\d+", value)
     if num_part and int(num_part.group()) == 0:

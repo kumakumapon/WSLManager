@@ -12,6 +12,7 @@ import shutil
 import sys
 import tempfile
 import unittest
+from typing import ClassVar
 from unittest import mock
 
 # リポジトリルートを sys.path の先頭に挿入して wsl_core をインポートできるようにする
@@ -615,7 +616,7 @@ class TestParseWslVersion(unittest.TestCase):
         "Windows version: 10.0.22631.4890\n"
     )
 
-    EXPECTED = {
+    EXPECTED: ClassVar[dict[str, str]] = {
         "wsl": "2.4.4.0",
         "kernel": "5.15.167.4-1",
         "wslg": "1.0.65",
@@ -1013,7 +1014,9 @@ class TestParseUptime(unittest.TestCase):
 
     def test_with_whitespace(self):
         """前後の空白が除去される。"""
-        self.assertEqual(wsl_core.parse_uptime("  up 2 hours, 30 minutes  "), "up 2 hours, 30 minutes")
+        self.assertEqual(
+            wsl_core.parse_uptime("  up 2 hours, 30 minutes  "), "up 2 hours, 30 minutes"
+        )
 
     def test_empty_returns_dash(self):
         """空文字列は '-' を返す。"""
@@ -1268,7 +1271,7 @@ class TestFormatBytes(unittest.TestCase):
 class TestBuildDistroSnapshot(unittest.TestCase):
     """build_distro_snapshot のテスト。"""
 
-    DISTROS = [
+    DISTROS: ClassVar[list[dict[str, object]]] = [
         {"name": "Ubuntu", "state": "Running", "version": "2", "default": True,
          "cpu": "-", "memory": "-", "disk": "-", "ip": "-"},
         {"name": "Debian", "state": "Stopped", "version": "2", "default": False,
@@ -1347,7 +1350,7 @@ class TestBuildDistroSnapshot(unittest.TestCase):
 class TestFormatSnapshotSummary(unittest.TestCase):
     """format_snapshot_summary のテスト。"""
 
-    DISTROS = [
+    DISTROS: ClassVar[list[dict[str, str]]] = [
         {"name": "Ubuntu", "state": "Running"},
         {"name": "Debian", "state": "Stopped"},
     ]
@@ -2102,12 +2105,15 @@ class TestSerializeLogEntry(unittest.TestCase):
         self.assertEqual(result.count("\n"), 0)
         data = json.loads(result)
         self.assertEqual(
-            data, {"timestamp": "t", "operation": "再起動", "target": "Ubuntu-22.04", "result": "成功"}
+            data,
+            {"timestamp": "t", "operation": "再起動", "target": "Ubuntu-22.04", "result": "成功"},
         )
 
     def test_japanese_text_not_escaped(self):
         """ensure_ascii=False により日本語がそのまま出力される (\\u エスケープされない)。"""
-        result = wsl_core.serialize_log_entry("エクスポート", "テスト用ディストロ", "成功", timestamp="t")
+        result = wsl_core.serialize_log_entry(
+            "エクスポート", "テスト用ディストロ", "成功", timestamp="t"
+        )
         self.assertIn("エクスポート", result)
         self.assertIn("テスト用ディストロ", result)
         self.assertNotIn("\\u", result)
@@ -2189,7 +2195,12 @@ class TestFormatLogEntryFromDict(unittest.TestCase):
 
     def test_normal_dict(self):
         """すべてのキーが揃った dict を正しくフォーマットする。"""
-        entry = {"timestamp": "2026-01-01T00:00:00", "operation": "起動", "target": "Ubuntu", "result": "成功"}
+        entry = {
+            "timestamp": "2026-01-01T00:00:00",
+            "operation": "起動",
+            "target": "Ubuntu",
+            "result": "成功",
+        }
         result = wsl_core.format_log_entry_from_dict(entry)
         self.assertEqual(result, "[2026-01-01T00:00:00] 起動 | Ubuntu | 成功")
 
@@ -2477,7 +2488,8 @@ class TestParseSsOutput(unittest.TestCase):
         """IPv4 のリスニングソケットを解析する。"""
         output = (
             "State    Recv-Q   Send-Q   Local Address:Port   Peer Address:Port   Process\n"
-            'LISTEN   0        128      0.0.0.0:22           0.0.0.0:*           users:(("sshd",pid=1,fd=3))\n'
+            'LISTEN   0        128      0.0.0.0:22           0.0.0.0:*           '
+            'users:(("sshd",pid=1,fd=3))\n'
         )
         result = wsl_core.parse_ss_output(output)
         self.assertEqual(
@@ -2489,7 +2501,8 @@ class TestParseSsOutput(unittest.TestCase):
         """IPv6 (角括弧表記) のリスニングソケットを解析する。"""
         output = (
             "State    Recv-Q   Send-Q   Local Address:Port   Peer Address:Port   Process\n"
-            'LISTEN   0        128      [::]:22              [::]:*              users:(("sshd",pid=1,fd=4))\n'
+            'LISTEN   0        128      [::]:22              [::]:*              '
+            'users:(("sshd",pid=1,fd=4))\n'
         )
         result = wsl_core.parse_ss_output(output)
         self.assertEqual(result[0]["local_address"], "::")
@@ -2500,8 +2513,10 @@ class TestParseSsOutput(unittest.TestCase):
         """複数のリスニングソケットをすべて解析する。"""
         output = (
             "State    Recv-Q   Send-Q   Local Address:Port   Peer Address:Port   Process\n"
-            'LISTEN   0        128      0.0.0.0:22           0.0.0.0:*           users:(("sshd",pid=1,fd=3))\n'
-            'LISTEN   0        511      127.0.0.1:3000       0.0.0.0:*           users:(("node",pid=42,fd=18))\n'
+            'LISTEN   0        128      0.0.0.0:22           0.0.0.0:*           '
+            'users:(("sshd",pid=1,fd=3))\n'
+            'LISTEN   0        511      127.0.0.1:3000       0.0.0.0:*           '
+            'users:(("node",pid=42,fd=18))\n'
         )
         result = wsl_core.parse_ss_output(output)
         self.assertEqual(len(result), 2)
@@ -2726,7 +2741,9 @@ class TestNormalizeSettings(unittest.TestCase):
         self.assertEqual(result["auto_refresh"], wsl_core.DEFAULT_SETTINGS["auto_refresh"])
 
     def test_auto_refresh_int_falls_back(self):
-        """auto_refresh が int (bool のサブクラスでも True/False 以外扱いされない値) の場合を確認する。"""
+        # 日本語の1文なので途中改行は読みにくく、() による暗黙連結では
+        # docstring の見た目が不自然になるため、1 行のまま noqa で許容する。
+        """auto_refresh が int (bool のサブクラスでも True/False 以外扱いされない値) の場合を確認する。"""  # noqa: E501
         result = wsl_core.normalize_settings({"auto_refresh": 1})
         self.assertEqual(result["auto_refresh"], wsl_core.DEFAULT_SETTINGS["auto_refresh"])
 
@@ -2927,7 +2944,9 @@ class TestAtomicWriteText(unittest.TestCase):
         self.assertEqual(os.listdir(self.tmpdir), ["out.txt"])
 
     def test_returns_false_when_dir_uncreatable(self):
-        """親ディレクトリの位置に既存ファイルがある場合は False を返し、対象ファイルは変化しない。"""
+        # 日本語の1文なので途中改行は読みにくく、() による暗黙連結では
+        # docstring の見た目が不自然になるため、1 行のまま noqa で許容する。
+        """親ディレクトリの位置に既存ファイルがある場合は False を返し、対象ファイルは変化しない。"""  # noqa: E501
         blocker = os.path.join(self.tmpdir, "blocker")
         with open(blocker, "w", encoding="utf-8") as f:
             f.write("dummy")
@@ -3607,12 +3626,20 @@ class TestLoadSnapshots(unittest.TestCase):
             self._write_json(
                 tmpdir,
                 "old.json",
-                {"distro_name": "Ubuntu", "tar_file": "old.tar", "created_at": "2026-01-01T00:00:00"},
+                {
+                    "distro_name": "Ubuntu",
+                    "tar_file": "old.tar",
+                    "created_at": "2026-01-01T00:00:00",
+                },
             )
             self._write_json(
                 tmpdir,
                 "new.json",
-                {"distro_name": "Ubuntu", "tar_file": "new.tar", "created_at": "2026-06-01T00:00:00"},
+                {
+                    "distro_name": "Ubuntu",
+                    "tar_file": "new.tar",
+                    "created_at": "2026-06-01T00:00:00",
+                },
             )
             result = wsl_core.load_snapshots(tmpdir)
         self.assertEqual([entry["tar_file"] for entry in result], ["new.tar", "old.tar"])
@@ -3623,9 +3650,15 @@ class TestLoadSnapshots(unittest.TestCase):
             self._write_json(
                 tmpdir,
                 "has_date.json",
-                {"distro_name": "Ubuntu", "tar_file": "has_date.tar", "created_at": "2026-01-01T00:00:00"},
+                {
+                    "distro_name": "Ubuntu",
+                    "tar_file": "has_date.tar",
+                    "created_at": "2026-01-01T00:00:00",
+                },
             )
-            self._write_json(tmpdir, "no_date.json", {"distro_name": "Ubuntu", "tar_file": "no_date.tar"})
+            self._write_json(
+                tmpdir, "no_date.json", {"distro_name": "Ubuntu", "tar_file": "no_date.tar"}
+            )
             result = wsl_core.load_snapshots(tmpdir)
         self.assertEqual([entry["tar_file"] for entry in result], ["has_date.tar", "no_date.tar"])
 
