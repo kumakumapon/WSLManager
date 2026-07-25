@@ -39,7 +39,7 @@ def _run_wsl_command(args: list[str], timeout: float = 10.0) -> tuple[int, str, 
     """
     try:
         result = subprocess.run(
-            ["wsl"] + args,
+            ["wsl", *args],
             capture_output=True,
             creationflags=CREATE_NO_WINDOW,
             timeout=timeout,
@@ -64,7 +64,7 @@ def _run_netsh_portproxy(args: list[str], timeout: float = 15.0) -> tuple[int, s
     """
     try:
         result = subprocess.run(
-            ["netsh", "interface", "portproxy"] + args,
+            ["netsh", "interface", "portproxy", *args],
             capture_output=True,
             text=True,
             errors="replace",
@@ -99,7 +99,9 @@ def _format_table(headers: list[str], rows: list[list[str]], min_width: int = 8)
         widths.append(max(len(header), max_data_len, min_width))
 
     lines: list[str] = []
-    header_line = "  ".join(h.ljust(w) for h, w in zip(str_headers, widths))
+    # widths は str_headers を enumerate して構築するため常に同じ長さになる。
+    # strict=True で万一の長さ不一致 (バグ) を検出する。
+    header_line = "  ".join(h.ljust(w) for h, w in zip(str_headers, widths, strict=True))
     lines.append(header_line)
     lines.append("  ".join("-" * w for w in widths))
     for row in str_rows:
@@ -250,6 +252,12 @@ def cmd_export(args: argparse.Namespace) -> None:
     """指定したディストリビューションをエクスポートします。"""
     name = args.name
     path = args.path
+
+    if os.path.exists(path):
+        _confirm_or_exit(
+            f"「{path}」は既に存在します。上書きします。続行しますか?", args.yes
+        )
+
     print(f"「{name}」を「{path}」にエクスポート中…")
     returncode, _stdout, stderr = _run_wsl_command(
         ["--export", name, path], timeout=600.0
@@ -276,6 +284,13 @@ def cmd_import(args: argparse.Namespace) -> None:
     if not valid:
         print(f"エラー: {reason}", file=sys.stderr)
         sys.exit(1)
+
+    if os.path.exists(os.path.join(install_path, "ext4.vhdx")):
+        _confirm_or_exit(
+            f"「{install_path}」には既に仮想ディスク (ext4.vhdx) が存在します。"
+            "上書きします。続行しますか?",
+            args.yes,
+        )
 
     print(f"「{name}」を「{install_path}」にインポート中…")
     returncode, _stdout, stderr = _run_wsl_command(
@@ -484,6 +499,11 @@ def cmd_optimize(args: argparse.Namespace) -> None:
         print(f"エラー: 「{name}」の仮想ディスク (ext4.vhdx) が見つかりません。", file=sys.stderr)
         sys.exit(1)
 
+    _confirm_or_exit(
+        f"「{name}」の仮想ディスクを圧縮します。この操作は取り消せません。続行しますか?",
+        args.yes,
+    )
+
     print("管理者権限が必要な場合があります。")
 
     script_text = wsl_core.build_diskpart_compact_script(vhdx_path)
@@ -530,7 +550,8 @@ def cmd_set_version(args: argparse.Namespace) -> None:
     name = args.name
     version = args.version
     _confirm_or_exit(
-        f"「{name}」を WSL{version} に変換します。変換には時間がかかることがあります。続行しますか?",
+        f"「{name}」を WSL{version} に変換します。"
+        "変換には時間がかかることがあります。続行しますか?",
         args.yes,
     )
     returncode, _stdout, stderr = _run_wsl_command(
@@ -829,7 +850,9 @@ def cmd_snapshot_restore(args: argparse.Namespace) -> None:
     snapshots = wsl_core.load_snapshots(snap_dir)
     snap = _find_snapshot_by_tar_file(snapshots, args.tar_file)
     if snap is None:
-        print(f"エラー: 「{args.tar_file}」というスナップショットが見つかりません。", file=sys.stderr)
+        print(
+            f"エラー: 「{args.tar_file}」というスナップショットが見つかりません。", file=sys.stderr
+        )
         sys.exit(1)
     if not snap.get("tar_exists", True):
         print(f"エラー: tar ファイルが見つかりません: {snap.get('tar_path', '')}", file=sys.stderr)
@@ -861,19 +884,18 @@ def cmd_snapshot_restore(args: argparse.Namespace) -> None:
     version = snap.get("wsl_version") or "2"
     tar_path = snap.get("tar_path", "")
 
-    if not args.yes:
-        print("次の内容で復元します。")
-        print(f"  名前: {new_name}")
-        print(f"  スナップショット: {os.path.basename(tar_path)}")
-        print(f"  保存先: {install_path}")
-        print(f"  バージョン: WSL{version}")
-        try:
-            answer = input("よろしいですか? [y/N]: ")
-        except EOFError:
-            answer = ""
-        if answer.strip().lower() not in ("y", "yes"):
-            print("中止しました。")
-            sys.exit(0)
+    print("次の内容で復元します。")
+    print(f"  名前: {new_name}")
+    print(f"  スナップショット: {os.path.basename(tar_path)}")
+    print(f"  保存先: {install_path}")
+    print(f"  バージョン: WSL{version}")
+    if os.path.exists(os.path.join(install_path, "ext4.vhdx")):
+        print(
+            f"警告: 「{install_path}」には既に仮想ディスク (ext4.vhdx) が存在します。"
+            "上書きされます。"
+        )
+    # 復元は新しいディストリビューションを登録する操作のため、常に確認する。
+    _confirm_or_exit("よろしいですか?", args.yes)
 
     print(f"「{new_name}」へ復元中…")
     returncode, _stdout, stderr = _run_wsl_command(
@@ -893,21 +915,16 @@ def cmd_snapshot_delete(args: argparse.Namespace) -> None:
     snapshots = wsl_core.load_snapshots(snap_dir)
     snap = _find_snapshot_by_tar_file(snapshots, args.tar_file)
     if snap is None:
-        print(f"エラー: 「{args.tar_file}」というスナップショットが見つかりません。", file=sys.stderr)
+        print(
+            f"エラー: 「{args.tar_file}」というスナップショットが見つかりません。", file=sys.stderr
+        )
         sys.exit(1)
 
-    if not args.yes:
-        print("次のスナップショットを削除します。この操作は取り消せません。")
-        print(f"  ディストリビューション: {snap.get('distro_name', '')}")
-        print(f"  作成日時: {snap.get('created_at', '')}")
-        print(f"  ファイル: {snap.get('tar_file', '')}")
-        try:
-            answer = input("よろしいですか? [y/N]: ")
-        except EOFError:
-            answer = ""
-        if answer.strip().lower() not in ("y", "yes"):
-            print("中止しました。")
-            sys.exit(0)
+    print("次のスナップショットを削除します。この操作は取り消せません。")
+    print(f"  ディストリビューション: {snap.get('distro_name', '')}")
+    print(f"  作成日時: {snap.get('created_at', '')}")
+    print(f"  ファイル: {snap.get('tar_file', '')}")
+    _confirm_or_exit("よろしいですか?", args.yes)
 
     errors: list[str] = []
     tar_path = snap.get("tar_path", "")
@@ -967,18 +984,17 @@ def cmd_clone(args: argparse.Namespace) -> None:
         print(f"エラー: {reason}", file=sys.stderr)
         sys.exit(1)
 
-    if not args.yes:
-        print("次の内容で複製します。")
-        print(f"  複製元: {name}")
-        print(f"  複製先の名前: {new_name}")
-        print(f"  複製先フォルダ: {install_path}")
-        try:
-            answer = input("よろしいですか? [y/N]: ")
-        except EOFError:
-            answer = ""
-        if answer.strip().lower() not in ("y", "yes"):
-            print("中止しました。")
-            sys.exit(0)
+    print("次の内容で複製します。")
+    print(f"  複製元: {name}")
+    print(f"  複製先の名前: {new_name}")
+    print(f"  複製先フォルダ: {install_path}")
+    if os.path.exists(os.path.join(install_path, "ext4.vhdx")):
+        print(
+            f"警告: 「{install_path}」には既に仮想ディスク (ext4.vhdx) が存在します。"
+            "上書きされます。"
+        )
+    # 複製は新しいディストリビューションを登録する操作のため、常に確認する。
+    _confirm_or_exit("よろしいですか?", args.yes)
 
     tmp_dir = tempfile.mkdtemp(prefix="wslmgr_clone_")
     tmp_tar = os.path.join(tmp_dir, wsl_core.sanitize_snapshot_name(new_name) + ".tar")
@@ -1042,11 +1058,15 @@ def build_parser() -> argparse.ArgumentParser:
     p_stop.set_defaults(func=cmd_stop)
 
     # shutdown
-    p_shutdown = subparsers.add_parser("shutdown", help="すべてのディストリビューションを停止します")
+    p_shutdown = subparsers.add_parser(
+        "shutdown", help="すべてのディストリビューションを停止します"
+    )
     p_shutdown.set_defaults(func=cmd_shutdown)
 
     # status
-    p_status = subparsers.add_parser("status", help="実行中ディストリビューションのリソース使用状況を表示します")
+    p_status = subparsers.add_parser(
+        "status", help="実行中ディストリビューションのリソース使用状況を表示します"
+    )
     p_status.add_argument(
         "--format", choices=["table", "json"], default="table",
         help="出力フォーマット (既定: table)",
@@ -1057,6 +1077,9 @@ def build_parser() -> argparse.ArgumentParser:
     p_export = subparsers.add_parser("export", help="ディストリビューションをエクスポートします")
     p_export.add_argument("name", help="ディストリビューション名")
     p_export.add_argument("path", help="エクスポート先のファイルパス")
+    p_export.add_argument(
+        "--yes", "-y", action="store_true", help="確認プロンプトを表示せずに実行します"
+    )
     p_export.set_defaults(func=cmd_export)
 
     # import
@@ -1064,6 +1087,9 @@ def build_parser() -> argparse.ArgumentParser:
     p_import.add_argument("name", help="ディストリビューション名")
     p_import.add_argument("install_path", help="インストール先ディレクトリ")
     p_import.add_argument("image_path", help="インポートするイメージ (tar) のパス")
+    p_import.add_argument(
+        "--yes", "-y", action="store_true", help="確認プロンプトを表示せずに実行します"
+    )
     p_import.set_defaults(func=cmd_import)
 
     # config
@@ -1107,6 +1133,9 @@ def build_parser() -> argparse.ArgumentParser:
     )
     optimize_group.add_argument(
         "--compact", action="store_true", help="仮想ディスクを圧縮します"
+    )
+    p_optimize.add_argument(
+        "--yes", "-y", action="store_true", help="確認プロンプトを表示せずに実行します"
     )
     p_optimize.set_defaults(func=cmd_optimize)
 
@@ -1194,8 +1223,12 @@ def build_parser() -> argparse.ArgumentParser:
         "create", help="ディストリビューションのスナップショットを作成します"
     )
     p_snapshot_create.add_argument("name", help="ディストリビューション名")
-    p_snapshot_create.add_argument("--comment", default="", help="スナップショットのコメント (任意)")
-    p_snapshot_create.add_argument("--dir", help="スナップショット保存先ディレクトリ (既定: 設定値)")
+    p_snapshot_create.add_argument(
+        "--comment", default="", help="スナップショットのコメント (任意)"
+    )
+    p_snapshot_create.add_argument(
+        "--dir", help="スナップショット保存先ディレクトリ (既定: 設定値)"
+    )
     p_snapshot_create.set_defaults(func=cmd_snapshot_create)
 
     p_snapshot_list = snapshot_subparsers.add_parser(
@@ -1218,7 +1251,9 @@ def build_parser() -> argparse.ArgumentParser:
     p_snapshot_restore.add_argument(
         "--name", help="復元先のディストリビューション名 (既定: 自動生成)"
     )
-    p_snapshot_restore.add_argument("--dir", help="スナップショット保存先ディレクトリ (既定: 設定値)")
+    p_snapshot_restore.add_argument(
+        "--dir", help="スナップショット保存先ディレクトリ (既定: 設定値)"
+    )
     p_snapshot_restore.add_argument(
         "--yes", "-y", action="store_true", help="確認プロンプトを表示せずに実行します"
     )
@@ -1227,8 +1262,12 @@ def build_parser() -> argparse.ArgumentParser:
     p_snapshot_delete = snapshot_subparsers.add_parser(
         "delete", help="スナップショットを削除します"
     )
-    p_snapshot_delete.add_argument("tar_file", help="削除するスナップショットの tar ファイル名")
-    p_snapshot_delete.add_argument("--dir", help="スナップショット保存先ディレクトリ (既定: 設定値)")
+    p_snapshot_delete.add_argument(
+        "tar_file", help="削除するスナップショットの tar ファイル名"
+    )
+    p_snapshot_delete.add_argument(
+        "--dir", help="スナップショット保存先ディレクトリ (既定: 設定値)"
+    )
     p_snapshot_delete.add_argument(
         "--yes", "-y", action="store_true", help="確認プロンプトを表示せずに実行します"
     )

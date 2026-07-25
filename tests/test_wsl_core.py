@@ -6,19 +6,19 @@
 """
 
 import json
+import os
 import re
 import shutil
 import sys
-import os
 import tempfile
 import unittest
+from typing import ClassVar
 from unittest import mock
 
 # リポジトリルートを sys.path の先頭に挿入して wsl_core をインポートできるようにする
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import wsl_core
-
 
 # ---------------------------------------------------------------------------
 # decode_wsl_output
@@ -86,7 +86,7 @@ class TestDecodeWslOutput(unittest.TestCase):
 
     def test_even_length_utf8_japanese_not_misdetected(self):
         """偶数長の日本語 UTF-8 バイト列を UTF-8 としてデコードする。"""
-        raw = "テスト\n".encode("utf-8")  # 10 バイト (偶数)、NUL なし
+        raw = "テスト\n".encode()  # 10 バイト (偶数)、NUL なし
         self.assertEqual(wsl_core.decode_wsl_output(raw), "テスト\n")
 
     def test_no_bom_utf16le_japanese_with_newline(self):
@@ -616,7 +616,7 @@ class TestParseWslVersion(unittest.TestCase):
         "Windows version: 10.0.22631.4890\n"
     )
 
-    EXPECTED = {
+    EXPECTED: ClassVar[dict[str, str]] = {
         "wsl": "2.4.4.0",
         "kernel": "5.15.167.4-1",
         "wslg": "1.0.65",
@@ -1014,7 +1014,9 @@ class TestParseUptime(unittest.TestCase):
 
     def test_with_whitespace(self):
         """前後の空白が除去される。"""
-        self.assertEqual(wsl_core.parse_uptime("  up 2 hours, 30 minutes  "), "up 2 hours, 30 minutes")
+        self.assertEqual(
+            wsl_core.parse_uptime("  up 2 hours, 30 minutes  "), "up 2 hours, 30 minutes"
+        )
 
     def test_empty_returns_dash(self):
         """空文字列は '-' を返す。"""
@@ -1269,7 +1271,7 @@ class TestFormatBytes(unittest.TestCase):
 class TestBuildDistroSnapshot(unittest.TestCase):
     """build_distro_snapshot のテスト。"""
 
-    DISTROS = [
+    DISTROS: ClassVar[list[dict[str, object]]] = [
         {"name": "Ubuntu", "state": "Running", "version": "2", "default": True,
          "cpu": "-", "memory": "-", "disk": "-", "ip": "-"},
         {"name": "Debian", "state": "Stopped", "version": "2", "default": False,
@@ -1348,7 +1350,7 @@ class TestBuildDistroSnapshot(unittest.TestCase):
 class TestFormatSnapshotSummary(unittest.TestCase):
     """format_snapshot_summary のテスト。"""
 
-    DISTROS = [
+    DISTROS: ClassVar[list[dict[str, str]]] = [
         {"name": "Ubuntu", "state": "Running"},
         {"name": "Debian", "state": "Stopped"},
     ]
@@ -2103,12 +2105,15 @@ class TestSerializeLogEntry(unittest.TestCase):
         self.assertEqual(result.count("\n"), 0)
         data = json.loads(result)
         self.assertEqual(
-            data, {"timestamp": "t", "operation": "再起動", "target": "Ubuntu-22.04", "result": "成功"}
+            data,
+            {"timestamp": "t", "operation": "再起動", "target": "Ubuntu-22.04", "result": "成功"},
         )
 
     def test_japanese_text_not_escaped(self):
         """ensure_ascii=False により日本語がそのまま出力される (\\u エスケープされない)。"""
-        result = wsl_core.serialize_log_entry("エクスポート", "テスト用ディストロ", "成功", timestamp="t")
+        result = wsl_core.serialize_log_entry(
+            "エクスポート", "テスト用ディストロ", "成功", timestamp="t"
+        )
         self.assertIn("エクスポート", result)
         self.assertIn("テスト用ディストロ", result)
         self.assertNotIn("\\u", result)
@@ -2190,7 +2195,12 @@ class TestFormatLogEntryFromDict(unittest.TestCase):
 
     def test_normal_dict(self):
         """すべてのキーが揃った dict を正しくフォーマットする。"""
-        entry = {"timestamp": "2026-01-01T00:00:00", "operation": "起動", "target": "Ubuntu", "result": "成功"}
+        entry = {
+            "timestamp": "2026-01-01T00:00:00",
+            "operation": "起動",
+            "target": "Ubuntu",
+            "result": "成功",
+        }
         result = wsl_core.format_log_entry_from_dict(entry)
         self.assertEqual(result, "[2026-01-01T00:00:00] 起動 | Ubuntu | 成功")
 
@@ -2478,7 +2488,8 @@ class TestParseSsOutput(unittest.TestCase):
         """IPv4 のリスニングソケットを解析する。"""
         output = (
             "State    Recv-Q   Send-Q   Local Address:Port   Peer Address:Port   Process\n"
-            'LISTEN   0        128      0.0.0.0:22           0.0.0.0:*           users:(("sshd",pid=1,fd=3))\n'
+            'LISTEN   0        128      0.0.0.0:22           0.0.0.0:*           '
+            'users:(("sshd",pid=1,fd=3))\n'
         )
         result = wsl_core.parse_ss_output(output)
         self.assertEqual(
@@ -2490,7 +2501,8 @@ class TestParseSsOutput(unittest.TestCase):
         """IPv6 (角括弧表記) のリスニングソケットを解析する。"""
         output = (
             "State    Recv-Q   Send-Q   Local Address:Port   Peer Address:Port   Process\n"
-            'LISTEN   0        128      [::]:22              [::]:*              users:(("sshd",pid=1,fd=4))\n'
+            'LISTEN   0        128      [::]:22              [::]:*              '
+            'users:(("sshd",pid=1,fd=4))\n'
         )
         result = wsl_core.parse_ss_output(output)
         self.assertEqual(result[0]["local_address"], "::")
@@ -2501,8 +2513,10 @@ class TestParseSsOutput(unittest.TestCase):
         """複数のリスニングソケットをすべて解析する。"""
         output = (
             "State    Recv-Q   Send-Q   Local Address:Port   Peer Address:Port   Process\n"
-            'LISTEN   0        128      0.0.0.0:22           0.0.0.0:*           users:(("sshd",pid=1,fd=3))\n'
-            'LISTEN   0        511      127.0.0.1:3000       0.0.0.0:*           users:(("node",pid=42,fd=18))\n'
+            'LISTEN   0        128      0.0.0.0:22           0.0.0.0:*           '
+            'users:(("sshd",pid=1,fd=3))\n'
+            'LISTEN   0        511      127.0.0.1:3000       0.0.0.0:*           '
+            'users:(("node",pid=42,fd=18))\n'
         )
         result = wsl_core.parse_ss_output(output)
         self.assertEqual(len(result), 2)
@@ -2727,7 +2741,9 @@ class TestNormalizeSettings(unittest.TestCase):
         self.assertEqual(result["auto_refresh"], wsl_core.DEFAULT_SETTINGS["auto_refresh"])
 
     def test_auto_refresh_int_falls_back(self):
-        """auto_refresh が int (bool のサブクラスでも True/False 以外扱いされない値) の場合を確認する。"""
+        # 日本語の1文なので途中改行は読みにくく、() による暗黙連結では
+        # docstring の見た目が不自然になるため、1 行のまま noqa で許容する。
+        """auto_refresh が int (bool のサブクラスでも True/False 以外扱いされない値) の場合を確認する。"""  # noqa: E501
         result = wsl_core.normalize_settings({"auto_refresh": 1})
         self.assertEqual(result["auto_refresh"], wsl_core.DEFAULT_SETTINGS["auto_refresh"])
 
@@ -2928,7 +2944,9 @@ class TestAtomicWriteText(unittest.TestCase):
         self.assertEqual(os.listdir(self.tmpdir), ["out.txt"])
 
     def test_returns_false_when_dir_uncreatable(self):
-        """親ディレクトリの位置に既存ファイルがある場合は False を返し、対象ファイルは変化しない。"""
+        # 日本語の1文なので途中改行は読みにくく、() による暗黙連結では
+        # docstring の見た目が不自然になるため、1 行のまま noqa で許容する。
+        """親ディレクトリの位置に既存ファイルがある場合は False を返し、対象ファイルは変化しない。"""  # noqa: E501
         blocker = os.path.join(self.tmpdir, "blocker")
         with open(blocker, "w", encoding="utf-8") as f:
             f.write("dummy")
@@ -3608,12 +3626,20 @@ class TestLoadSnapshots(unittest.TestCase):
             self._write_json(
                 tmpdir,
                 "old.json",
-                {"distro_name": "Ubuntu", "tar_file": "old.tar", "created_at": "2026-01-01T00:00:00"},
+                {
+                    "distro_name": "Ubuntu",
+                    "tar_file": "old.tar",
+                    "created_at": "2026-01-01T00:00:00",
+                },
             )
             self._write_json(
                 tmpdir,
                 "new.json",
-                {"distro_name": "Ubuntu", "tar_file": "new.tar", "created_at": "2026-06-01T00:00:00"},
+                {
+                    "distro_name": "Ubuntu",
+                    "tar_file": "new.tar",
+                    "created_at": "2026-06-01T00:00:00",
+                },
             )
             result = wsl_core.load_snapshots(tmpdir)
         self.assertEqual([entry["tar_file"] for entry in result], ["new.tar", "old.tar"])
@@ -3624,9 +3650,15 @@ class TestLoadSnapshots(unittest.TestCase):
             self._write_json(
                 tmpdir,
                 "has_date.json",
-                {"distro_name": "Ubuntu", "tar_file": "has_date.tar", "created_at": "2026-01-01T00:00:00"},
+                {
+                    "distro_name": "Ubuntu",
+                    "tar_file": "has_date.tar",
+                    "created_at": "2026-01-01T00:00:00",
+                },
             )
-            self._write_json(tmpdir, "no_date.json", {"distro_name": "Ubuntu", "tar_file": "no_date.tar"})
+            self._write_json(
+                tmpdir, "no_date.json", {"distro_name": "Ubuntu", "tar_file": "no_date.tar"}
+            )
             result = wsl_core.load_snapshots(tmpdir)
         self.assertEqual([entry["tar_file"] for entry in result], ["has_date.tar", "no_date.tar"])
 
@@ -3780,6 +3812,259 @@ class TestFinalizePartialWrite(unittest.TestCase):
         final_path = os.path.join(self.tmpdir, "out.tar")
         partial_path = wsl_core.partial_write_path(final_path)
         wsl_core.discard_partial_write(partial_path)  # 例外を送出しないことを確認
+
+
+# ---------------------------------------------------------------------------
+# log_file_paths / delete_log_files
+# ---------------------------------------------------------------------------
+
+
+class TestLogFilePaths(unittest.TestCase):
+
+    def test_includes_base_and_backups(self):
+        paths = wsl_core.log_file_paths("/logs", max_backups=3)
+        self.assertEqual(
+            paths,
+            [
+                os.path.join("/logs", "operations.jsonl"),
+                os.path.join("/logs", "operations.1.jsonl"),
+                os.path.join("/logs", "operations.2.jsonl"),
+                os.path.join("/logs", "operations.3.jsonl"),
+            ],
+        )
+
+    def test_respects_custom_base_name(self):
+        paths = wsl_core.log_file_paths("/logs", base_name="audit.log", max_backups=1)
+        self.assertEqual(
+            paths,
+            [
+                os.path.join("/logs", "audit.log"),
+                os.path.join("/logs", "audit.1.log"),
+            ],
+        )
+
+    def test_matches_rotate_log_files_naming(self):
+        """rotate_log_files が作るバックアップ名と一致することを確認する。"""
+        tmpdir = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, tmpdir, True)
+        base = os.path.join(tmpdir, "operations.jsonl")
+        with open(base, "w", encoding="utf-8") as f:
+            f.write("x" * 32)
+        wsl_core.rotate_log_files(tmpdir, max_size=8)
+        rotated = os.path.join(tmpdir, "operations.1.jsonl")
+        self.assertTrue(os.path.exists(rotated))
+        self.assertIn(rotated, wsl_core.log_file_paths(tmpdir))
+
+
+class TestDeleteLogFiles(unittest.TestCase):
+
+    def setUp(self):
+        self.tmpdir = tempfile.mkdtemp()
+
+    def tearDown(self):
+        shutil.rmtree(self.tmpdir, ignore_errors=True)
+
+    def _touch(self, name):
+        path = os.path.join(self.tmpdir, name)
+        with open(path, "w", encoding="utf-8") as f:
+            f.write("entry\n")
+        return path
+
+    def test_deletes_base_and_rotated_files(self):
+        base = self._touch("operations.jsonl")
+        b1 = self._touch("operations.1.jsonl")
+        b2 = self._touch("operations.2.jsonl")
+        deleted, failed = wsl_core.delete_log_files(self.tmpdir)
+        self.assertEqual(deleted, 3)
+        self.assertEqual(failed, [])
+        for path in (base, b1, b2):
+            self.assertFalse(os.path.exists(path))
+
+    def test_skips_missing_files(self):
+        deleted, failed = wsl_core.delete_log_files(self.tmpdir)
+        self.assertEqual(deleted, 0)
+        self.assertEqual(failed, [])
+
+    def test_leaves_unrelated_files_untouched(self):
+        keep = self._touch("settings.json")
+        self._touch("operations.jsonl")
+        deleted, failed = wsl_core.delete_log_files(self.tmpdir)
+        self.assertEqual(deleted, 1)
+        self.assertEqual(failed, [])
+        self.assertTrue(os.path.exists(keep))
+
+    def test_reports_failed_paths(self):
+        base = self._touch("operations.jsonl")
+        with mock.patch("wsl_core.os.remove", side_effect=OSError("busy")):
+            deleted, failed = wsl_core.delete_log_files(self.tmpdir)
+        self.assertEqual(deleted, 0)
+        self.assertEqual(failed, [base])
+        self.assertTrue(os.path.exists(base))
+
+    def test_partial_failure_still_deletes_others(self):
+        base = os.path.join(self.tmpdir, "operations.jsonl")
+        self._touch("operations.jsonl")
+        self._touch("operations.1.jsonl")
+        real_remove = os.remove
+
+        def _remove(path):
+            if path == base:
+                raise OSError("busy")
+            real_remove(path)
+
+        with mock.patch("wsl_core.os.remove", side_effect=_remove):
+            deleted, failed = wsl_core.delete_log_files(self.tmpdir)
+        self.assertEqual(deleted, 1)
+        self.assertEqual(failed, [base])
+
+
+# ---------------------------------------------------------------------------
+# AsyncLogWriter
+# ---------------------------------------------------------------------------
+
+
+class TestAsyncLogWriter(unittest.TestCase):
+
+    def setUp(self):
+        self.tmpdir = tempfile.mkdtemp()
+        self.writer = None
+
+    def tearDown(self):
+        if self.writer is not None:
+            self.writer.stop()
+        shutil.rmtree(self.tmpdir, ignore_errors=True)
+
+    def _make(self, **kwargs):
+        self.writer = wsl_core.AsyncLogWriter(self.tmpdir, **kwargs)
+        return self.writer
+
+    def _read_entries(self):
+        with open(self.writer.log_path, encoding="utf-8") as f:
+            return wsl_core.deserialize_log_entries(f.read())
+
+    def test_log_path_uses_base_name(self):
+        writer = self._make()
+        self.assertEqual(
+            writer.log_path, os.path.join(self.tmpdir, "operations.jsonl")
+        )
+
+    def test_submit_writes_entry_after_flush(self):
+        writer = self._make()
+        writer.submit("停止", "Ubuntu", "実行")
+        self.assertTrue(writer.flush(timeout=5.0))
+        entries = self._read_entries()
+        self.assertEqual(len(entries), 1)
+        self.assertEqual(entries[0]["operation"], "停止")
+        self.assertEqual(entries[0]["target"], "Ubuntu")
+        self.assertEqual(entries[0]["result"], "実行")
+
+    def test_preserves_submit_order(self):
+        writer = self._make()
+        for i in range(20):
+            writer.submit("操作", f"distro-{i}", "実行")
+        self.assertTrue(writer.flush(timeout=5.0))
+        entries = self._read_entries()
+        self.assertEqual(
+            [e["target"] for e in entries], [f"distro-{i}" for i in range(20)]
+        )
+
+    def test_appends_to_existing_file(self):
+        writer = self._make()
+        writer.submit("一件目", "A", "実行")
+        self.assertTrue(writer.flush(timeout=5.0))
+        writer.submit("二件目", "B", "実行")
+        self.assertTrue(writer.flush(timeout=5.0))
+        entries = self._read_entries()
+        self.assertEqual([e["operation"] for e in entries], ["一件目", "二件目"])
+
+    def test_creates_missing_log_dir(self):
+        nested = os.path.join(self.tmpdir, "a", "b")
+        self.writer = wsl_core.AsyncLogWriter(nested)
+        self.writer.submit("操作", "A", "実行")
+        self.assertTrue(self.writer.flush(timeout=5.0))
+        self.assertTrue(os.path.exists(os.path.join(nested, "operations.jsonl")))
+
+    def test_explicit_timestamp_is_used(self):
+        writer = self._make()
+        writer.submit("操作", "A", "実行", timestamp="2026-01-01T00:00:00")
+        self.assertTrue(writer.flush(timeout=5.0))
+        self.assertEqual(self._read_entries()[0]["timestamp"], "2026-01-01T00:00:00")
+
+    def test_rotates_when_over_max_size(self):
+        writer = self._make(max_size=64, max_backups=2)
+        for i in range(20):
+            writer.submit("操作", f"distro-{i}", "実行")
+        self.assertTrue(writer.flush(timeout=5.0))
+        self.assertTrue(
+            os.path.exists(os.path.join(self.tmpdir, "operations.1.jsonl"))
+        )
+
+    def test_flush_returns_true_when_nothing_submitted(self):
+        writer = self._make()
+        self.assertTrue(writer.flush(timeout=5.0))
+
+    def test_write_errors_are_swallowed(self):
+        writer = self._make()
+        with mock.patch("wsl_core.open", side_effect=OSError("disk full")):
+            writer.submit("操作", "A", "実行")
+            self.assertTrue(writer.flush(timeout=5.0))
+        # スレッドは生存し、以降の書き込みは成功する
+        writer.submit("操作", "B", "実行")
+        self.assertTrue(writer.flush(timeout=5.0))
+        self.assertEqual([e["target"] for e in self._read_entries()], ["B"])
+
+    def test_stop_flushes_pending_entries(self):
+        writer = self._make()
+        writer.submit("操作", "A", "実行")
+        self.assertTrue(writer.stop(timeout=5.0))
+        self.assertEqual([e["target"] for e in self._read_entries()], ["A"])
+
+    def test_submit_after_stop_is_ignored(self):
+        writer = self._make()
+        writer.submit("操作", "A", "実行")
+        self.assertTrue(writer.stop(timeout=5.0))
+        writer.submit("操作", "B", "実行")
+        self.assertEqual([e["target"] for e in self._read_entries()], ["A"])
+
+    def test_stop_is_idempotent(self):
+        writer = self._make()
+        writer.submit("操作", "A", "実行")
+        self.assertTrue(writer.stop(timeout=5.0))
+        self.assertTrue(writer.stop(timeout=5.0))
+
+    def test_stop_without_submit_does_not_start_thread(self):
+        writer = self._make()
+        self.assertTrue(writer.stop(timeout=5.0))
+        self.assertFalse(os.path.exists(writer.log_path))
+
+    def test_flush_after_stop_returns_true(self):
+        writer = self._make()
+        writer.submit("操作", "A", "実行")
+        self.assertTrue(writer.stop(timeout=5.0))
+        self.assertTrue(writer.flush(timeout=5.0))
+
+    def test_writer_thread_is_daemon(self):
+        writer = self._make()
+        writer.submit("操作", "A", "実行")
+        self.assertTrue(writer.flush(timeout=5.0))
+        self.assertTrue(writer._thread.daemon)
+
+    def test_delete_log_files_after_flush_removes_everything(self):
+        """#9: クリア相当の操作でファイルが残らないことを確認する。"""
+        writer = self._make(max_size=64, max_backups=3)
+        for i in range(20):
+            writer.submit("操作", f"distro-{i}", "実行")
+        self.assertTrue(writer.flush(timeout=5.0))
+        deleted, failed = wsl_core.delete_log_files(
+            self.tmpdir, max_backups=3
+        )
+        self.assertGreaterEqual(deleted, 2)
+        self.assertEqual(failed, [])
+        self.assertEqual(
+            [p for p in wsl_core.log_file_paths(self.tmpdir, max_backups=3)
+             if os.path.exists(p)],
+            [],
+        )
 
 
 # ---------------------------------------------------------------------------

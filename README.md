@@ -30,7 +30,7 @@ Key capabilities:
 
 - Windows 10 or Windows 11
 - WSL installed and configured
-- Python 3.9 or newer
+- Python 3.10 or newer
 - No runtime dependencies outside the Python standard library
 - PyInstaller only when building `dist\WSLManager.exe`
 
