@@ -6,10 +6,10 @@
 """
 
 import json
+import os
 import re
 import shutil
 import sys
-import os
 import tempfile
 import unittest
 from unittest import mock
@@ -18,7 +18,6 @@ from unittest import mock
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import wsl_core
-
 
 # ---------------------------------------------------------------------------
 # decode_wsl_output
@@ -86,7 +85,7 @@ class TestDecodeWslOutput(unittest.TestCase):
 
     def test_even_length_utf8_japanese_not_misdetected(self):
         """偶数長の日本語 UTF-8 バイト列を UTF-8 としてデコードする。"""
-        raw = "テスト\n".encode("utf-8")  # 10 バイト (偶数)、NUL なし
+        raw = "テスト\n".encode()  # 10 バイト (偶数)、NUL なし
         self.assertEqual(wsl_core.decode_wsl_output(raw), "テスト\n")
 
     def test_no_bom_utf16le_japanese_with_newline(self):

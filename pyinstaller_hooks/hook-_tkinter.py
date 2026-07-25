@@ -1,6 +1,5 @@
-from pathlib import Path
 import sys
-
+from pathlib import Path
 
 CONDA_ROOT = Path(sys.base_prefix)
 TCL_TK_LIB = CONDA_ROOT / "Library" / "lib"

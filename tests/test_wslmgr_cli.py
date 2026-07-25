@@ -13,13 +13,12 @@ import subprocess
 import sys
 import tempfile
 import unittest
-from unittest.mock import call, patch, mock_open, MagicMock
+from unittest.mock import MagicMock, call, mock_open, patch
 
 # リポジトリルートを sys.path の先頭に挿入して wslmgr_cli をインポートできるようにする
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import wslmgr_cli
-
 
 # ---------------------------------------------------------------------------
 # _format_table
@@ -339,7 +338,7 @@ class TestCmdList(unittest.TestCase):
         proc = MagicMock()
         proc.returncode = 1
         proc.stdout = b""
-        proc.stderr = "エラー発生".encode("utf-8")
+        proc.stderr = "エラー発生".encode()
         mock_run.return_value = proc
         args = argparse.Namespace(format="table")
         with self.assertRaises(SystemExit) as cm:
@@ -502,7 +501,7 @@ class TestCmdExport(unittest.TestCase):
         proc = MagicMock()
         proc.returncode = 1
         proc.stdout = b""
-        proc.stderr = "失敗".encode("utf-8")
+        proc.stderr = "失敗".encode()
         mock_run.return_value = proc
         with tempfile.TemporaryDirectory() as tmpdir:
             path = os.path.join(tmpdir, "backup.tar")

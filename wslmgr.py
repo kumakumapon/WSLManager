@@ -9,15 +9,16 @@ from __future__ import annotations
 
 import concurrent.futures
 import os
+import subprocess
 import sys
 import tempfile
 import threading
 import time
 import tkinter as tk
-from tkinter import filedialog, messagebox, simpledialog, ttk
-import subprocess
-import wsl_core
 from datetime import datetime
+from tkinter import filedialog, messagebox, simpledialog, ttk
+
+import wsl_core
 
 try:
     import winreg
@@ -1536,7 +1537,7 @@ class LogViewerDialog(tk.Toplevel):
         self,
         parent: tk.Tk,
         log_entries: list[str],
-        clear_callback: "callable",
+        clear_callback: callable,
     ) -> None:
         super().__init__(parent)
         self._log_entries = log_entries
@@ -1675,7 +1676,7 @@ class WslVersionDialog(tk.Toplevel):
         self,
         parent: tk.Tk,
         lines: list[str],
-        on_check_update: "callable",
+        on_check_update: callable,
     ) -> None:
         super().__init__(parent)
         self._on_check_update = on_check_update
@@ -1734,7 +1735,7 @@ class TransferProgressDialog(tk.Toplevel):
         wsl_args: list[str],
         watch_path: str | None,
         total_bytes: int | None,
-        on_done: "callable",
+        on_done: callable,
         cancel_prompt: str | None = None,
     ) -> None:
         super().__init__(parent)
@@ -1870,7 +1871,7 @@ class SnapshotManagerDialog(tk.Toplevel):
     復元・削除・保存先フォルダを開く操作を提供します。
     """
 
-    def __init__(self, parent: "WSLManager") -> None:
+    def __init__(self, parent: WSLManager) -> None:
         super().__init__(parent)
         self._parent = parent
         self._snapshots: list[dict] = []
@@ -2724,7 +2725,7 @@ class WSLManager(tk.Tk):
     def _set_status(self, msg: str) -> None:
         self._status_var.set(msg)
 
-    def _call_soon_safe(self, fn: "callable") -> None:
+    def _call_soon_safe(self, fn: callable) -> None:
         """バックグラウンドスレッドから UI 更新を安全にスケジュールします。
 
         長時間コマンドの実行中にウィンドウが閉じられると ``self`` は destroy

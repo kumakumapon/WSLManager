@@ -13,7 +13,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest]
-        python-version: ["3.9", "3.12"]
+        python-version: ["3.10", "3.12"]
     steps:
       - uses: actions/checkout@v4
 
@@ -48,8 +48,10 @@ jobs:
         with:
           python-version: "3.12"
 
+      # ruff のバージョンを固定し、新しいルール追加による突然の CI 失敗を防ぐ。
+      # 更新する場合は意図的にバージョンを上げること。
       - name: Install ruff
-        run: pip install ruff
+        run: pip install ruff==0.15.8
 
       - name: Ruff check
         run: ruff check .

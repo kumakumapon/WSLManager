@@ -1,0 +1,22 @@
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+exclude = ["dist", "build", ".venv"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "B", "UP", "SIM", "I", "RUF"]
+ignore = [
+    # RUF001/002/003: 全角の「（）」「：」などを曖昧文字として検出するが、
+    # 本プロジェクトの UI 文字列・コメント・docstring は意図的に日本語のため
+    # 抑止する (116 件の誤検出)。
+    "RUF001", "RUF002", "RUF003",
+    # SIM105: try/except: pass を contextlib.suppress に置き換える提案。
+    # 失敗を意図的に無視している箇所に説明コメントが付いており、
+    # 書き換えても可読性が上がらないため抑止する。
+    "SIM105",
+]
+
+[tool.ruff.lint.per-file-ignores]
+# unittest.mock.patch のネストした with は慣用的で、まとめると
+# 差分が大きくなるだけで可読性は上がらないため、テストのみ許容する。
+"tests/*" = ["SIM117"]

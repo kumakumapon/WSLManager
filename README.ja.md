@@ -30,7 +30,7 @@ WSL Manager は、WSL ディストリビューションを管理するための 
 
 - Windows 10 または Windows 11
 - WSL がインストール済みであること
-- Python 3.9 以上
+- Python 3.10 以上
 - 実行時の追加依存パッケージなし（標準ライブラリのみ）
 - `dist\WSLManager.exe` を作る場合のみ PyInstaller が必要
 
