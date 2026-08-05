@@ -696,13 +696,9 @@ class WslConfigDialog(tk.Toplevel):
         for key, var in self._field_vars.items():
             wsl2[key] = var.get().strip()
 
-        text = wsl_core.dump_wslconfig(new_sections)
-        try:
-            with open(self._path, "w", encoding="utf-8") as f:
-                f.write(text)
-        except OSError as e:
+        if not wsl_core.save_wslconfig(self._path, new_sections):
             messagebox.showerror(
-                "保存エラー", f".wslconfig の書き込みに失敗しました:\n{e}", parent=self
+                "保存エラー", f".wslconfig の書き込みに失敗しました:\n{self._path}", parent=self
             )
             return
 
@@ -3895,6 +3891,7 @@ def main() -> None:
             "エラー",
             "WSL Manager は Windows 環境でのみ動作します。\n"
             "Windows 10/11 上で実行してください。",
+            parent=root,
         )
         root.destroy()
         sys.exit(1)
