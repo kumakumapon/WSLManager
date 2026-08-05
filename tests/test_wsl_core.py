@@ -94,6 +94,28 @@ class TestDecodeWslOutput(unittest.TestCase):
         raw = "テスト 実行中\n".encode("utf-16-le")
         self.assertEqual(wsl_core.decode_wsl_output(raw), "テスト 実行中\n")
 
+    def test_cp932_fallback(self):
+        """UTF-8 として不正で NUL バイトを含まない cp932 バイト列を正しくデコードする。
+
+        errors="replace" は例外を送出しないため、"utf-8" を errors="replace" で
+        試すと必ず 1 周目で return してしまい cp932 に進めなくなる (#24)。
+        errors="strict" で失敗を検知してフォールバックすることを確認する。
+        """
+        raw = "テスト日本語".encode("cp932")
+        self.assertEqual(wsl_core.decode_wsl_output(raw), "テスト日本語")
+
+    def test_cp932_fallback_odd_length(self):
+        """奇数バイト長の cp932 文字列でもフォールバックが機能する。"""
+        raw = "あ".encode("cp932")  # 2 バイト (偶数、NUL なし) の単純ケースに加え
+        raw += b"a"  # 末尾に ASCII を足して奇数長にする
+        self.assertEqual(wsl_core.decode_wsl_output(raw), "あa")
+
+    def test_invalid_bytes_fallback_latin1(self):
+        """utf-8 / cp932 のどちらでもデコードできないバイト列は latin-1 で必ず何か返す。"""
+        raw = b"\x81\xff"  # cp932 として不正 (0xFF は cp932 の未定義バイト)
+        result = wsl_core.decode_wsl_output(raw)
+        self.assertEqual(result, raw.decode("latin-1"))
+
 
 # ---------------------------------------------------------------------------
 # is_numeric
@@ -2967,6 +2989,58 @@ class TestAtomicWriteText(unittest.TestCase):
             self.assertEqual(f.read(), "original content")
         remaining = os.listdir(self.tmpdir)
         self.assertEqual(remaining, ["out.txt"])
+
+
+# ---------------------------------------------------------------------------
+# save_wslconfig
+# ---------------------------------------------------------------------------
+
+class TestSaveWslconfig(unittest.TestCase):
+    """save_wslconfig (#25: .wslconfig をアトミックに保存する合成 API) のテスト。"""
+
+    def setUp(self):
+        self.tmpdir = tempfile.mkdtemp()
+
+    def tearDown(self):
+        shutil.rmtree(self.tmpdir, ignore_errors=True)
+
+    def test_writes_dumped_sections(self):
+        """sections を dump_wslconfig した内容がそのままファイルに書き込まれる。"""
+        path = os.path.join(self.tmpdir, ".wslconfig")
+        sections = {"wsl2": {"memory": "4GB"}}
+        result = wsl_core.save_wslconfig(path, sections)
+        self.assertTrue(result)
+        with open(path, encoding="utf-8") as f:
+            self.assertEqual(f.read(), wsl_core.dump_wslconfig(sections))
+
+    def test_round_trip_via_parse(self):
+        """保存した内容を parse_wslconfig で読み戻すと元の sections と一致する。"""
+        path = os.path.join(self.tmpdir, ".wslconfig")
+        sections = {"wsl2": {"memory": "4GB", "localhostForwarding": "true"}}
+        wsl_core.save_wslconfig(path, sections)
+        with open(path, encoding="utf-8") as f:
+            reparsed = wsl_core.parse_wslconfig(f.read())
+        self.assertEqual(reparsed, sections)
+
+    def test_does_not_truncate_existing_on_write_error(self):
+        """書き込み中の失敗で既存の .wslconfig が 0 バイトや途中状態にならない (#25)。"""
+        path = os.path.join(self.tmpdir, ".wslconfig")
+        with open(path, "w", encoding="utf-8") as f:
+            f.write("[wsl2]\nmemory=2GB\n")
+        with mock.patch("os.replace", side_effect=OSError("boom")):
+            result = wsl_core.save_wslconfig(path, {"wsl2": {"memory": "8GB"}})
+        self.assertFalse(result)
+        with open(path, encoding="utf-8") as f:
+            self.assertEqual(f.read(), "[wsl2]\nmemory=2GB\n")
+
+    def test_returns_false_when_dir_uncreatable(self):
+        """保存先ディレクトリが作成できない場合は False を返す。"""
+        blocker = os.path.join(self.tmpdir, "blocker")
+        with open(blocker, "w", encoding="utf-8") as f:
+            f.write("dummy")
+        path = os.path.join(blocker, ".wslconfig")
+        result = wsl_core.save_wslconfig(path, {"wsl2": {"memory": "4GB"}})
+        self.assertFalse(result)
 
 
 # ---------------------------------------------------------------------------

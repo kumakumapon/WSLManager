@@ -58,13 +58,19 @@ def decode_wsl_output(raw: bytes) -> str:
                 return text
         except (UnicodeDecodeError, ValueError):
             pass
-    # フォールバック: UTF-8 / cp932
-    for enc in ("utf-8", "cp932", "latin-1"):
+    # フォールバック: UTF-8 → cp932 の順に厳密デコードを試す。
+    # errors="replace" は不正バイトがあっても例外を送出しないため、
+    # ここで使うと必ず1周目の utf-8 で return してしまい cp932 に
+    # 進めなくなる。errors="strict" で試し、UnicodeDecodeError の
+    # ときだけ次のエンコーディングに進む。
+    for enc in ("utf-8", "cp932"):
         try:
-            return raw.decode(enc, errors="replace")
-        except Exception:
+            return raw.decode(enc, errors="strict")
+        except UnicodeDecodeError:
             continue
-    return raw.decode("ascii", errors="replace")
+    # どちらも失敗した場合、latin-1 は任意のバイト列をデコードできるため
+    # 必ず何らかの文字列を返す。
+    return raw.decode("latin-1", errors="replace")
 
 
 def is_numeric(val: str) -> bool:
@@ -389,6 +395,17 @@ def dump_wslconfig(sections: dict[str, dict[str, str]]) -> str:
     # configparser は末尾に余分な改行を付けることがあるので正規化する
     text = text.rstrip("\n") + "\n"
     return text
+
+
+def save_wslconfig(path: str, sections: dict[str, dict[str, str]]) -> bool:
+    """``.wslconfig`` の内容を :func:`atomic_write_text` 経由でアトミックに保存します。
+
+    呼び出し側で素の ``open(path, "w")`` を使うと、書き込み中のクラッシュで
+    ``.wslconfig`` が 0 バイトや途中までの状態のまま残ってしまう。この
+    合成 API を経由することでその失敗経路を構造的に防ぐ。
+    成功時は True、``OSError`` 発生時は False を返します（例外は送出しません）。
+    """
+    return atomic_write_text(path, dump_wslconfig(sections))
 
 
 def parse_os_release(text: str | None) -> dict[str, str]:
