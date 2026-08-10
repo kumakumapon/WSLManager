@@ -1769,6 +1769,12 @@ class TransferProgressDialog(tk.Toplevel):
 
         threading.Thread(target=self._wait_proc, daemon=True).start()
         self.after(self.POLL_INTERVAL_MS, self._tick)
+        # アプリ終了時 (WSLManager.on_closing) に強制キャンセルできるよう
+        # 親ウィンドウへ自己登録する。Popen 起動に失敗したパス (上の except)
+        # では after_idle で即座に自己完結するため登録不要。
+        self._owner = parent
+        if hasattr(parent, "_transfer_dialogs"):
+            parent._transfer_dialogs.append(self)
 
     def _build_ui(self, message: str) -> None:
         main = ttk.Frame(self, padding=16)
@@ -1815,6 +1821,12 @@ class TransferProgressDialog(tk.Toplevel):
         self._close_with(returncode, stderr_text, cancelled)
 
     def _close_with(self, returncode: int, stderr_text: str, cancelled: bool) -> None:
+        owner = getattr(self, "_owner", None)
+        if owner is not None:
+            try:
+                owner._transfer_dialogs.remove(self)
+            except ValueError:
+                pass
         try:
             self.destroy()
         finally:
@@ -1862,6 +1874,33 @@ class TransferProgressDialog(tk.Toplevel):
         self._status_var.set("キャンセルしています…")
         try:
             self._proc.terminate()
+        except OSError:
+            pass
+
+    def force_cancel(self, timeout: float = 5.0) -> None:
+        """アプリ終了時 (WSLManager.on_closing) に呼ばれます。
+
+        確認ダイアログや完了コールバック (``_on_done``、ログ記録や
+        「不完全な登録を解除しますか」の確認を含む) は一切呼び出さず、
+        プロセスの終了だけを同期的に保証します。``self._finished`` を
+        先に立てるため、後から ``_wait_proc`` 経由で ``_handle_exit`` が
+        呼ばれても no-op になります (二重処理の防止)。
+        """
+        if self._finished:
+            return
+        self._finished = True
+        proc = getattr(self, "_proc", None)
+        if proc is None or proc.poll() is not None:
+            return
+        try:
+            proc.terminate()
+            proc.wait(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            try:
+                proc.kill()
+                proc.wait(timeout=2.0)
+            except subprocess.TimeoutExpired:
+                pass
         except OSError:
             pass
 
@@ -2180,6 +2219,7 @@ class WSLManager(tk.Tk):
         self._refresh_in_progress = False
         self._refresh_pending = False
         self._process_windows: dict[str, ProcessWindow] = {}
+        self._transfer_dialogs: list[TransferProgressDialog] = []
         self._all_distros: list[dict] = []
         self._operation_log: list[str] = []
         self._log_dir = wsl_core.get_default_log_dir()
@@ -2781,7 +2821,7 @@ class WSLManager(tk.Tk):
         ブロックしません。書き込み失敗は :class:`wsl_core.AsyncLogWriter`
         側で無視されます。
         """
-        self._log_writer.submit(operation, target, result)
+        self._log_writer.submit(operation, target, result, source="gui")
 
     def _log_operation(self, operation: str, target: str, result: str) -> None:
         """操作ログにエントリを追加し、ファイルにも永続化します。
@@ -3872,6 +3912,19 @@ class WSLManager(tk.Tk):
     # ── ウィンドウ終了 ────────────────────────────────────────────────────
 
     def on_closing(self) -> None:
+        # 実行中のエクスポート/インポート等があれば、確認の上でプロセスを
+        # 終了させてから閉じる (#26: 放置すると wsl.exe が孤児化する)。
+        live_transfers = [d for d in self._transfer_dialogs if d.winfo_exists()]
+        if live_transfers:
+            if not messagebox.askyesno(
+                "確認",
+                f"実行中の処理が {len(live_transfers)} 件あります。中断して終了しますか？\n"
+                "中断すると、処理中だったファイルが不完全な状態で残る場合があります。",
+                parent=self,
+            ):
+                return
+            for dialog in live_transfers:
+                dialog.force_cancel()
         if self._refresh_job:
             self.after_cancel(self._refresh_job)
         self._save_settings()
