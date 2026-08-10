@@ -2397,6 +2397,42 @@ class TestCliOperationLogging(unittest.TestCase):
                 wslmgr_cli.cmd_list(args)
         mock_log.assert_not_called()
 
+    @patch("wslmgr_cli.wsl_core.append_log_entry")
+    @patch("wslmgr_cli.subprocess.run")
+    def test_cmd_stop_success_logs(self, mock_run, mock_log):
+        mock_run.return_value = self._proc(returncode=0)
+        args = argparse.Namespace(name="Ubuntu")
+        with patch("sys.stdout", io.StringIO()):
+            wslmgr_cli.cmd_stop(args)
+        mock_log.assert_called_once()
+        self.assertEqual(mock_log.call_args[0][1], "停止")
+
+    @patch("wslmgr_cli.wsl_core.append_log_entry")
+    @patch("wslmgr_cli._run_wsl_command")
+    def test_cmd_snapshot_create_success_logs(self, mock_run, mock_log):
+        mock_run.side_effect = [(0, DISTRO_LIST_OUTPUT, ""), (0, "", "")]
+        with tempfile.TemporaryDirectory() as tmpdir:
+            args = argparse.Namespace(name="Ubuntu", comment="", dir=tmpdir)
+            with patch("sys.stdout", io.StringIO()):
+                wslmgr_cli.cmd_snapshot_create(args)
+        mock_log.assert_called_once()
+        self.assertEqual(mock_log.call_args[0][1], "スナップショット作成")
+        self.assertEqual(mock_log.call_args[0][2], "Ubuntu")
+
+    @patch("wslmgr_cli.wsl_core.append_log_entry")
+    @patch("wslmgr_cli._run_wsl_command")
+    def test_cmd_clone_success_logs(self, mock_run, mock_log):
+        mock_run.side_effect = [(0, DISTRO_LIST_OUTPUT, ""), (0, "", ""), (0, "", "")]
+        with tempfile.TemporaryDirectory() as install_dir:
+            args = argparse.Namespace(
+                name="Ubuntu", new_name="Ubuntu-copy", install_path=install_dir, yes=True,
+            )
+            with patch("sys.stdout", io.StringIO()):
+                wslmgr_cli.cmd_clone(args)
+        mock_log.assert_called_once()
+        self.assertEqual(mock_log.call_args[0][1], "複製")
+        self.assertEqual(mock_log.call_args[0][2], "Ubuntu → Ubuntu-copy")
+
 
 if __name__ == "__main__":
     unittest.main()

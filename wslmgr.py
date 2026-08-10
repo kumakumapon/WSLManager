@@ -1899,7 +1899,11 @@ class TransferProgressDialog(tk.Toplevel):
             try:
                 proc.kill()
                 proc.wait(timeout=2.0)
-            except subprocess.TimeoutExpired:
+            except (subprocess.TimeoutExpired, OSError):
+                # kill() の時点で対象プロセスが既に自然終了している場合など、
+                # OSError (Windows では PermissionError 等) が起き得る。
+                # on_closing 側の後続処理 (他ダイアログの force_cancel・
+                # 終了処理) を止めないよう、ここでも握りつぶす。
                 pass
         except OSError:
             pass
@@ -3924,7 +3928,12 @@ class WSLManager(tk.Tk):
             ):
                 return
             for dialog in live_transfers:
-                dialog.force_cancel()
+                # 1件の force_cancel が予期せぬ例外を送出しても、他のダイアログの
+                # 終了処理とアプリの終了処理自体は続行する。
+                try:
+                    dialog.force_cancel()
+                except OSError:
+                    pass
         if self._refresh_job:
             self.after_cancel(self._refresh_job)
         self._save_settings()
