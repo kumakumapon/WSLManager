@@ -165,9 +165,11 @@ def cmd_start(args: argparse.Namespace) -> None:
         ["-d", name, "--", "echo", "started"], timeout=30.0
     )
     if returncode == 0:
+        _log_cli_operation("起動", name, "成功")
         print(f"「{name}」を起動しました。")
     else:
         msg = stderr.strip() or "不明なエラー"
+        _log_cli_operation("起動", name, msg)
         print(f"エラー: 「{name}」の起動に失敗しました: {msg}", file=sys.stderr)
         sys.exit(1)
 
@@ -181,9 +183,11 @@ def cmd_stop(args: argparse.Namespace) -> None:
     name = args.name
     returncode, _stdout, stderr = _run_wsl_command(["--terminate", name], timeout=30.0)
     if returncode == 0:
+        _log_cli_operation("停止", name, "成功")
         print(f"「{name}」を停止しました。")
     else:
         msg = stderr.strip() or "不明なエラー"
+        _log_cli_operation("停止", name, msg)
         print(f"エラー: 「{name}」の停止に失敗しました: {msg}", file=sys.stderr)
         sys.exit(1)
 
@@ -196,9 +200,11 @@ def cmd_shutdown(args: argparse.Namespace) -> None:
     """すべてのディストリビューションを停止します。"""
     returncode, _stdout, stderr = _run_wsl_command(["--shutdown"], timeout=30.0)
     if returncode == 0:
+        _log_cli_operation("全停止", "全ディストリビューション", "成功")
         print("WSL を全停止しました。")
     else:
         msg = stderr.strip() or "不明なエラー"
+        _log_cli_operation("全停止", "全ディストリビューション", msg)
         print(f"エラー: WSL の全停止に失敗しました: {msg}", file=sys.stderr)
         sys.exit(1)
 
@@ -263,9 +269,11 @@ def cmd_export(args: argparse.Namespace) -> None:
         ["--export", name, path], timeout=600.0
     )
     if returncode == 0:
+        _log_cli_operation("エクスポート", name, path)
         print(f"「{name}」のエクスポートが完了しました: {path}")
     else:
         msg = stderr.strip() or "不明なエラー"
+        _log_cli_operation("エクスポート", name, msg)
         print(f"エラー: 「{name}」のエクスポートに失敗しました: {msg}", file=sys.stderr)
         sys.exit(1)
 
@@ -297,9 +305,11 @@ def cmd_import(args: argparse.Namespace) -> None:
         ["--import", name, install_path, image_path], timeout=600.0
     )
     if returncode == 0:
+        _log_cli_operation("インポート", name, image_path)
         print(f"「{name}」のインポートが完了しました。")
     else:
         msg = stderr.strip() or "不明なエラー"
+        _log_cli_operation("インポート", name, msg)
         print(f"エラー: 「{name}」のインポートに失敗しました: {msg}", file=sys.stderr)
         sys.exit(1)
 
@@ -345,6 +355,18 @@ def cmd_config(args: argparse.Namespace) -> None:
 # ---------------------------------------------------------------------------
 # 破壊的操作・レジストリ参照ヘルパー
 # ---------------------------------------------------------------------------
+
+def _log_cli_operation(operation: str, target: str, result: str) -> None:
+    """CLI から実行した状態変更操作を GUI と同じ operations.jsonl に記録します。
+
+    実際に wsl.exe / netsh / diskpart 等のコマンド実行を試みた場合のみ呼び出します。
+    確認拒否・非対話中断 (:func:`_confirm_or_exit` による ``sys.exit``) や、
+    実コマンド実行に到達しない事前検証の失敗 (引数バリデーション等) は対象外です。
+    """
+    wsl_core.append_log_entry(
+        wsl_core.get_default_log_dir(), operation, target, result, source="cli"
+    )
+
 
 def _confirm_or_exit(prompt: str, assume_yes: bool) -> None:
     """破壊的操作の実行前に確認を行います。
@@ -424,9 +446,11 @@ def cmd_set_default(args: argparse.Namespace) -> None:
     name = args.name
     returncode, _stdout, stderr = _run_wsl_command(["--set-default", name], timeout=30.0)
     if returncode == 0:
+        _log_cli_operation("デフォルト設定", name, "成功")
         print(f"「{name}」をデフォルトに設定しました。")
     else:
         msg = stderr.strip() or "不明なエラー"
+        _log_cli_operation("デフォルト設定", name, msg)
         print(f"エラー: 「{name}」のデフォルト設定に失敗しました: {msg}", file=sys.stderr)
         sys.exit(1)
 
@@ -444,9 +468,11 @@ def cmd_unregister(args: argparse.Namespace) -> None:
     )
     returncode, _stdout, stderr = _run_wsl_command(["--unregister", name], timeout=120.0)
     if returncode == 0:
+        _log_cli_operation("アンインストール", name, "成功")
         print(f"「{name}」をアンインストールしました。")
     else:
         msg = stderr.strip() or "不明なエラー"
+        _log_cli_operation("アンインストール", name, msg)
         print(f"エラー: 「{name}」のアンインストールに失敗しました: {msg}", file=sys.stderr)
         sys.exit(1)
 
@@ -463,9 +489,11 @@ def cmd_install(args: argparse.Namespace) -> None:
         ["--install", "-d", name, "--no-launch"], timeout=1800.0
     )
     if returncode == 0:
+        _log_cli_operation("インストール", name, "成功")
         print(f"「{name}」のインストールが完了しました。")
     else:
         msg = stderr.strip() or "不明なエラー"
+        _log_cli_operation("インストール", name, msg)
         print(f"エラー: 「{name}」のインストールに失敗しました: {msg}", file=sys.stderr)
         sys.exit(1)
 
@@ -486,9 +514,11 @@ def cmd_optimize(args: argparse.Namespace) -> None:
             ["--manage", name, "--set-sparse", "true"], timeout=120.0
         )
         if returncode == 0:
+            _log_cli_operation("スパース化", name, "成功")
             print(f"「{name}」のスパース化を有効にしました。")
         else:
             msg = stderr.strip() or "不明なエラー"
+            _log_cli_operation("スパース化", name, msg)
             print(f"エラー: 「{name}」のスパース化に失敗しました: {msg}", file=sys.stderr)
             sys.exit(1)
         return
@@ -522,9 +552,11 @@ def cmd_optimize(args: argparse.Namespace) -> None:
             timeout=600.0,
         )
     except subprocess.TimeoutExpired:
+        _log_cli_operation("圧縮", name, "タイムアウト")
         print(f"エラー: 「{name}」の仮想ディスクの圧縮がタイムアウトしました。", file=sys.stderr)
         sys.exit(1)
     except OSError as e:
+        _log_cli_operation("圧縮", name, str(e))
         print(f"エラー: 「{name}」の仮想ディスクの圧縮に失敗しました: {e}", file=sys.stderr)
         sys.exit(1)
     finally:
@@ -535,8 +567,10 @@ def cmd_optimize(args: argparse.Namespace) -> None:
                 pass
 
     if result.returncode == 0:
+        _log_cli_operation("圧縮", name, "成功")
         print(f"「{name}」の仮想ディスクを圧縮しました。")
     else:
+        _log_cli_operation("圧縮", name, f"終了コード {result.returncode}")
         print(f"エラー: 「{name}」の仮想ディスクの圧縮に失敗しました。", file=sys.stderr)
         sys.exit(1)
 
@@ -558,9 +592,11 @@ def cmd_set_version(args: argparse.Namespace) -> None:
         ["--set-version", name, version], timeout=1800.0
     )
     if returncode == 0:
+        _log_cli_operation("バージョン変換", name, f"WSL{version}")
         print(f"「{name}」を WSL{version} に変換しました。")
     else:
         msg = stderr.strip() or "不明なエラー"
+        _log_cli_operation("バージョン変換", name, msg)
         print(f"エラー: 「{name}」の変換に失敗しました: {msg}", file=sys.stderr)
         sys.exit(1)
 
@@ -685,13 +721,13 @@ def cmd_portproxy_add(args: argparse.Namespace) -> None:
             f"connectaddress={connect_address}",
         ]
     )
+    target = f"{listen_address}:{listen_port} -> {connect_address}:{connect_port}"
     if returncode == 0:
-        print(
-            f"ポートフォワーディングを追加しました: "
-            f"{listen_address}:{listen_port} -> {connect_address}:{connect_port}"
-        )
+        _log_cli_operation("ポートフォワード追加", target, "成功")
+        print(f"ポートフォワーディングを追加しました: {target}")
     else:
         msg = stderr.strip() or "不明なエラー"
+        _log_cli_operation("ポートフォワード追加", target, msg)
         print(
             f"エラー: ポートフォワーディングの追加に失敗しました: {msg}"
             "（管理者権限が必要な場合があります）",
@@ -713,10 +749,13 @@ def cmd_portproxy_delete(args: argparse.Namespace) -> None:
     returncode, _stdout, stderr = _run_netsh_portproxy(
         ["delete", "v4tov4", f"listenport={listen_port}", f"listenaddress={listen_address}"]
     )
+    target = f"{listen_address}:{listen_port}"
     if returncode == 0:
-        print(f"ポートフォワーディングを削除しました: {listen_address}:{listen_port}")
+        _log_cli_operation("ポートフォワード削除", target, "成功")
+        print(f"ポートフォワーディングを削除しました: {target}")
     else:
         msg = stderr.strip() or "不明なエラー"
+        _log_cli_operation("ポートフォワード削除", target, msg)
         print(
             f"エラー: ポートフォワーディングの削除に失敗しました: {msg}"
             "（管理者権限が必要な場合があります）",
@@ -792,6 +831,7 @@ def cmd_snapshot_create(args: argparse.Namespace) -> None:
         except OSError:
             pass
         msg = stderr.strip() or "不明なエラー"
+        _log_cli_operation("スナップショット作成", name, msg)
         print(f"エラー: 「{name}」のスナップショット作成に失敗しました: {msg}", file=sys.stderr)
         sys.exit(1)
 
@@ -807,6 +847,7 @@ def cmd_snapshot_create(args: argparse.Namespace) -> None:
     if not wsl_core.write_snapshot_metadata(json_path, metadata):
         print("警告: メタデータの保存に失敗しました。", file=sys.stderr)
 
+    _log_cli_operation("スナップショット作成", name, tar_path)
     print(f"「{name}」のスナップショットを作成しました: {tar_path}")
 
 
@@ -902,9 +943,11 @@ def cmd_snapshot_restore(args: argparse.Namespace) -> None:
         ["--import", new_name, install_path, tar_path, "--version", version], timeout=1800.0
     )
     if returncode == 0:
+        _log_cli_operation("スナップショット復元", new_name, tar_path)
         print(f"「{new_name}」に復元しました。")
     else:
         msg = stderr.strip() or "不明なエラー"
+        _log_cli_operation("スナップショット復元", new_name, msg)
         print(f"エラー: 「{new_name}」への復元に失敗しました: {msg}", file=sys.stderr)
         sys.exit(1)
 
@@ -941,9 +984,13 @@ def cmd_snapshot_delete(args: argparse.Namespace) -> None:
             errors.append(str(e))
 
     if errors:
+        _log_cli_operation(
+            "スナップショット削除", snap.get("tar_file", args.tar_file), "; ".join(errors)
+        )
         print("エラー: 削除に失敗しました: " + "; ".join(errors), file=sys.stderr)
         sys.exit(1)
 
+    _log_cli_operation("スナップショット削除", snap.get("tar_file", args.tar_file), "成功")
     print("削除しました。")
 
 
@@ -1003,6 +1050,7 @@ def cmd_clone(args: argparse.Namespace) -> None:
         returncode, _stdout, stderr = _run_wsl_command(["--export", name, tmp_tar], timeout=1800.0)
         if returncode != 0:
             msg = stderr.strip() or "不明なエラー"
+            _log_cli_operation("複製", f"{name} → {new_name}", msg)
             print(f"エラー: 「{name}」のエクスポートに失敗しました: {msg}", file=sys.stderr)
             sys.exit(1)
 
@@ -1012,9 +1060,11 @@ def cmd_clone(args: argparse.Namespace) -> None:
         )
         if returncode != 0:
             msg = stderr.strip() or "不明なエラー"
+            _log_cli_operation("複製", f"{name} → {new_name}", msg)
             print(f"エラー: 「{new_name}」のインポートに失敗しました: {msg}", file=sys.stderr)
             sys.exit(1)
 
+        _log_cli_operation("複製", f"{name} → {new_name}", "成功")
         print(f"「{name}」を「{new_name}」として複製しました。")
     finally:
         try:

@@ -2151,6 +2151,28 @@ class TestSerializeLogEntry(unittest.TestCase):
         data = json.loads(result)
         self.assertEqual(set(data.keys()), {"timestamp", "operation", "target", "result"})
 
+    def test_source_omitted_by_default(self):
+        """source を指定しない場合、出力に "source" キーは含まれない (#27, 後方互換)。"""
+        result = wsl_core.serialize_log_entry("起動", "Ubuntu", "成功", timestamp="t")
+        data = json.loads(result)
+        self.assertNotIn("source", data)
+
+    def test_source_included_when_given(self):
+        """source を指定すると "source" キーとして出力される。"""
+        result = wsl_core.serialize_log_entry(
+            "起動", "Ubuntu", "成功", timestamp="t", source="cli"
+        )
+        data = json.loads(result)
+        self.assertEqual(data["source"], "cli")
+
+    def test_source_gui_value(self):
+        """source="gui" もそのまま出力される。"""
+        result = wsl_core.serialize_log_entry(
+            "停止", "Ubuntu", "成功", timestamp="t", source="gui"
+        )
+        data = json.loads(result)
+        self.assertEqual(data["source"], "gui")
+
 
 # ---------------------------------------------------------------------------
 # deserialize_log_entries
@@ -4117,6 +4139,20 @@ class TestAsyncLogWriter(unittest.TestCase):
         self.assertTrue(writer.stop(timeout=5.0))
         self.assertTrue(writer.flush(timeout=5.0))
 
+    def test_submit_forwards_source(self):
+        """submit の source 引数が書き込まれるエントリに反映される (#27)。"""
+        writer = self._make()
+        writer.submit("起動", "Ubuntu", "成功", source="gui")
+        self.assertTrue(writer.flush(timeout=5.0))
+        self.assertEqual(self._read_entries()[0]["source"], "gui")
+
+    def test_submit_without_source_omits_key(self):
+        """source を指定しない場合、書き込まれるエントリに "source" キーが含まれない。"""
+        writer = self._make()
+        writer.submit("起動", "Ubuntu", "成功")
+        self.assertTrue(writer.flush(timeout=5.0))
+        self.assertNotIn("source", self._read_entries()[0])
+
     def test_writer_thread_is_daemon(self):
         writer = self._make()
         writer.submit("操作", "A", "実行")
@@ -4139,6 +4175,68 @@ class TestAsyncLogWriter(unittest.TestCase):
              if os.path.exists(p)],
             [],
         )
+
+
+# ---------------------------------------------------------------------------
+# append_log_entry
+# ---------------------------------------------------------------------------
+
+
+class TestAppendLogEntry(unittest.TestCase):
+    """append_log_entry (#27: CLI 用の同期版ログ追記ヘルパー) のテスト。"""
+
+    def setUp(self):
+        self.tmpdir = tempfile.mkdtemp()
+
+    def tearDown(self):
+        shutil.rmtree(self.tmpdir, ignore_errors=True)
+
+    def _read_entries(self):
+        path = os.path.join(self.tmpdir, "operations.jsonl")
+        with open(path, encoding="utf-8") as f:
+            return wsl_core.deserialize_log_entries(f.read())
+
+    def test_writes_entry_synchronously(self):
+        """呼び出し直後にファイルへ反映されている (非同期キューを経由しない)。"""
+        wsl_core.append_log_entry(self.tmpdir, "起動", "Ubuntu", "成功", source="cli")
+        entries = self._read_entries()
+        self.assertEqual(len(entries), 1)
+        self.assertEqual(entries[0]["operation"], "起動")
+        self.assertEqual(entries[0]["target"], "Ubuntu")
+        self.assertEqual(entries[0]["result"], "成功")
+        self.assertEqual(entries[0]["source"], "cli")
+
+    def test_appends_to_existing_file(self):
+        """既存ファイルへ追記される (上書きしない)。"""
+        wsl_core.append_log_entry(self.tmpdir, "一件目", "A", "成功", source="cli")
+        wsl_core.append_log_entry(self.tmpdir, "二件目", "B", "成功", source="cli")
+        entries = self._read_entries()
+        self.assertEqual([e["operation"] for e in entries], ["一件目", "二件目"])
+
+    def test_creates_missing_log_dir(self):
+        """ログディレクトリが存在しない場合は作成する。"""
+        nested = os.path.join(self.tmpdir, "a", "b")
+        wsl_core.append_log_entry(nested, "起動", "Ubuntu", "成功", source="cli")
+        self.assertTrue(os.path.exists(os.path.join(nested, "operations.jsonl")))
+
+    def test_source_omitted_when_none(self):
+        """source を指定しない場合、書き込まれるエントリに "source" キーが含まれない。"""
+        wsl_core.append_log_entry(self.tmpdir, "起動", "Ubuntu", "成功")
+        self.assertNotIn("source", self._read_entries()[0])
+
+    def test_rotates_when_over_max_size(self):
+        """max_size を超えるとローテーションされる (AsyncLogWriter と同じロジック)。"""
+        for i in range(20):
+            wsl_core.append_log_entry(
+                self.tmpdir, "操作", f"distro-{i}", "実行", max_size=64, max_backups=2
+            )
+        self.assertTrue(os.path.exists(os.path.join(self.tmpdir, "operations.1.jsonl")))
+
+    def test_write_errors_are_swallowed(self):
+        """書き込み失敗時も例外を送出しない (呼び出し元コマンドの成否に影響させない)。"""
+        with mock.patch("wsl_core.open", side_effect=OSError("disk full")):
+            wsl_core.append_log_entry(self.tmpdir, "操作", "A", "実行", source="cli")
+        self.assertFalse(os.path.exists(os.path.join(self.tmpdir, "operations.jsonl")))
 
 
 # ---------------------------------------------------------------------------

@@ -2307,5 +2307,132 @@ class TestResolveSnapshotDir(unittest.TestCase):
         self.assertEqual(result, "/default/dir")
 
 
+# ---------------------------------------------------------------------------
+# CLI 操作ログ記録 (#27: GUI と同じ operations.jsonl に source="cli" で記録する)
+# ---------------------------------------------------------------------------
+
+
+class TestCliOperationLogging(unittest.TestCase):
+    """状態変更する cmd_* が append_log_entry を source="cli" で呼ぶことを確認する。"""
+
+    def _proc(self, returncode=0, stderr=b""):
+        proc = MagicMock()
+        proc.returncode = returncode
+        proc.stdout = b""
+        proc.stderr = stderr
+        return proc
+
+    @patch("wslmgr_cli.wsl_core.append_log_entry")
+    @patch("wslmgr_cli.subprocess.run")
+    def test_cmd_start_success_logs_with_cli_source(self, mock_run, mock_log):
+        mock_run.return_value = self._proc(returncode=0)
+        args = argparse.Namespace(name="Ubuntu")
+        with patch("sys.stdout", io.StringIO()):
+            wslmgr_cli.cmd_start(args)
+        mock_log.assert_called_once()
+        _log_args, log_kwargs = mock_log.call_args
+        self.assertEqual(mock_log.call_args[0][1], "起動")
+        self.assertEqual(mock_log.call_args[0][2], "Ubuntu")
+        self.assertEqual(log_kwargs.get("source") or mock_log.call_args[0][-1], "cli")
+
+    @patch("wslmgr_cli.wsl_core.append_log_entry")
+    @patch("wslmgr_cli.subprocess.run")
+    def test_cmd_start_failure_logs_with_cli_source(self, mock_run, mock_log):
+        mock_run.return_value = self._proc(returncode=1, stderr="失敗".encode())
+        args = argparse.Namespace(name="Ubuntu")
+        with self.assertRaises(SystemExit):
+            with patch("sys.stdout", io.StringIO()):
+                with patch("sys.stderr", io.StringIO()):
+                    wslmgr_cli.cmd_start(args)
+        mock_log.assert_called_once()
+        self.assertEqual(mock_log.call_args[0][1], "起動")
+
+    @patch("wslmgr_cli.wsl_core.append_log_entry")
+    @patch("wslmgr_cli.subprocess.run")
+    def test_cmd_export_success_logs(self, mock_run, mock_log):
+        mock_run.return_value = self._proc(returncode=0)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = os.path.join(tmpdir, "backup.tar")
+            args = argparse.Namespace(name="Ubuntu", path=path, yes=False)
+            with patch("sys.stdout", io.StringIO()):
+                wslmgr_cli.cmd_export(args)
+        mock_log.assert_called_once()
+        self.assertEqual(mock_log.call_args[0][1], "エクスポート")
+
+    @patch("wslmgr_cli.wsl_core.append_log_entry")
+    @patch("wslmgr_cli.subprocess.run")
+    def test_cmd_export_confirmation_declined_does_not_log(self, mock_run, mock_log):
+        """確認拒否で sys.exit する経路は、実コマンドを試みていないため記録しない (#27)。"""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = os.path.join(tmpdir, "backup.tar")
+            with open(path, "wb") as f:
+                f.write(b"existing")
+            args = argparse.Namespace(name="Ubuntu", path=path, yes=False)
+            with patch("sys.stdin.isatty", return_value=True):
+                with patch("builtins.input", return_value="n"):
+                    with self.assertRaises(SystemExit):
+                        with patch("sys.stdout", io.StringIO()):
+                            wslmgr_cli.cmd_export(args)
+        mock_log.assert_not_called()
+        mock_run.assert_not_called()
+
+    @patch("wslmgr_cli.wsl_core.append_log_entry")
+    @patch("wslmgr_cli.subprocess.run")
+    def test_cmd_unregister_success_logs(self, mock_run, mock_log):
+        mock_run.return_value = self._proc(returncode=0)
+        args = argparse.Namespace(name="Ubuntu", yes=True)
+        with patch("sys.stdout", io.StringIO()):
+            wslmgr_cli.cmd_unregister(args)
+        mock_log.assert_called_once()
+        self.assertEqual(mock_log.call_args[0][1], "アンインストール")
+
+    @patch("wslmgr_cli.wsl_core.append_log_entry")
+    def test_cmd_list_does_not_log(self, mock_log):
+        """参照系コマンドはログ対象外。"""
+        with patch(
+            "wslmgr_cli._run_wsl_command", return_value=(0, "", "")
+        ):
+            args = argparse.Namespace(format="json")
+            with patch("sys.stdout", io.StringIO()):
+                wslmgr_cli.cmd_list(args)
+        mock_log.assert_not_called()
+
+    @patch("wslmgr_cli.wsl_core.append_log_entry")
+    @patch("wslmgr_cli.subprocess.run")
+    def test_cmd_stop_success_logs(self, mock_run, mock_log):
+        mock_run.return_value = self._proc(returncode=0)
+        args = argparse.Namespace(name="Ubuntu")
+        with patch("sys.stdout", io.StringIO()):
+            wslmgr_cli.cmd_stop(args)
+        mock_log.assert_called_once()
+        self.assertEqual(mock_log.call_args[0][1], "停止")
+
+    @patch("wslmgr_cli.wsl_core.append_log_entry")
+    @patch("wslmgr_cli._run_wsl_command")
+    def test_cmd_snapshot_create_success_logs(self, mock_run, mock_log):
+        mock_run.side_effect = [(0, DISTRO_LIST_OUTPUT, ""), (0, "", "")]
+        with tempfile.TemporaryDirectory() as tmpdir:
+            args = argparse.Namespace(name="Ubuntu", comment="", dir=tmpdir)
+            with patch("sys.stdout", io.StringIO()):
+                wslmgr_cli.cmd_snapshot_create(args)
+        mock_log.assert_called_once()
+        self.assertEqual(mock_log.call_args[0][1], "スナップショット作成")
+        self.assertEqual(mock_log.call_args[0][2], "Ubuntu")
+
+    @patch("wslmgr_cli.wsl_core.append_log_entry")
+    @patch("wslmgr_cli._run_wsl_command")
+    def test_cmd_clone_success_logs(self, mock_run, mock_log):
+        mock_run.side_effect = [(0, DISTRO_LIST_OUTPUT, ""), (0, "", ""), (0, "", "")]
+        with tempfile.TemporaryDirectory() as install_dir:
+            args = argparse.Namespace(
+                name="Ubuntu", new_name="Ubuntu-copy", install_path=install_dir, yes=True,
+            )
+            with patch("sys.stdout", io.StringIO()):
+                wslmgr_cli.cmd_clone(args)
+        mock_log.assert_called_once()
+        self.assertEqual(mock_log.call_args[0][1], "複製")
+        self.assertEqual(mock_log.call_args[0][2], "Ubuntu → Ubuntu-copy")
+
+
 if __name__ == "__main__":
     unittest.main()

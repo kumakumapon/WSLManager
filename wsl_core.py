@@ -882,11 +882,14 @@ def serialize_log_entry(
     target: str,
     result: str,
     timestamp: str | None = None,
+    source: str | None = None,
 ) -> str:
     """操作ログ1件を JSON Lines 形式の1行 (改行なし) にシリアライズして返します。
 
     キーは "timestamp", "operation", "target", "result" です。
     timestamp が None の場合は現在時刻を ISO 8601 形式で設定します。
+    source を指定すると "source" キー (例: "gui" / "cli") も出力します。
+    None の場合はキー自体を出力しません (既存ログ・既存フォーマットとの後方互換のため)。
     日本語をエスケープしないように ``json.dumps(ensure_ascii=False)`` を使用します。
     """
     ts = timestamp if timestamp is not None else datetime.now().isoformat()
@@ -896,6 +899,8 @@ def serialize_log_entry(
         "target": target,
         "result": result,
     }
+    if source is not None:
+        entry["source"] = source
     return json.dumps(entry, ensure_ascii=False)
 
 
@@ -1063,6 +1068,7 @@ class AsyncLogWriter:
         target: str,
         result: str,
         timestamp: str | None = None,
+        source: str | None = None,
     ) -> None:
         """操作ログ1件を書き込みキューに積みます。ブロックしません。
 
@@ -1070,7 +1076,7 @@ class AsyncLogWriter:
         """
         if self._stopped:
             return
-        line = serialize_log_entry(operation, target, result, timestamp)
+        line = serialize_log_entry(operation, target, result, timestamp, source)
         if not self._ensure_thread():
             return
         self._queue.put(line)
@@ -1148,6 +1154,36 @@ class AsyncLogWriter:
             )
         except OSError:
             pass
+
+
+def append_log_entry(
+    log_dir: str,
+    operation: str,
+    target: str,
+    result: str,
+    source: str | None = None,
+    base_name: str = "operations.jsonl",
+    max_size: int = 1_048_576,
+    max_backups: int = 10,
+) -> None:
+    """操作ログ1件を同期的に (呼び出し元スレッドをブロックして) 追記します。
+
+    ``AsyncLogWriter`` は専用スレッドでの非同期書き込みを前提としており、
+    終了前に :meth:`AsyncLogWriter.stop` を呼び忘れるとエントリを失う
+    リスクがあります。CLI のような単発・短命プロセスでは、その心配がない
+    この同期版ヘルパーの方が適しています。書き込み内容・ローテーション
+    ロジックは :meth:`AsyncLogWriter._write` と同じです。
+    I/O エラーは握りつぶします (ログの永続化に失敗してもコマンド自体の
+    成否には影響させないため)。
+    """
+    line = serialize_log_entry(operation, target, result, source=source)
+    try:
+        os.makedirs(log_dir, exist_ok=True)
+        with open(os.path.join(log_dir, base_name), "a", encoding="utf-8") as f:
+            f.write(line + "\n")
+        rotate_log_files(log_dir, base_name, max_size, max_backups)
+    except OSError:
+        pass
 
 
 def tail_entries(entries: list, n: int) -> list:
