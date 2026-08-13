@@ -79,5 +79,5 @@
 - Secret・個人情報を出力しない。認証、認可、DB、公開 API は根拠なく変更しない。
 - 実行していない検証を成功と報告せず、PR には変更内容、テスト結果、リスク・未検証事項を記載する。
 
-詳細: `sj55576/ai-platform` の `prompts/coding-agent-typescript-python.md`
+詳細: `kumakumapon/ai-platform` の `prompts/coding-agent-typescript-python.md`
 <!-- AI-PLATFORM:END -->

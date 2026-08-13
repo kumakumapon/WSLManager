@@ -19,8 +19,8 @@ disable-model-invocation: true
 例:
 
 ```text
-診断 sj55576/MiniStr
-診断 sj55576/MiniStr Issue作成
+診断 kumakumapon/MiniStr
+診断 kumakumapon/MiniStr Issue作成
 ```
 
 `Issue作成` がない場合は診断結果だけを報告します。明示された場合だけ、重複確認後に

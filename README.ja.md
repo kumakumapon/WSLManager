@@ -1,6 +1,6 @@
 # WSL Manager
 
-[![CI](https://github.com/sj55576/WSLMgr/actions/workflows/ci.yml/badge.svg)](https://github.com/sj55576/WSLMgr/actions/workflows/ci.yml)
+[![CI](https://github.com/kumakumapon/WSLMgr/actions/workflows/ci.yml/badge.svg)](https://github.com/kumakumapon/WSLMgr/actions/workflows/ci.yml)
 
 [English](README.md) | 日本語
 
