@@ -20,8 +20,8 @@ disable-model-invocation: true
 例:
 
 ```text
-企画 sj55576/MiniStr
-企画 sj55576/MiniStr Issue作成
+企画 kumakumapon/MiniStr
+企画 kumakumapon/MiniStr Issue作成
 ```
 
 `Issue作成` がない場合は、候補と根拠だけを報告します。明示された場合だけ、
