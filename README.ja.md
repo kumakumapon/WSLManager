@@ -73,7 +73,22 @@ python wslmgr_cli.py snapshot restore Ubuntu_20260101-000000.tar --install-path 
 python wslmgr_cli.py clone Ubuntu UbuntuClone --install-path C:\WSL\UbuntuClone
 ```
 
-CLI サブコマンドには `list`、`start`、`stop`、`shutdown`、`status`、`export`、`import`、`config`、`set-default`、`unregister`、`install`、`optimize`、`set-version`、`processes`、`log`、`portproxy`、`snapshot` (`create`/`list`/`restore`/`delete`)、`clone` があります。
+CLI サブコマンドには `list`、`start`、`stop`、`shutdown`、`status`、`export`、`import`、`config`、`set-default`、`unregister`、`install`、`optimize`、`set-version`、`processes`、`log`、`portproxy`、`snapshot` (`create`/`list`/`restore`/`delete`/`set-dir`)、`clone` があります。
+
+### 終了コード
+
+`wslmgr_cli.py` は次の終了コードを使用します。
+
+| コード | 意味 |
+|------|---------|
+| `0` | 成功 |
+| `1` | 一般エラー（distro 名不正、ポート番号不正、ファイル未存在、`.wslconfig` パース失敗などの入力検証エラー） |
+| `2` | コマンドライン引数エラー（`argparse` 標準の挙動、変更なし） |
+| `3` | 確認拒否（破壊的操作の確認プロンプトでユーザーが拒否した場合、または非対話環境で `--yes` が必要だが指定されなかった場合） |
+| `4` | 基盤コマンドの実行失敗（`wsl.exe` / `diskpart` / `netsh` が非0の終了コードを返した、タイムアウトした、または実行ファイルが見つからなかった場合） |
+| `5` | 部分失敗（コマンド自体は完了したが結果の一部が失敗した場合。例: `status` で一部ディストロのリソース取得に失敗した、`snapshot create` で tar のエクスポートは成功したが JSON メタデータの書き込みに失敗した、等） |
+
+**破壊的変更:** この体系の導入以前は、すべての失敗が終了コード `1` でした。「終了コードが 0 以外なら失敗」という判定のみを行うスクリプトは影響を受けませんが、失敗の種類を区別するために `終了コード == 1` を特別扱いしているスクリプトは、上記の新しいコードに合わせて更新が必要です。
 
 ### exe をビルド
 
