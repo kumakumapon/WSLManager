@@ -1,0 +1,77 @@
+name: Feature Request
+description: WSL Manager (GUI/CLI) への機能追加・改善を提案します。
+title: "[Feature]: "
+labels:
+  - enhancement
+  - needs-triage
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Secret、アクセストークン、個人情報、実運用データは記載しないでください。
+
+  - type: textarea
+    id: purpose
+    attributes:
+      label: 目的
+      description: 解決したい課題、背景、利用者への価値を記載してください。
+      placeholder: "例: スナップショットの保存先を GUI から変更できるようにする。"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: interface
+    attributes:
+      label: GUI or CLI
+      description: 影響するインターフェースを選択してください。
+      options:
+        - GUI (wslmgr.py)
+        - CLI (wslmgr_cli.py)
+        - 両方
+        - コアロジックのみ (wsl_core.py)
+    validations:
+      required: true
+
+  - type: textarea
+    id: current-problem
+    attributes:
+      label: 現在の問題・制約
+      description: 現状どう困っているか、既存の回避策があれば記載してください。
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposed-solution
+    attributes:
+      label: 提案する解決策
+      description: どのような挙動・UI・コマンドを追加/変更するかを記載してください。
+    validations:
+      required: true
+
+  - type: textarea
+    id: acceptance-criteria
+    attributes:
+      label: 完了条件
+      description: 確認可能な受け入れ条件をチェックリストで記載してください。
+      placeholder: |
+        - [ ] ...
+        - [ ] ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: 検討した代替案
+      description: 他に検討した方法や、それを採用しなかった理由があれば記載してください。
+    validations:
+      required: false
+
+  - type: textarea
+    id: related-information
+    attributes:
+      label: 関連情報
+      description: 関連 Issue/PR、設計資料、スクリーンショットなどを記載してください。
+      placeholder: "関連: #123"
+    validations:
+      required: false
