@@ -1,0 +1,70 @@
+name: バグ報告 (Bug Report)
+description: 動作の不具合やエラーに関する報告
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        バグの報告ありがとうございます。再現性の確認のため、以下の情報をご記入ください。
+  - type: textarea
+    id: description
+    attributes:
+      label: 問題の概要
+      description: どのような問題が発生したかを具体的に記述してください。
+    validations:
+      required: true
+  - type: input
+    id: windows_version
+    attributes:
+      label: Windows バージョン / ビルド
+      placeholder: 例: Windows 11 Pro 23H2 (Build 22631.xxxx)
+    validations:
+      required: true
+  - type: input
+    id: wsl_version
+    attributes:
+      label: WSL バージョン (`wsl --version`)
+      placeholder: 例: 2.3.24.0 (WSL2)
+    validations:
+      required: true
+  - type: input
+    id: python_version
+    attributes:
+      label: Python バージョン (または配布 exe 版)
+      placeholder: 例: Python 3.10.11 / WSLManager.exe v1.0.0
+    validations:
+      required: true
+  - type: dropdown
+    id: interface
+    attributes:
+      label: 発生したインターフェース
+      options:
+        - GUI (wslmgr.py / WSLManager.exe)
+        - CLI (wslmgr_cli.py / wslmgr)
+        - 両方
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: 再現手順
+      description: 問題が発生する手順を箇条書きで記入してください。
+      placeholder: |
+        1. ...
+        2. ...
+        3. ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: 期待される動作
+      description: 本来どのように動作すべきかを記述してください。
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: ログ抜粋 / エラー出力
+      description: CLI 出力や `wslmgr_cli.py log --tail 20` の出力を貼り付けてください。
+      render: shell

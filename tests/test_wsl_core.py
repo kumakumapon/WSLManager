@@ -702,7 +702,7 @@ class TestParseWslVersion(unittest.TestCase):
         self.assertNotIn("msrdc", result)
 
     def test_line_without_colon_skipped(self):
-        """コロンを含まない行はスキップされる。"""
+        """コロンを含まない行はスキップされ、_unparsed_lines に保持される。"""
         output = (
             "WSL version: 2.4.4.0\n"
             "this line has no colon\n"
@@ -711,7 +711,7 @@ class TestParseWslVersion(unittest.TestCase):
         result = wsl_core.parse_wsl_version(output)
         self.assertEqual(result["wsl"], "2.4.4.0")
         self.assertEqual(result["kernel"], "5.15.167.4-1")
-        self.assertEqual(len(result), 2)
+        self.assertEqual(result.get("_unparsed_lines"), ["this line has no colon"])
 
     def test_unrecognized_line_skipped(self):
         """パターンに一致しない行はスキップされる。"""
@@ -2128,7 +2128,13 @@ class TestSerializeLogEntry(unittest.TestCase):
         data = json.loads(result)
         self.assertEqual(
             data,
-            {"timestamp": "t", "operation": "再起動", "target": "Ubuntu-22.04", "result": "成功"},
+            {
+                "schema_version": 1,
+                "timestamp": "t",
+                "operation": "再起動",
+                "target": "Ubuntu-22.04",
+                "result": "成功",
+            },
         )
 
     def test_japanese_text_not_escaped(self):
@@ -2146,10 +2152,13 @@ class TestSerializeLogEntry(unittest.TestCase):
         self.assertFalse(result.endswith("\n"))
 
     def test_keys_present(self):
-        """必須キー (timestamp, operation, target, result) がすべて含まれる。"""
+        """必須キー (timestamp, operation, target, result, schema_version) がすべて含まれる。"""
         result = wsl_core.serialize_log_entry("削除", "OldDistro", "成功", timestamp="t")
         data = json.loads(result)
-        self.assertEqual(set(data.keys()), {"timestamp", "operation", "target", "result"})
+        self.assertEqual(
+            set(data.keys()),
+            {"timestamp", "operation", "target", "result", "schema_version"},
+        )
 
     def test_source_omitted_by_default(self):
         """source を指定しない場合、出力に "source" キーは含まれない (#27, 後方互換)。"""
@@ -2760,6 +2769,7 @@ class TestNormalizeSettings(unittest.TestCase):
     def test_full_valid_dict_roundtrips(self):
         """すべてのキーが妥当な値であればそのまま維持される。"""
         data = {
+            "schema_version": 1,
             "theme": "clam",
             "auto_refresh": True,
             "window_geometry": "800x600+10+20",
@@ -2886,6 +2896,7 @@ class TestLoadSettings(unittest.TestCase):
         """妥当な内容のファイルは正規化された値で返される。"""
         path = os.path.join(self.tmpdir, "settings.json")
         data = {
+            "schema_version": 1,
             "theme": "clam",
             "auto_refresh": True,
             "window_geometry": "800x600+10+20",
@@ -2914,7 +2925,7 @@ class TestSaveSettings(unittest.TestCase):
         self.assertTrue(os.path.exists(path))
 
     def test_saved_file_is_valid_json_with_all_keys(self):
-        """保存されたファイルは全5キーを含む妥当な JSON である。"""
+        """保存されたファイルは全キーを含む妥当な JSON である。"""
         path = os.path.join(self.tmpdir, "settings.json")
         wsl_core.save_settings(path, {"theme": "clam"})
         with open(path, encoding="utf-8") as f:
@@ -2925,6 +2936,7 @@ class TestSaveSettings(unittest.TestCase):
         """save_settings で保存した内容を load_settings で読み戻すと一致する。"""
         path = os.path.join(self.tmpdir, "settings.json")
         data = {
+            "schema_version": 1,
             "theme": "alt",
             "auto_refresh": True,
             "window_geometry": "960x460+0+0",
@@ -3492,13 +3504,21 @@ class TestBuildSnapshotBasename(unittest.TestCase):
 class TestBuildSnapshotMetadata(unittest.TestCase):
 
     def test_returns_all_six_keys(self):
-        """指定した6つのキーをすべて含む dict を返す。"""
+        """指定したキー（schema_version 含む）をすべて含む dict を返す。"""
         result = wsl_core.build_snapshot_metadata(
             "Ubuntu", "2", "テスト", 12345, "2026-01-01T00:00:00", "Ubuntu_20260101.tar"
         )
         self.assertEqual(
             set(result.keys()),
-            {"distro_name", "wsl_version", "comment", "size_bytes", "created_at", "tar_file"},
+            {
+                "schema_version",
+                "distro_name",
+                "wsl_version",
+                "comment",
+                "size_bytes",
+                "created_at",
+                "tar_file",
+            },
         )
 
     def test_values_pass_through_unchanged(self):
@@ -3523,6 +3543,7 @@ class TestNormalizeSnapshotMetadata(unittest.TestCase):
     def test_valid_data_passthrough(self):
         """妥当なデータはそのまま維持される。"""
         data = {
+            "schema_version": 1,
             "distro_name": "Ubuntu",
             "wsl_version": "2",
             "comment": "コメント",
@@ -3636,12 +3657,20 @@ class TestNormalizeSnapshotMetadata(unittest.TestCase):
         self.assertEqual(result["size_bytes"], 0)
 
     def test_result_has_exactly_six_keys(self):
-        """戻り値のキーはちょうど6個である。"""
+        """戻り値のキーは schema_version を含み 7 個である。"""
         data = {"distro_name": "Ubuntu", "tar_file": "a.tar"}
         result = wsl_core.normalize_snapshot_metadata(data)
         self.assertEqual(
             set(result.keys()),
-            {"distro_name", "wsl_version", "comment", "size_bytes", "created_at", "tar_file"},
+            {
+                "schema_version",
+                "distro_name",
+                "wsl_version",
+                "comment",
+                "size_bytes",
+                "created_at",
+                "tar_file",
+            },
         )
 
     def test_input_not_mutated(self):

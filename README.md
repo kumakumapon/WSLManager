@@ -58,7 +58,8 @@ Common GUI workflows:
 
 ```powershell
 python wslmgr_cli.py --help
-python wslmgr_cli.py list
+python wslmgr_cli.py --version
+python wslmgr_cli.py list --with-ip --with-disk
 python wslmgr_cli.py list --format json
 python wslmgr_cli.py start Ubuntu
 python wslmgr_cli.py stop Ubuntu
@@ -66,14 +67,30 @@ python wslmgr_cli.py shutdown
 python wslmgr_cli.py export Ubuntu C:\backup\Ubuntu.tar
 python wslmgr_cli.py import UbuntuClone C:\WSL\UbuntuClone C:\backup\Ubuntu.tar
 python wslmgr_cli.py config
+python wslmgr_cli.py config --distro Ubuntu
 python wslmgr_cli.py portproxy list
 python wslmgr_cli.py snapshot create Ubuntu --comment "before upgrade"
 python wslmgr_cli.py snapshot list
 python wslmgr_cli.py snapshot restore Ubuntu_20260101-000000.tar --install-path C:\WSL\Restored
+python wslmgr_cli.py snapshot set-dir D:\WSLSnapshots
 python wslmgr_cli.py clone Ubuntu UbuntuClone --install-path C:\WSL\UbuntuClone
+python wslmgr_cli.py mount C:\disks\data.vhdx --vhd
+python wslmgr_cli.py unmount C:\disks\data.vhdx
+python wslmgr_cli.py log clear --yes
 ```
 
-CLI subcommands include `list`, `start`, `stop`, `shutdown`, `status`, `export`, `import`, `config`, `set-default`, `unregister`, `install`, `optimize`, `set-version`, `processes`, `log`, `portproxy`, `snapshot` (`create`/`list`/`restore`/`delete`), and `clone`.
+CLI subcommands include `list`, `start`, `stop`, `shutdown`, `status`, `export`, `import`, `config`, `set-default`, `unregister`, `install`, `optimize`, `set-version`, `processes`, `log` (`clear`), `portproxy` (`list`/`add`/`delete`), `snapshot` (`create`/`list`/`restore`/`delete`/`set-dir`), `clone`, `mount`, and `unmount`.
+
+#### CLI Exit Codes
+
+| Exit Code | Name | Description |
+|-----------|------|-------------|
+| `0` | Success | Command completed successfully |
+| `1` | General Error | Validation errors, missing files, duplicate names, OS errors |
+| `2` | Argument Error | Invalid command-line arguments (argparse syntax error) |
+| `3` | User Cancelled | Operation cancelled by user or aborted in non-interactive mode without `--yes` |
+| `4` | WSL Error | WSL command execution failure, timeout, or executable not found |
+| `5` | Partial Failure | Main action succeeded but some secondary operations or resource queries failed |
 
 ### Build An Executable
 

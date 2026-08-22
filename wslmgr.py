@@ -569,6 +569,12 @@ class WslConfigDialog(tk.Toplevel):
         ("localhostForwarding",  "localhostForwarding",  "combo",   ["", "true", "false"]),
         ("nestedVirtualization", "nestedVirtualization", "combo",   ["", "true", "false"]),
         ("guiApplications",      "guiApplications",      "combo",   ["", "true", "false"]),
+        ("kernel",               "kernel",               "entry",   None),
+        ("kernelCommandLine",    "kernelCommandLine",    "entry",   None),
+        ("vmIdleTimeout",        "vmIdleTimeout",        "entry",   None),
+        ("dnsTunneling",         "dnsTunneling",         "combo",   ["", "true", "false"]),
+        ("firewall",             "firewall",             "combo",   ["", "true", "false"]),
+        ("autoProxy",            "autoProxy",            "combo",   ["", "true", "false"]),
     ]
 
     def __init__(self, parent: tk.Tk) -> None:
@@ -626,6 +632,14 @@ class WslConfigDialog(tk.Toplevel):
             info_frame,
             text="変更の反映には WSL の全停止 (wsl --shutdown) が必要です。",
             foreground="#555555",
+        ).pack(anchor=tk.W)
+        ttk.Label(
+            info_frame,
+            text=(
+                "※ 保存時にコメント行は保持されません。"
+                "コメントを残したい場合は直接編集してください。"
+            ),
+            foreground="#885500",
         ).pack(anchor=tk.W)
 
         # パス表示
@@ -1905,8 +1919,172 @@ class TransferProgressDialog(tk.Toplevel):
                 # on_closing 側の後続処理 (他ダイアログの force_cancel・
                 # 終了処理) を止めないよう、ここでも握りつぶす。
                 pass
-        except OSError:
-            pass
+class WslMountDialog(tk.Toplevel):
+    """物理ディスクまたは VHD を WSL2 にマウントするダイアログ。"""
+
+    def __init__(self, parent: WSLManager) -> None:
+        super().__init__(parent)
+        self._parent = parent
+        self.title("ディスクのマウント (wsl --mount)")
+        self.resizable(False, False)
+        self._build_ui()
+        self.transient(parent)
+        self.grab_set()
+
+    def _build_ui(self) -> None:
+        frame = ttk.Frame(self, padding=14)
+        frame.pack(fill=tk.BOTH, expand=True)
+
+        ttk.Label(
+            frame,
+            text=(
+                "物理ディスクまたは VHD/VHDX ファイルを WSL2 にマウントします。\n"
+                "※ 管理者権限が必要な場合があります。"
+            ),
+            foreground="#555555",
+        ).grid(row=0, column=0, columnspan=3, sticky=tk.W, pady=(0, 10))
+
+        # ディスクパス
+        ttk.Label(frame, text="ディスク / VHD パス:").grid(row=1, column=0, sticky=tk.W, pady=3)
+        self._disk_var = tk.StringVar()
+        ttk.Entry(frame, textvariable=self._disk_var, width=32).grid(
+            row=1, column=1, sticky=tk.W, pady=3
+        )
+        ttk.Button(frame, text="参照...", command=self._browse_vhd, width=8).grid(
+            row=1, column=2, padx=(4, 0), pady=3
+        )
+
+        # VHD フラグ
+        self._vhd_var = tk.BooleanVar(value=False)
+        ttk.Checkbutton(
+            frame,
+            text="VHD / VHDX ファイルとしてマウント (--vhd)",
+            variable=self._vhd_var,
+        ).grid(row=2, column=0, columnspan=3, sticky=tk.W, pady=3)
+
+        # Bare フラグ
+        self._bare_var = tk.BooleanVar(value=False)
+        ttk.Checkbutton(
+            frame,
+            text="ファイルシステムをマウントせずアタッチのみ (--bare)",
+            variable=self._bare_var,
+        ).grid(row=3, column=0, columnspan=3, sticky=tk.W, pady=3)
+
+        # ファイルシステム
+        ttk.Label(frame, text="ファイルシステム (--type):").grid(
+            row=4, column=0, sticky=tk.W, pady=3
+        )
+        self._type_var = tk.StringVar(value="")
+        ttk.Entry(frame, textvariable=self._type_var, width=20).grid(
+            row=4, column=1, sticky=tk.W, pady=3
+        )
+
+        # パーティション
+        ttk.Label(frame, text="パーティション番号 (--partition):").grid(
+            row=5, column=0, sticky=tk.W, pady=3
+        )
+        self._partition_var = tk.StringVar(value="")
+        ttk.Entry(frame, textvariable=self._partition_var, width=10).grid(
+            row=5, column=1, sticky=tk.W, pady=3
+        )
+
+        # マウント名
+        ttk.Label(frame, text="マウント名 (--name):").grid(row=6, column=0, sticky=tk.W, pady=3)
+        self._name_var = tk.StringVar(value="")
+        ttk.Entry(frame, textvariable=self._name_var, width=20).grid(
+            row=6, column=1, sticky=tk.W, pady=3
+        )
+
+        btn_frame = ttk.Frame(frame)
+        btn_frame.grid(row=7, column=0, columnspan=3, sticky=tk.E, pady=(12, 0))
+        ttk.Button(btn_frame, text="マウント", command=self._on_mount, width=10).pack(
+            side=tk.RIGHT, padx=(4, 0)
+        )
+        ttk.Button(btn_frame, text="キャンセル", command=self.destroy, width=10).pack(
+            side=tk.RIGHT
+        )
+
+    def _browse_vhd(self) -> None:
+        path = filedialog.askopenfilename(
+            parent=self,
+            title="VHD/VHDX ファイルの選択",
+            filetypes=[("VHD Files", "*.vhdx;*.vhd"), ("All Files", "*.*")],
+        )
+        if path:
+            self._disk_var.set(path)
+            self._vhd_var.set(True)
+
+    def _on_mount(self) -> None:
+        disk = self._disk_var.get().strip()
+        if not disk:
+            messagebox.showwarning(
+                "入力エラー", "ディスクまたは VHD のパスを入力してください。", parent=self
+            )
+            return
+
+        part_str = self._partition_var.get().strip()
+        part_num = int(part_str) if part_str.isdigit() else None
+
+        mount_args = wsl_core.build_wsl_mount_args(
+            disk=disk,
+            bare=self._bare_var.get(),
+            fs_type=self._type_var.get().strip() or None,
+            partition=part_num,
+            vhd=self._vhd_var.get(),
+            name=self._name_var.get().strip() or None,
+        )
+
+        self.destroy()
+        self._parent._execute_mount(disk, mount_args)
+
+
+class WslUnmountDialog(tk.Toplevel):
+    """WSL2 にマウントされているディスクをアンマウントするダイアログ。"""
+
+    def __init__(self, parent: WSLManager) -> None:
+        super().__init__(parent)
+        self._parent = parent
+        self.title("ディスクのアンマウント (wsl --unmount)")
+        self.resizable(False, False)
+        self._build_ui()
+        self.transient(parent)
+        self.grab_set()
+
+    def _build_ui(self) -> None:
+        frame = ttk.Frame(self, padding=14)
+        frame.pack(fill=tk.BOTH, expand=True)
+
+        ttk.Label(
+            frame,
+            text=(
+                "アンマウントするディスクパスを入力してください。\n"
+                "空欄のまま実行すると、マウントされているすべてのディスクをアンマウントします。"
+            ),
+            foreground="#555555",
+        ).pack(anchor=tk.W, pady=(0, 10))
+
+        row = ttk.Frame(frame)
+        row.pack(fill=tk.X, pady=(0, 10))
+        ttk.Label(row, text="ディスクパス (任意):", width=18, anchor=tk.W).pack(side=tk.LEFT)
+        self._disk_var = tk.StringVar()
+        ttk.Entry(row, textvariable=self._disk_var, width=30).pack(
+            side=tk.LEFT, fill=tk.X, expand=True
+        )
+
+        btn_frame = ttk.Frame(frame)
+        btn_frame.pack(fill=tk.X)
+        ttk.Button(btn_frame, text="アンマウント", command=self._on_unmount, width=12).pack(
+            side=tk.RIGHT, padx=(4, 0)
+        )
+        ttk.Button(btn_frame, text="キャンセル", command=self.destroy, width=10).pack(
+            side=tk.RIGHT
+        )
+
+    def _on_unmount(self) -> None:
+        disk = self._disk_var.get().strip() or None
+        unmount_args = wsl_core.build_wsl_unmount_args(disk=disk)
+        self.destroy()
+        self._parent._execute_unmount(disk, unmount_args)
 
 
 class SnapshotManagerDialog(tk.Toplevel):
@@ -1933,8 +2111,16 @@ class SnapshotManagerDialog(tk.Toplevel):
         main = ttk.Frame(self, padding=10)
         main.pack(fill=tk.BOTH, expand=True)
 
+        top_frame = ttk.Frame(main)
+        top_frame.pack(fill=tk.X, pady=(0, 6))
+
         self._dir_var = tk.StringVar(value="保存先: -")
-        ttk.Label(main, textvariable=self._dir_var).pack(anchor=tk.W, pady=(0, 6))
+        ttk.Label(top_frame, textvariable=self._dir_var).pack(
+            side=tk.LEFT, fill=tk.X, expand=True
+        )
+        ttk.Button(
+            top_frame, text="保存先変更…", command=self._change_dir, width=12
+        ).pack(side=tk.RIGHT)
 
         tree_frame = ttk.Frame(main)
         tree_frame.pack(fill=tk.BOTH, expand=True)
@@ -1976,6 +2162,20 @@ class SnapshotManagerDialog(tk.Toplevel):
         ttk.Button(
             bottom, text="復元...", command=self._restore_snapshot, width=10
         ).pack(side=tk.RIGHT, padx=(4, 0))
+
+    def _change_dir(self) -> None:
+        """スナップショット保存先ディレクトリを変更します。"""
+        current = self._parent._snapshot_dir()
+        new_dir = filedialog.askdirectory(
+            parent=self,
+            title="スナップショット保存先フォルダの選択",
+            initialdir=current,
+        )
+        if not new_dir:
+            return
+        self._parent._settings["snapshot_dir"] = os.path.abspath(new_dir)
+        self._parent._save_settings()
+        self._reload()
 
     def _reload(self) -> None:
         """スナップショット一覧を保存先ディレクトリから再読込してツリーに反映します。"""
@@ -2355,6 +2555,15 @@ class WSLManager(tk.Tk):
         tools_menu.add_command(
             label="スナップショット管理...",
             command=self._open_snapshot_manager,
+        )
+        tools_menu.add_separator()
+        tools_menu.add_command(
+            label="ディスクのマウント...",
+            command=self._open_mount,
+        )
+        tools_menu.add_command(
+            label="ディスクのアンマウント...",
+            command=self._open_unmount,
         )
         tools_menu.add_separator()
         tools_menu.add_command(
@@ -3759,6 +3968,71 @@ class WSLManager(tk.Tk):
             ),
         )
 
+    def _open_mount(self) -> None:
+        """ディスクのマウントダイアログを開きます。"""
+        WslMountDialog(self)
+
+    def _open_unmount(self) -> None:
+        """ディスクのアンマウントダイアログを開きます。"""
+        WslUnmountDialog(self)
+
+    def _execute_mount(self, disk: str, mount_args: list[str]) -> None:
+        """ディスクのマウントコマンドを実行します。"""
+        self._set_status(f"「{disk}」をマウント中…")
+
+        def _run() -> None:
+            res = wsl_core.run_wsl(mount_args, timeout=60.0, creationflags=CREATE_NO_WINDOW)
+            def _done() -> None:
+                if res.returncode == 0:
+                    self._log_operation("マウント", disk, "成功")
+                    self._set_status(f"「{disk}」をマウントしました。")
+                    messagebox.showinfo(
+                        "マウント完了", f"「{disk}」を正常にマウントしました。", parent=self
+                    )
+                else:
+                    msg = res.stderr.strip() or "マウントに失敗しました。"
+                    self._log_operation("マウント", disk, f"失敗: {msg}")
+                    self._set_status(f"マウント失敗: {msg}")
+                    messagebox.showerror(
+                        "マウントエラー",
+                        f"「{disk}」のマウントに失敗しました:\n{msg}\n\n"
+                        "管理者権限が必要な場合があります。",
+                        parent=self,
+                    )
+            self._call_soon_safe(_done)
+
+        threading.Thread(target=_run, daemon=True).start()
+
+    def _execute_unmount(self, disk: str | None, unmount_args: list[str]) -> None:
+        """ディスクのアンマウントコマンドを実行します。"""
+        target = disk or "すべてのマウントディスク"
+        self._set_status(f"「{target}」をアンマウント中…")
+
+        def _run() -> None:
+            res = wsl_core.run_wsl(unmount_args, timeout=30.0, creationflags=CREATE_NO_WINDOW)
+            def _done() -> None:
+                if res.returncode == 0:
+                    self._log_operation("アンマウント", target, "成功")
+                    self._set_status(f"「{target}」をアンマウントしました。")
+                    messagebox.showinfo(
+                        "アンマウント完了",
+                        f"「{target}」を正常にアンマウントしました。",
+                        parent=self,
+                    )
+                else:
+                    msg = res.stderr.strip() or "アンマウントに失敗しました。"
+                    self._log_operation("アンマウント", target, f"失敗: {msg}")
+                    self._set_status(f"アンマウント失敗: {msg}")
+                    messagebox.showerror(
+                        "アンマウントエラー",
+                        f"「{target}」のアンマウントに失敗しました:\n{msg}\n\n"
+                        "管理者権限が必要な場合があります。",
+                        parent=self,
+                    )
+            self._call_soon_safe(_done)
+
+        threading.Thread(target=_run, daemon=True).start()
+
     def _show_wsl_version(self) -> None:
         """WSL のバージョン情報を取得してダイアログに表示します。"""
         label_map = {
@@ -3790,6 +4064,11 @@ class WSLManager(tk.Tk):
                     value = info.get(key)
                     if value is not None:
                         lines.append(f"{label}: {value}")
+                unparsed = info.get("_unparsed_lines")
+                if unparsed:
+                    lines.append("")
+                    lines.append("【その他の情報】")
+                    lines.extend(unparsed)
                 if not lines:
                     lines = ["WSL のバージョン情報を取得できませんでした。"]
                 WslVersionDialog(self, lines, self._update_wsl)
@@ -3811,62 +4090,47 @@ class WSLManager(tk.Tk):
         self._run_wsl_update_cmd(pre_release)
 
     def _run_wsl_update_cmd(self, pre_release: bool) -> None:
-        """``wsl --update`` をバックグラウンドスレッドで実行します。
-
-        更新のダウンロードには時間がかかることがあるため、タイムアウトは
-        長め (300秒) に設定しています。
-        """
-        args = ["wsl", "--update"]
+        """``wsl --update`` をバックグラウンドスレッドで実行します。"""
+        args = ["--update"]
         if pre_release:
             args.append("--pre-release")
 
         self._set_status("WSL を更新中…（数分かかる場合があります）")
 
-        def _run() -> None:
-            try:
-                result = subprocess.run(
-                    args,
-                    capture_output=True,
-                    creationflags=CREATE_NO_WINDOW,
-                    timeout=300.0,
-                )
-                output = (
-                    wsl_core.decode_wsl_output(result.stdout).strip()
-                    or wsl_core.decode_wsl_output(result.stderr).strip()
-                )
-                info = wsl_core.parse_wsl_update_output(output)
-                ok = result.returncode == 0
-            except subprocess.TimeoutExpired:
-                info = None
-                ok = False
-                output = "WSL の更新がタイムアウトしました。"
-            except OSError as e:
-                info = None
-                ok = False
-                output = str(e)
+        def _on_done(returncode: int, stderr_text: str, cancelled: bool) -> None:
+            target = "wsl" + ("(--pre-release)" if pre_release else "")
+            if cancelled:
+                self._log_operation("WSL 更新", target, "キャンセル")
+                self._set_status("WSL の更新をキャンセルしました。")
+            elif returncode == 0:
+                self._log_operation("WSL 更新", target, "成功")
+                self._set_status("WSL の更新が完了しました。")
+                messagebox.showinfo("WSL 更新", "WSL の更新が完了しました。", parent=self)
+            else:
+                msg = stderr_text or "WSL の更新に失敗しました。"
+                self._log_operation("WSL 更新", target, f"失敗: {msg}")
+                self._set_status(f"WSL 更新失敗: {msg}")
+                messagebox.showerror("WSL 更新エラー", msg, parent=self)
 
-            def _done() -> None:
-                target = "wsl" + ("(--pre-release)" if pre_release else "")
-                if info is not None and ok:
-                    message = info["message"]
-                    self._log_operation("WSL 更新", target, message)
-                    self._set_status(message)
-                    messagebox.showinfo("WSL を更新", message, parent=self)
-                else:
-                    message = output or "WSL の更新に失敗しました。"
-                    self._log_operation("WSL 更新", target, f"失敗: {message}")
-                    self._set_status(message)
-                    messagebox.showerror("WSL を更新", message, parent=self)
-
-            self._call_soon_safe(_done)
-
-        threading.Thread(target=_run, daemon=True).start()
+        TransferProgressDialog(
+            self,
+            "WSL 更新",
+            "WSL を更新しています…（数分かかる場合があります）",
+            args,
+            None,
+            None,
+            _on_done,
+            cancel_prompt="WSL の更新をキャンセルしますか？",
+        )
 
     def _show_about(self) -> None:
         """アプリケーション情報を表示します。"""
         messagebox.showinfo(
             "WSL Manager について",
-            "WSL Manager\n\nWSL2 ディストリビューション管理ツール\nWindows 10/11 + WSL2 環境用",
+            f"WSL Manager v{wsl_core.__version__}\n\n"
+            "WSL2 ディストリビューション管理ツール\n"
+            "Windows 10/11 + WSL2 環境用\n\n"
+            "GitHub: https://github.com/kumakumapon/WSLManager",
             parent=self,
         )
 
@@ -3957,6 +4221,31 @@ def main() -> None:
         )
         root.destroy()
         sys.exit(1)
+
+    # 高DPI 対応
+    try:
+        import ctypes
+        ctypes.windll.shcore.SetProcessDpiAwareness(2)
+    except Exception:
+        try:
+            import ctypes
+            ctypes.windll.user32.SetProcessDPIAware()
+        except Exception:
+            pass
+
+    # 多重起動防止 (Named Mutex)
+    try:
+        import ctypes
+        mutex_name = "Global\\WSLManager_SingleInstance_Mutex"
+        ctypes.windll.kernel32.CreateMutexW(None, False, mutex_name)
+        if ctypes.windll.kernel32.GetLastError() == 183:  # ERROR_ALREADY_EXISTS
+            hwnd = ctypes.windll.user32.FindWindowW(None, "WSL Manager")
+            if hwnd:
+                ctypes.windll.user32.ShowWindow(hwnd, 9)  # SW_RESTORE
+                ctypes.windll.user32.SetForegroundWindow(hwnd)
+            sys.exit(0)
+    except Exception:
+        pass
 
     app = WSLManager()
     app.protocol("WM_DELETE_WINDOW", app.on_closing)

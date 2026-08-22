@@ -58,7 +58,8 @@ python wslmgr.py
 
 ```powershell
 python wslmgr_cli.py --help
-python wslmgr_cli.py list
+python wslmgr_cli.py --version
+python wslmgr_cli.py list --with-ip --with-disk
 python wslmgr_cli.py list --format json
 python wslmgr_cli.py start Ubuntu
 python wslmgr_cli.py stop Ubuntu
@@ -66,14 +67,30 @@ python wslmgr_cli.py shutdown
 python wslmgr_cli.py export Ubuntu C:\backup\Ubuntu.tar
 python wslmgr_cli.py import UbuntuClone C:\WSL\UbuntuClone C:\backup\Ubuntu.tar
 python wslmgr_cli.py config
+python wslmgr_cli.py config --distro Ubuntu
 python wslmgr_cli.py portproxy list
 python wslmgr_cli.py snapshot create Ubuntu --comment "アップグレード前"
 python wslmgr_cli.py snapshot list
 python wslmgr_cli.py snapshot restore Ubuntu_20260101-000000.tar --install-path C:\WSL\Restored
+python wslmgr_cli.py snapshot set-dir D:\WSLSnapshots
 python wslmgr_cli.py clone Ubuntu UbuntuClone --install-path C:\WSL\UbuntuClone
+python wslmgr_cli.py mount C:\disks\data.vhdx --vhd
+python wslmgr_cli.py unmount C:\disks\data.vhdx
+python wslmgr_cli.py log clear --yes
 ```
 
-CLI サブコマンドには `list`、`start`、`stop`、`shutdown`、`status`、`export`、`import`、`config`、`set-default`、`unregister`、`install`、`optimize`、`set-version`、`processes`、`log`、`portproxy`、`snapshot` (`create`/`list`/`restore`/`delete`)、`clone` があります。
+CLI サブコマンドには `list`、`start`、`stop`、`shutdown`、`status`、`export`、`import`、`config`、`set-default`、`unregister`、`install`、`optimize`、`set-version`、`processes`、`log` (`clear`)、`portproxy` (`list`/`add`/`delete`)、`snapshot` (`create`/`list`/`restore`/`delete`/`set-dir`)、`clone`、`mount`、`unmount` があります。
+
+#### CLI 終了コード体系
+
+| 終了コード | 識別名 | 説明 |
+|-----------|------|-------------|
+| `0` | Success | 正常終了 |
+| `1` | General Error | 一般エラー（事前検証エラー、ファイル未検出、名前重複、OS エラー等） |
+| `2` | Argument Error | 引数構文エラー（argparse による引数解釈失敗） |
+| `3` | User Cancelled | ユーザーによるキャンセル、または非対話環境で `--yes` なしでの中止 |
+| `4` | WSL Error | WSL コマンドの実行失敗（終了コード ≠ 0、タイムアウト、wsl.exe 未検出等） |
+| `5` | Partial Failure | 主処理は成功したが一部の補助処理やリソース取得に失敗（部分失敗） |
 
 ### exe をビルド
 
