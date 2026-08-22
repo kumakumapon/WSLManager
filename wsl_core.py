@@ -18,10 +18,155 @@ import json
 import os
 import queue
 import re
+import subprocess
 import sys
 import tempfile
 import threading
+from dataclasses import dataclass
 from datetime import datetime
+from typing import Any, TypedDict
+
+__version__ = "1.0.0"
+CURRENT_SCHEMA_VERSION = 1
+
+
+# ---------------------------------------------------------------------------
+# 構造化データ型定義 (TypedDict / dataclass)
+# ---------------------------------------------------------------------------
+
+
+class DistroInfo(TypedDict, total=False):
+    name: str
+    state: str
+    version: str
+    default: bool
+    cpu: str
+    memory: str
+    disk: str
+    ip: str
+
+
+class ProcessInfo(TypedDict):
+    pid: int
+    user: str
+    command: str
+
+
+class DiskUsage(TypedDict):
+    filesystem: str
+    size: str
+    used: str
+    avail: str
+    use_percent: str
+    mountpoint: str
+
+
+class LogEntry(TypedDict, total=False):
+    timestamp: str
+    operation: str
+    target: str
+    result: str
+    source: str
+    schema_version: int
+
+
+class Settings(TypedDict, total=False):
+    schema_version: int
+    theme: str | None
+    auto_refresh: bool
+    window_geometry: str | None
+    sort_column: str | None
+    sort_desc: bool
+    snapshot_dir: str | None
+
+
+class SnapshotMetadata(TypedDict, total=False):
+    schema_version: int
+    distro_name: str
+    wsl_version: str
+    comment: str
+    size_bytes: int
+    created_at: str
+    tar_file: str
+    json_path: str
+    tar_path: str
+    tar_exists: bool
+
+
+class PortproxyRule(TypedDict):
+    listen_address: str
+    listen_port: int
+    connect_address: str
+    connect_port: int
+
+
+class ListeningSocket(TypedDict):
+    state: str
+    local_address: str
+    local_port: int
+    process: str
+
+
+@dataclass
+class WslResult:
+    """wsl コマンド実行結果を保持するデータクラスです。"""
+
+    returncode: int
+    stdout: str
+    stderr: str
+    error: str | None = None  # None | "not_found" | "timeout" | "os_error"
+
+
+def run_wsl(
+    args: list[str],
+    timeout: float = 30.0,
+    creationflags: int | None = None,
+) -> WslResult:
+    """WSL コマンドを実行し、出力をデコードして WslResult を返します。
+
+    wsl.exe の不在、タイムアウト、OSError などを捕捉し、統一された
+    エラーメッセージと error 種別を設定した WslResult を返します。
+    """
+    if creationflags is None:
+        creationflags = 0x08000000 if sys.platform == "win32" else 0  # CREATE_NO_WINDOW
+    cmd = ["wsl", *args]
+    try:
+        proc = subprocess.run(
+            cmd,
+            capture_output=True,
+            timeout=timeout,
+            creationflags=creationflags,
+        )
+        stdout = decode_wsl_output(proc.stdout)
+        stderr = decode_wsl_output(proc.stderr)
+        return WslResult(
+            returncode=proc.returncode,
+            stdout=stdout,
+            stderr=stderr,
+            error=None,
+        )
+    except FileNotFoundError:
+        return WslResult(
+            returncode=-1,
+            stdout="",
+            stderr="wsl.exe が見つかりません。WSL2 がインストールされているか確認してください。",
+            error="not_found",
+        )
+    except subprocess.TimeoutExpired:
+        return WslResult(
+            returncode=-1,
+            stdout="",
+            stderr="コマンドがタイムアウトしました。",
+            error="timeout",
+        )
+    except OSError as e:
+        return WslResult(
+            returncode=-1,
+            stdout="",
+            stderr=f"コマンド実行エラー: {e}",
+            error="os_error",
+        )
+
 
 # WSL ディストロ名はレジストリキー名・\\wsl.localhost\<name> パス・
 # エクスポートファイル名として使われるため、Windows の予約デバイス名は
@@ -269,29 +414,41 @@ def parse_wsl_version(output: str) -> dict[str, str | list[str]]:
     result: dict[str, str | list[str]] = {}
     unparsed_lines: list[str] = []
     for raw_line in output.splitlines():
-        if ":" not in raw_line:
-            if raw_line.strip():
-                unparsed_lines.append(raw_line)
+        line = raw_line.strip()
+        if not line:
             continue
-        left, _, right = raw_line.partition(":")
+        if ":" not in line:
+            unparsed_lines.append(line)
+            continue
+        left, _, right = line.partition(":")
         left_strip = left.strip()
         value = right.strip()
+        matched = False
         if "WSLg" in left_strip:
             result["wslg"] = value
+            matched = True
         elif "WSL" in left_strip:
             result["wsl"] = value
+            matched = True
         elif "カーネル" in left_strip or "Kernel" in left_strip:
             result["kernel"] = value
+            matched = True
         elif "MSRDC" in left_strip:
             result["msrdc"] = value
+            matched = True
         elif "Direct3D" in left_strip:
             result["direct3d"] = value
+            matched = True
         elif "DXCore" in left_strip:
             result["dxcore"] = value
+            matched = True
         elif "Windows" in left_strip:
             result["windows"] = value
-        else:
-            unparsed_lines.append(raw_line)
+            matched = True
+
+        if not matched:
+            unparsed_lines.append(line)
+
     if unparsed_lines:
         result["_unparsed_lines"] = unparsed_lines
     return result
@@ -301,19 +458,20 @@ _WSL_UPDATE_UP_TO_DATE_PATTERNS = (
     re.compile(r"already installed", re.IGNORECASE),
     re.compile(r"up[\s-]?to[\s-]?date", re.IGNORECASE),
     re.compile(r"既にインストールされています"),
+    re.compile(r"最新.*インストールされています"),
 )
 
 # 英語: "Updating ... to version: 2.1.5." / "... successfully updated to version 2.1.5"
 _WSL_UPDATE_VERSION_RE_EN = re.compile(
-    r"to version:?\s*([0-9]+(?:\.[0-9]+)*)", re.IGNORECASE
+    r"(?:to version:?|installed version:?)\s*([0-9]+(?:\.[0-9]+)*)", re.IGNORECASE
 )
 # 日本語: "Windows Subsystem for Linux をバージョン 2.1.5 に更新しています。"
 _WSL_UPDATE_VERSION_RE_JA = re.compile(
-    r"バージョン\s*([0-9]+(?:\.[0-9]+)*)\s*に(?:更新|インストール)"
+    r"バージョン\s*([0-9]+(?:\.[0-9]+)*)\s*(?:に(?:更新|インストール)|が(?:更新|インストール))"
 )
 
 
-def parse_wsl_update_output(output: str) -> dict:
+def parse_wsl_update_output(output: str) -> dict[str, Any]:
     """``wsl --update`` のデコード済みテキスト出力を解析して更新結果の dict を返します。
 
     wsl --update の出力は環境により日本語・英語のいずれにもなり得るため、
@@ -365,6 +523,36 @@ def parse_wsl_update_output(output: str) -> dict:
         "version": version,
         "message": message,
     }
+
+
+def build_wsl_mount_args(
+    disk: str,
+    bare: bool = False,
+    fs_type: str | None = None,
+    partition: int | None = None,
+    vhd: bool = False,
+    name: str | None = None,
+) -> list[str]:
+    """``wsl --mount`` コマンドの引数リストを生成します。"""
+    args = ["--mount", disk]
+    if vhd:
+        args.append("--vhd")
+    if bare:
+        args.append("--bare")
+    if name:
+        args.extend(["--name", name])
+    if fs_type:
+        args.extend(["--type", fs_type])
+    if partition is not None and partition > 0:
+        args.extend(["--partition", str(partition)])
+    return args
+
+
+def build_wsl_unmount_args(disk: str | None = None) -> list[str]:
+    """``wsl --unmount`` コマンドの引数リストを生成します。"""
+    if disk:
+        return ["--unmount", disk]
+    return ["--unmount"]
 
 
 def parse_ip_addresses(output: str) -> list[str]:
@@ -892,17 +1080,18 @@ def serialize_log_entry(
     result: str,
     timestamp: str | None = None,
     source: str | None = None,
+    schema_version: int = CURRENT_SCHEMA_VERSION,
 ) -> str:
     """操作ログ1件を JSON Lines 形式の1行 (改行なし) にシリアライズして返します。
 
-    キーは "timestamp", "operation", "target", "result" です。
+    キーは "timestamp", "operation", "target", "result", "schema_version" です。
     timestamp が None の場合は現在時刻を ISO 8601 形式で設定します。
     source を指定すると "source" キー (例: "gui" / "cli") も出力します。
-    None の場合はキー自体を出力しません (既存ログ・既存フォーマットとの後方互換のため)。
     日本語をエスケープしないように ``json.dumps(ensure_ascii=False)`` を使用します。
     """
     ts = timestamp if timestamp is not None else datetime.now().isoformat()
-    entry = {
+    entry: dict[str, Any] = {
+        "schema_version": schema_version,
         "timestamp": ts,
         "operation": operation,
         "target": target,
@@ -932,6 +1121,8 @@ def deserialize_log_entries(text: str) -> list[dict]:
         except (json.JSONDecodeError, ValueError):
             continue
         if isinstance(entry, dict):
+            if "schema_version" not in entry:
+                entry["schema_version"] = 1
             entries.append(entry)
     return entries
 
@@ -1127,7 +1318,10 @@ class AsyncLogWriter:
         if thread is None or not thread.is_alive():
             return self._queue.empty()
         barrier = threading.Event()
-        self._queue.put(barrier)
+        try:
+            self._queue.put(barrier, timeout=timeout)
+        except queue.Full:
+            return False
         return barrier.wait(timeout)
 
     def stop(self, timeout: float = 2.0) -> bool:
@@ -1143,7 +1337,10 @@ class AsyncLogWriter:
             thread = self._thread
         if thread is None or not thread.is_alive():
             return True
-        self._queue.put(self._SENTINEL)
+        try:
+            self._queue.put(self._SENTINEL, timeout=timeout)
+        except queue.Full:
+            pass
         thread.join(timeout)
         return not thread.is_alive()
 
@@ -1237,7 +1434,8 @@ def tail_entries(entries: list, n: int) -> list:
 # ---------------------------------------------------------------------------
 
 
-DEFAULT_SETTINGS: dict = {
+DEFAULT_SETTINGS: dict[str, Any] = {
+    "schema_version": CURRENT_SCHEMA_VERSION,
     "theme": None,           # ttk テーマ名 (None はシステムデフォルト)
     "auto_refresh": False,   # 自動更新の ON/OFF
     "window_geometry": None, # ウィンドウジオメトリ "WxH+X+Y" (None は未保存)
@@ -1283,7 +1481,7 @@ def is_valid_geometry(value) -> bool:
     return width > 0 and height > 0
 
 
-def normalize_settings(data) -> dict:
+def normalize_settings(data) -> dict[str, Any]:
     """任意のオブジェクトから完全な設定 dict を生成して返します。
 
     ``DEFAULT_SETTINGS`` の全キーを持つ新しい dict を返します。
@@ -1295,6 +1493,10 @@ def normalize_settings(data) -> dict:
     result = dict(DEFAULT_SETTINGS)
     if not isinstance(data, dict):
         return result
+
+    schema_ver = data.get("schema_version")
+    if isinstance(schema_ver, int) and not isinstance(schema_ver, bool) and schema_ver > 0:
+        result["schema_version"] = schema_ver
 
     theme = data.get("theme")
     if isinstance(theme, str) and theme:
@@ -1323,7 +1525,7 @@ def normalize_settings(data) -> dict:
     return result
 
 
-def load_settings(path: str) -> dict:
+def load_settings(path: str) -> dict[str, Any]:
     """設定ファイルを読み込んで正規化した設定 dict を返します。
 
     起動を妨げないよう、ファイルが存在しない・権限がない・JSON として
@@ -1468,13 +1670,15 @@ def build_snapshot_metadata(
     size_bytes: int,
     created_at: str,
     tar_file: str,
-) -> dict:
+    schema_version: int = CURRENT_SCHEMA_VERSION,
+) -> dict[str, Any]:
     """スナップショットのメタデータ dict を生成します。
 
     ``tar_file`` には tar ファイルのベース名 (フルパスではない) を指定します。
     ``created_at`` は ISO-8601 形式の文字列を想定します。
     """
     return {
+        "schema_version": schema_version,
         "distro_name": distro_name,
         "wsl_version": wsl_version,
         "comment": comment,
@@ -1484,13 +1688,13 @@ def build_snapshot_metadata(
     }
 
 
-def normalize_snapshot_metadata(data) -> dict | None:
+def normalize_snapshot_metadata(data) -> dict[str, Any] | None:
     """任意のオブジェクトからスナップショットメタデータ dict を正規化します。
 
     ``data`` が dict でない場合、``distro_name`` または ``tar_file`` が
     空でない文字列でない場合、および ``tar_file`` がベース名以外
     (パス区切り文字や ``..`` を含む) の場合は ``None`` を返します。それ以外の場合は
-    6つのキーを持つ新しい dict を返します。値の型・形式が不正な場合は
+    スキーマバージョンを含むキーを持つ新しい dict を返します。値の型・形式が不正な場合は
     妥当な値にフォールバックします。引数を破壊的に変更することはありません。
     """
     if not isinstance(data, dict):
@@ -1507,6 +1711,10 @@ def normalize_snapshot_metadata(data) -> dict | None:
     # 保存先ディレクトリ外のファイルを指せてしまう (パストラバーサル)。
     if "/" in tar_file or "\\" in tar_file or tar_file in (".", ".."):
         return None
+
+    schema_ver = data.get("schema_version", 1)
+    if not (isinstance(schema_ver, int) and not isinstance(schema_ver, bool) and schema_ver > 0):
+        schema_ver = 1
 
     wsl_version = data.get("wsl_version")
     if isinstance(wsl_version, str) and wsl_version in ("1", "2"):
@@ -1533,6 +1741,7 @@ def normalize_snapshot_metadata(data) -> dict | None:
         size_bytes = 0
 
     return {
+        "schema_version": schema_ver,
         "distro_name": distro_name,
         "wsl_version": wsl_version,
         "comment": comment,

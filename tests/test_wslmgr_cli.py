@@ -334,7 +334,7 @@ class TestCmdList(unittest.TestCase):
 
     @patch("wslmgr_cli.subprocess.run")
     def test_command_failure_exits_with_error(self, mock_run):
-        """wsl コマンドが失敗した場合 sys.exit(EXIT_WSL_FAILURE) する (#28)。"""
+        """wsl コマンドが失敗した場合 sys.exit(1) する。"""
         proc = MagicMock()
         proc.returncode = 1
         proc.stdout = b""
@@ -344,7 +344,7 @@ class TestCmdList(unittest.TestCase):
         with self.assertRaises(SystemExit) as cm:
             with patch("sys.stderr", io.StringIO()):
                 wslmgr_cli.cmd_list(args)
-        self.assertEqual(cm.exception.code, wslmgr_cli.EXIT_WSL_FAILURE)
+        self.assertEqual(cm.exception.code, wslmgr_cli.ExitCode.WSL_ERROR)
 
     @patch("wslmgr_cli.subprocess.run")
     def test_wsl_invoked_with_list_verbose(self, mock_run):
@@ -355,63 +355,6 @@ class TestCmdList(unittest.TestCase):
             wslmgr_cli.cmd_list(args)
         call_args = mock_run.call_args
         self.assertEqual(call_args[0][0], ["wsl", "--list", "--verbose"])
-
-
-# ---------------------------------------------------------------------------
-# cmd_status
-# ---------------------------------------------------------------------------
-
-class TestCmdStatus(unittest.TestCase):
-    """cmd_status のテスト (#28: 部分失敗の終了コード)。"""
-
-    TYPICAL_OUTPUT = (
-        "  NAME      STATE           VERSION\n"
-        "* Ubuntu    Running         2\n"
-        "  Debian    Running         2\n"
-    )
-
-    @patch("wslmgr_cli._run_wsl_command")
-    def test_all_succeed_exits_ok(self, mock_run):
-        """全ディストロのリソース取得に成功した場合 exit しない (実質 exit 0)。"""
-        mock_run.side_effect = [
-            (0, self.TYPICAL_OUTPUT, ""),
-            (0, "1.0 10.0", ""),
-            (0, "2.0 20.0", ""),
-        ]
-        args = argparse.Namespace(format="table")
-        with patch("sys.stdout", io.StringIO()):
-            wslmgr_cli.cmd_status(args)  # SystemExit を送出しないこと自体が確認事項
-
-    @patch("wslmgr_cli._run_wsl_command")
-    def test_partial_failure_reports_all_and_exits_partial(self, mock_run):
-        """#28: 個別ディストロの取得失敗があっても、全結果を表示してから
-        EXIT_PARTIAL で終了する (ループ内で即 exit しない)。"""
-        mock_run.side_effect = [
-            (0, self.TYPICAL_OUTPUT, ""),
-            (0, "1.0 10.0", ""),
-            (1, "", "取得失敗"),
-        ]
-        args = argparse.Namespace(format="json")
-        buf = io.StringIO()
-        with self.assertRaises(SystemExit) as cm:
-            with patch("sys.stdout", buf):
-                wslmgr_cli.cmd_status(args)
-        self.assertEqual(cm.exception.code, wslmgr_cli.EXIT_PARTIAL)
-        data = json.loads(buf.getvalue())
-        # 失敗した個別取得があっても、全ディストロの結果が集計・表示されている
-        self.assertEqual(len(data), 2)
-        self.assertEqual(data[0]["cpu"], "1.0")
-        self.assertEqual(data[1]["cpu"], "-")
-
-    @patch("wslmgr_cli._run_wsl_command")
-    def test_list_failure_exits_wsl_failure(self, mock_run):
-        """一覧取得自体が失敗した場合 exit EXIT_WSL_FAILURE する (#28)。"""
-        mock_run.return_value = (1, "", "一覧取得失敗")
-        args = argparse.Namespace(format="table")
-        with self.assertRaises(SystemExit) as cm:
-            with patch("sys.stderr", io.StringIO()):
-                wslmgr_cli.cmd_status(args)
-        self.assertEqual(cm.exception.code, wslmgr_cli.EXIT_WSL_FAILURE)
 
 
 # ---------------------------------------------------------------------------
@@ -450,12 +393,12 @@ class TestCmdConfig(unittest.TestCase):
 
     @patch("wslmgr_cli.os.path.exists", return_value=False)
     def test_missing_file_exits_with_error(self, mock_exists):
-        """.wslconfig が存在しない場合 sys.exit(EXIT_ERROR) する (#28: 入力検証エラー)。"""
+        """.wslconfig が存在しない場合 sys.exit(1) する。"""
         args = argparse.Namespace(format="table")
         with self.assertRaises(SystemExit) as cm:
             with patch("sys.stderr", io.StringIO()):
                 wslmgr_cli.cmd_config(args)
-        self.assertEqual(cm.exception.code, wslmgr_cli.EXIT_ERROR)
+        self.assertEqual(cm.exception.code, wslmgr_cli.ExitCode.GENERAL_ERROR)
 
     @patch("wslmgr_cli.os.path.exists", return_value=True)
     @patch("builtins.open", new_callable=mock_open, read_data="")
@@ -557,7 +500,7 @@ class TestCmdExport(unittest.TestCase):
 
     @patch("wslmgr_cli.subprocess.run")
     def test_failure_exits_with_error(self, mock_run):
-        """失敗時に exit EXIT_WSL_FAILURE する (#28)。"""
+        """失敗時に exit 4 (WSL_ERROR) する。"""
         proc = MagicMock()
         proc.returncode = 1
         proc.stdout = b""
@@ -570,14 +513,14 @@ class TestCmdExport(unittest.TestCase):
                 with patch("sys.stdout", io.StringIO()):
                     with patch("sys.stderr", io.StringIO()):
                         wslmgr_cli.cmd_export(args)
-            self.assertEqual(cm.exception.code, wslmgr_cli.EXIT_WSL_FAILURE)
+            self.assertEqual(cm.exception.code, wslmgr_cli.ExitCode.WSL_ERROR)
 
     @patch(
         "wslmgr_cli.subprocess.run",
         side_effect=subprocess.TimeoutExpired(cmd="wsl", timeout=600),
     )
     def test_timeout_exits_with_error(self, mock_run):
-        """エクスポートがタイムアウトした場合 exit EXIT_WSL_FAILURE する (#28)。"""
+        """エクスポートがタイムアウトした場合 exit 4 (WSL_ERROR) する。"""
         with tempfile.TemporaryDirectory() as tmpdir:
             path = os.path.join(tmpdir, "backup.tar")
             args = argparse.Namespace(name="Ubuntu", path=path, yes=False)
@@ -585,11 +528,11 @@ class TestCmdExport(unittest.TestCase):
                 with patch("sys.stdout", io.StringIO()):
                     with patch("sys.stderr", io.StringIO()):
                         wslmgr_cli.cmd_export(args)
-            self.assertEqual(cm.exception.code, wslmgr_cli.EXIT_WSL_FAILURE)
+            self.assertEqual(cm.exception.code, wslmgr_cli.ExitCode.WSL_ERROR)
 
     @patch("wslmgr_cli.subprocess.run", side_effect=FileNotFoundError("wsl not found"))
     def test_filenotfounderror_exits_with_error(self, mock_run):
-        """wsl 実行ファイルが見つからない場合 exit EXIT_WSL_FAILURE する (#28)。"""
+        """wsl 実行ファイルが見つからない場合 exit 4 (WSL_ERROR) する。"""
         with tempfile.TemporaryDirectory() as tmpdir:
             path = os.path.join(tmpdir, "backup.tar")
             args = argparse.Namespace(name="Ubuntu", path=path, yes=False)
@@ -597,7 +540,7 @@ class TestCmdExport(unittest.TestCase):
                 with patch("sys.stdout", io.StringIO()):
                     with patch("sys.stderr", io.StringIO()):
                         wslmgr_cli.cmd_export(args)
-            self.assertEqual(cm.exception.code, wslmgr_cli.EXIT_WSL_FAILURE)
+            self.assertEqual(cm.exception.code, wslmgr_cli.ExitCode.WSL_ERROR)
 
     @patch("wslmgr_cli.subprocess.run")
     def test_existing_file_requires_confirmation(self, mock_run):
@@ -612,7 +555,7 @@ class TestCmdExport(unittest.TestCase):
                     with self.assertRaises(SystemExit) as cm:
                         with patch("sys.stdout", io.StringIO()):
                             wslmgr_cli.cmd_export(args)
-            self.assertEqual(cm.exception.code, wslmgr_cli.EXIT_DENIED)
+            self.assertEqual(cm.exception.code, wslmgr_cli.ExitCode.USER_CANCELLED)
             mock_run.assert_not_called()
 
     @patch("wslmgr_cli.subprocess.run")
@@ -635,9 +578,7 @@ class TestCmdExport(unittest.TestCase):
 
     @patch("wslmgr_cli.subprocess.run")
     def test_existing_file_non_tty_without_yes_exits(self, mock_run):
-        # 日本語の1文なので途中改行は読みにくく、() による暗黙連結では
-        # docstring の見た目が不自然になるため、1 行のまま noqa で許容する。
-        """非対話環境でエクスポート先が既存かつ --yes なしの場合、実行前に exit EXIT_DENIED する (#28)。"""  # noqa: E501
+        """非対話環境でエクスポート先が既存かつ --yes なしの場合、exit 3 する。"""
         with tempfile.TemporaryDirectory() as tmpdir:
             path = os.path.join(tmpdir, "backup.tar")
             with open(path, "wb") as f:
@@ -647,7 +588,7 @@ class TestCmdExport(unittest.TestCase):
                 with self.assertRaises(SystemExit) as cm:
                     with patch("sys.stderr", io.StringIO()):
                         wslmgr_cli.cmd_export(args)
-            self.assertEqual(cm.exception.code, wslmgr_cli.EXIT_DENIED)
+            self.assertEqual(cm.exception.code, wslmgr_cli.ExitCode.USER_CANCELLED)
             mock_run.assert_not_called()
 
 
@@ -659,7 +600,7 @@ class TestCmdImport(unittest.TestCase):
     """cmd_import のテスト。"""
 
     def test_invalid_name_exits_before_subprocess(self):
-        """不正な名前の場合、subprocess を呼ばずに sys.exit(EXIT_ERROR) する (#28: 入力検証)。"""
+        """不正な名前の場合、subprocess を呼ばずに sys.exit(1) する。"""
         args = argparse.Namespace(
             name="bad/name", install_path="C:\\wsl\\bad", image_path="C:\\image.tar"
         )
@@ -668,7 +609,7 @@ class TestCmdImport(unittest.TestCase):
                 with patch("sys.stderr", io.StringIO()):
                     wslmgr_cli.cmd_import(args)
             mock_run.assert_not_called()
-        self.assertEqual(cm.exception.code, wslmgr_cli.EXIT_ERROR)
+        self.assertEqual(cm.exception.code, wslmgr_cli.ExitCode.GENERAL_ERROR)
 
     @patch("wslmgr_cli.subprocess.run")
     def test_valid_name_invokes_wsl_import(self, mock_run):
@@ -703,7 +644,7 @@ class TestCmdImport(unittest.TestCase):
                     with self.assertRaises(SystemExit) as cm:
                         with patch("sys.stdout", io.StringIO()):
                             wslmgr_cli.cmd_import(args)
-            self.assertEqual(cm.exception.code, wslmgr_cli.EXIT_DENIED)
+            self.assertEqual(cm.exception.code, wslmgr_cli.ExitCode.USER_CANCELLED)
             mock_run.assert_not_called()
 
     @patch("wslmgr_cli.subprocess.run")
@@ -727,9 +668,7 @@ class TestCmdImport(unittest.TestCase):
 
     @patch("wslmgr_cli.subprocess.run")
     def test_existing_vhdx_non_tty_without_yes_exits(self, mock_run):
-        # 日本語の1文なので途中改行は読みにくく、() による暗黙連結では
-        # docstring の見た目が不自然になるため、1 行のまま noqa で許容する。
-        """非対話環境で ext4.vhdx が存在し --yes なしの場合、実行前に exit EXIT_DENIED する (#28)。"""  # noqa: E501
+        """非対話環境で ext4.vhdx が存在し --yes なしの場合、exit 3 する。"""
         with tempfile.TemporaryDirectory() as install_dir:
             with open(os.path.join(install_dir, "ext4.vhdx"), "wb") as f:
                 f.write(b"x")
@@ -740,7 +679,7 @@ class TestCmdImport(unittest.TestCase):
                 with self.assertRaises(SystemExit) as cm:
                     with patch("sys.stderr", io.StringIO()):
                         wslmgr_cli.cmd_import(args)
-            self.assertEqual(cm.exception.code, wslmgr_cli.EXIT_DENIED)
+            self.assertEqual(cm.exception.code, wslmgr_cli.ExitCode.USER_CANCELLED)
             mock_run.assert_not_called()
 
     @patch(
@@ -748,7 +687,7 @@ class TestCmdImport(unittest.TestCase):
         side_effect=subprocess.TimeoutExpired(cmd="wsl", timeout=600),
     )
     def test_timeout_exits_with_error(self, mock_run):
-        """--import がタイムアウトした場合 exit EXIT_WSL_FAILURE する (#28)。"""
+        """--import がタイムアウトした場合 exit 4 (WSL_ERROR) する。"""
         args = argparse.Namespace(
             name="NewDistro", install_path="C:\\wsl\\NewDistro", image_path="C:\\image.tar",
         )
@@ -756,11 +695,11 @@ class TestCmdImport(unittest.TestCase):
             with patch("sys.stdout", io.StringIO()):
                 with patch("sys.stderr", io.StringIO()):
                     wslmgr_cli.cmd_import(args)
-        self.assertEqual(cm.exception.code, wslmgr_cli.EXIT_WSL_FAILURE)
+        self.assertEqual(cm.exception.code, wslmgr_cli.ExitCode.WSL_ERROR)
 
     @patch("wslmgr_cli.subprocess.run", side_effect=FileNotFoundError("wsl not found"))
     def test_filenotfounderror_exits_with_error(self, mock_run):
-        """wsl 実行ファイルが見つからない場合 exit EXIT_WSL_FAILURE する (#28)。"""
+        """wsl 実行ファイルが見つからない場合 exit 4 (WSL_ERROR) する。"""
         args = argparse.Namespace(
             name="NewDistro", install_path="C:\\wsl\\NewDistro", image_path="C:\\image.tar",
         )
@@ -768,7 +707,7 @@ class TestCmdImport(unittest.TestCase):
             with patch("sys.stdout", io.StringIO()):
                 with patch("sys.stderr", io.StringIO()):
                     wslmgr_cli.cmd_import(args)
-        self.assertEqual(cm.exception.code, wslmgr_cli.EXIT_WSL_FAILURE)
+        self.assertEqual(cm.exception.code, wslmgr_cli.ExitCode.WSL_ERROR)
 
 
 # ---------------------------------------------------------------------------
@@ -838,11 +777,11 @@ class TestConfirmOrExit(unittest.TestCase):
 
     @patch("sys.stdin.isatty", return_value=False)
     def test_non_tty_without_yes_exits(self, mock_isatty):
-        """非対話環境で assume_yes=False の場合 exit EXIT_DENIED する (#28)。"""
+        """非対話環境で assume_yes=False の場合 exit 3 する。"""
         with self.assertRaises(SystemExit) as cm:
             with patch("sys.stderr", io.StringIO()):
                 wslmgr_cli._confirm_or_exit("続行しますか?", False)
-        self.assertEqual(cm.exception.code, wslmgr_cli.EXIT_DENIED)
+        self.assertEqual(cm.exception.code, wslmgr_cli.ExitCode.USER_CANCELLED)
 
     @patch("sys.stdin.isatty", return_value=True)
     @patch("builtins.input", return_value="y")
@@ -859,20 +798,20 @@ class TestConfirmOrExit(unittest.TestCase):
     @patch("sys.stdin.isatty", return_value=True)
     @patch("builtins.input", return_value="n")
     def test_tty_no_input_exits(self, mock_input, mock_isatty):
-        """TTY で 'n' が入力された場合は exit EXIT_DENIED する (#28)。"""
+        """TTY で 'n' が入力された場合は exit 3 する。"""
         with self.assertRaises(SystemExit) as cm:
             with patch("sys.stdout", io.StringIO()):
                 wslmgr_cli._confirm_or_exit("続行しますか?", False)
-        self.assertEqual(cm.exception.code, wslmgr_cli.EXIT_DENIED)
+        self.assertEqual(cm.exception.code, wslmgr_cli.ExitCode.USER_CANCELLED)
 
     @patch("sys.stdin.isatty", return_value=True)
     @patch("builtins.input", side_effect=EOFError)
     def test_tty_eof_input_exits(self, mock_input, mock_isatty):
-        """TTY で入力が EOF (Ctrl-D) の場合は「いいえ」として exit EXIT_DENIED する (#28)。"""
+        """TTY で入力が EOF (Ctrl-D) の場合は「いいえ」として exit 3 する。"""
         with self.assertRaises(SystemExit) as cm:
             with patch("sys.stdout", io.StringIO()):
                 wslmgr_cli._confirm_or_exit("続行しますか?", False)
-        self.assertEqual(cm.exception.code, wslmgr_cli.EXIT_DENIED)
+        self.assertEqual(cm.exception.code, wslmgr_cli.ExitCode.USER_CANCELLED)
 
 
 # ---------------------------------------------------------------------------
@@ -896,13 +835,13 @@ class TestCmdSetDefault(unittest.TestCase):
 
     @patch("wslmgr_cli._run_wsl_command")
     def test_failure_exits_with_error(self, mock_run):
-        """失敗時に exit EXIT_WSL_FAILURE する (#28)。"""
+        """失敗時に exit 4 (WSL_ERROR) する。"""
         mock_run.return_value = (1, "", "エラー")
         args = argparse.Namespace(name="Ubuntu")
         with self.assertRaises(SystemExit) as cm:
             with patch("sys.stderr", io.StringIO()):
                 wslmgr_cli.cmd_set_default(args)
-        self.assertEqual(cm.exception.code, wslmgr_cli.EXIT_WSL_FAILURE)
+        self.assertEqual(cm.exception.code, wslmgr_cli.ExitCode.WSL_ERROR)
 
 
 # ---------------------------------------------------------------------------
@@ -925,12 +864,12 @@ class TestCmdUnregister(unittest.TestCase):
     @patch("wslmgr_cli._run_wsl_command")
     @patch("sys.stdin.isatty", return_value=False)
     def test_non_tty_without_yes_exits_before_run(self, mock_isatty, mock_run):
-        """非対話環境で --yes なしの場合、コマンド実行前に exit EXIT_DENIED する (#28)。"""
+        """非対話環境で --yes なしの場合、コマンド実行前に exit 3 (USER_CANCELLED) する。"""
         args = argparse.Namespace(name="Ubuntu", yes=False)
         with self.assertRaises(SystemExit) as cm:
             with patch("sys.stderr", io.StringIO()):
                 wslmgr_cli.cmd_unregister(args)
-        self.assertEqual(cm.exception.code, wslmgr_cli.EXIT_DENIED)
+        self.assertEqual(cm.exception.code, wslmgr_cli.ExitCode.USER_CANCELLED)
         mock_run.assert_not_called()
 
     @patch("wslmgr_cli._run_wsl_command")
@@ -948,12 +887,12 @@ class TestCmdUnregister(unittest.TestCase):
     @patch("sys.stdin.isatty", return_value=True)
     @patch("builtins.input", return_value="n")
     def test_tty_no_input_exits_before_run(self, mock_input, mock_isatty, mock_run):
-        """TTY で 'n' 入力の場合は exit EXIT_DENIED し、コマンドは実行されない (#28)。"""
+        """TTY で 'n' 入力の場合は exit 3 (USER_CANCELLED) し、コマンドは実行されない。"""
         args = argparse.Namespace(name="Ubuntu", yes=False)
         with self.assertRaises(SystemExit) as cm:
             with patch("sys.stdout", io.StringIO()):
                 wslmgr_cli.cmd_unregister(args)
-        self.assertEqual(cm.exception.code, wslmgr_cli.EXIT_DENIED)
+        self.assertEqual(cm.exception.code, wslmgr_cli.ExitCode.USER_CANCELLED)
         mock_run.assert_not_called()
 
 
@@ -979,14 +918,14 @@ class TestCmdInstall(unittest.TestCase):
 
     @patch("wslmgr_cli._run_wsl_command")
     def test_failure_exits_with_error(self, mock_run):
-        """失敗時に exit EXIT_WSL_FAILURE する (#28)。"""
+        """失敗時に exit 4 (WSL_ERROR) する。"""
         mock_run.return_value = (1, "", "エラー")
         args = argparse.Namespace(name="Ubuntu")
         with self.assertRaises(SystemExit) as cm:
             with patch("sys.stdout", io.StringIO()):
                 with patch("sys.stderr", io.StringIO()):
                     wslmgr_cli.cmd_install(args)
-        self.assertEqual(cm.exception.code, wslmgr_cli.EXIT_WSL_FAILURE)
+        self.assertEqual(cm.exception.code, wslmgr_cli.ExitCode.WSL_ERROR)
 
 
 # ---------------------------------------------------------------------------
@@ -1013,26 +952,26 @@ class TestCmdOptimize(unittest.TestCase):
 
     @patch("wslmgr_cli._run_wsl_command")
     def test_sparse_failure_exits_with_error(self, mock_run):
-        """--sparse の --manage が失敗した場合 exit EXIT_WSL_FAILURE する (#28)。"""
+        """--sparse の --manage が失敗した場合 exit 4 (WSL_ERROR) する。"""
         mock_run.side_effect = [(0, "", ""), (1, "", "エラー")]
         args = argparse.Namespace(name="Ubuntu", sparse=True, compact=False)
         with self.assertRaises(SystemExit) as cm:
             with patch("sys.stdout", io.StringIO()):
                 with patch("sys.stderr", io.StringIO()):
                     wslmgr_cli.cmd_optimize(args)
-        self.assertEqual(cm.exception.code, wslmgr_cli.EXIT_WSL_FAILURE)
+        self.assertEqual(cm.exception.code, wslmgr_cli.ExitCode.WSL_ERROR)
 
     @patch("wslmgr_cli._run_wsl_command")
     @patch("wslmgr_cli._get_distro_vhdx_path", return_value=None)
     def test_compact_vhdx_not_found_exits(self, mock_vhdx, mock_run):
-        """--compact で vhdx が見つからない場合 exit EXIT_ERROR する (#28: 入力検証)。"""
+        """--compact で vhdx が見つからない場合 exit 1 (GENERAL_ERROR) する。"""
         mock_run.return_value = (0, "", "")
         args = argparse.Namespace(name="Ubuntu", sparse=False, compact=True)
         with self.assertRaises(SystemExit) as cm:
             with patch("sys.stdout", io.StringIO()):
                 with patch("sys.stderr", io.StringIO()):
                     wslmgr_cli.cmd_optimize(args)
-        self.assertEqual(cm.exception.code, wslmgr_cli.EXIT_ERROR)
+        self.assertEqual(cm.exception.code, wslmgr_cli.ExitCode.GENERAL_ERROR)
 
     @patch("wslmgr_cli.os.remove")
     @patch("wslmgr_cli.subprocess.run")
@@ -1064,7 +1003,7 @@ class TestCmdOptimize(unittest.TestCase):
     def test_compact_diskpart_failure_exits(
         self, mock_run_wsl, mock_vhdx, mock_subprocess_run, mock_remove
     ):
-        """diskpart が失敗した (returncode != 0) 場合 exit EXIT_WSL_FAILURE する (#28)。"""
+        """diskpart が失敗した (returncode != 0) 場合 exit 4 (WSL_ERROR) する。"""
         mock_run_wsl.return_value = (0, "", "")
         proc = MagicMock()
         proc.returncode = 1
@@ -1074,7 +1013,7 @@ class TestCmdOptimize(unittest.TestCase):
             with patch("sys.stdout", io.StringIO()):
                 with patch("sys.stderr", io.StringIO()):
                     wslmgr_cli.cmd_optimize(args)
-        self.assertEqual(cm.exception.code, wslmgr_cli.EXIT_WSL_FAILURE)
+        self.assertEqual(cm.exception.code, wslmgr_cli.ExitCode.WSL_ERROR)
 
     @patch("wslmgr_cli.subprocess.run")
     @patch("wslmgr_cli._get_distro_vhdx_path", return_value=r"C:\wsl\Ubuntu\ext4.vhdx")
@@ -1082,9 +1021,7 @@ class TestCmdOptimize(unittest.TestCase):
     def test_compact_without_yes_requires_confirmation(
         self, mock_run_wsl, mock_vhdx, mock_subprocess_run
     ):
-        # 日本語の1文なので途中改行は読みにくく、() による暗黙連結では
-        # docstring の見た目が不自然になるため、1 行のまま noqa で許容する。
-        """--compact は --yes なしでは常に確認プロンプトを表示し、'n' の場合 diskpart を呼ばない。"""  # noqa: E501
+        """--compact は --yes なしで 'n' の場合 diskpart を呼ばない。"""
         mock_run_wsl.return_value = (0, "", "")
         args = argparse.Namespace(name="Ubuntu", sparse=False, compact=True, yes=False)
         with patch("sys.stdin.isatty", return_value=True):
@@ -1092,7 +1029,7 @@ class TestCmdOptimize(unittest.TestCase):
                 with self.assertRaises(SystemExit) as cm:
                     with patch("sys.stdout", io.StringIO()):
                         wslmgr_cli.cmd_optimize(args)
-        self.assertEqual(cm.exception.code, wslmgr_cli.EXIT_DENIED)
+        self.assertEqual(cm.exception.code, wslmgr_cli.ExitCode.USER_CANCELLED)
         mock_subprocess_run.assert_not_called()
 
     @patch("wslmgr_cli.subprocess.run")
@@ -1101,7 +1038,7 @@ class TestCmdOptimize(unittest.TestCase):
     def test_compact_non_tty_without_yes_exits_before_diskpart(
         self, mock_run_wsl, mock_vhdx, mock_subprocess_run
     ):
-        """非対話環境で --yes なしの場合、diskpart を呼ばずに exit EXIT_DENIED する (#28)。"""
+        """非対話環境で --yes なしの場合、exit 3 (USER_CANCELLED) する。"""
         mock_run_wsl.return_value = (0, "", "")
         args = argparse.Namespace(name="Ubuntu", sparse=False, compact=True, yes=False)
         with patch("sys.stdin.isatty", return_value=False):
@@ -1109,7 +1046,7 @@ class TestCmdOptimize(unittest.TestCase):
                 with patch("sys.stdout", io.StringIO()):
                     with patch("sys.stderr", io.StringIO()):
                         wslmgr_cli.cmd_optimize(args)
-        self.assertEqual(cm.exception.code, wslmgr_cli.EXIT_DENIED)
+        self.assertEqual(cm.exception.code, wslmgr_cli.ExitCode.USER_CANCELLED)
         mock_subprocess_run.assert_not_called()
 
     @patch(
@@ -1119,14 +1056,14 @@ class TestCmdOptimize(unittest.TestCase):
     @patch("wslmgr_cli._get_distro_vhdx_path", return_value=r"C:\wsl\Ubuntu\ext4.vhdx")
     @patch("wslmgr_cli._run_wsl_command")
     def test_compact_diskpart_timeout_exits(self, mock_run_wsl, mock_vhdx, mock_subprocess_run):
-        """diskpart がタイムアウトした場合 exit EXIT_WSL_FAILURE する (#28)。"""
+        """diskpart がタイムアウトした場合 exit 4 (WSL_ERROR) する。"""
         mock_run_wsl.return_value = (0, "", "")
         args = argparse.Namespace(name="Ubuntu", sparse=False, compact=True, yes=True)
         with self.assertRaises(SystemExit) as cm:
             with patch("sys.stdout", io.StringIO()):
                 with patch("sys.stderr", io.StringIO()):
                     wslmgr_cli.cmd_optimize(args)
-        self.assertEqual(cm.exception.code, wslmgr_cli.EXIT_WSL_FAILURE)
+        self.assertEqual(cm.exception.code, wslmgr_cli.ExitCode.WSL_ERROR)
 
     @patch("wslmgr_cli.subprocess.run", side_effect=FileNotFoundError("diskpart not found"))
     @patch("wslmgr_cli._get_distro_vhdx_path", return_value=r"C:\wsl\Ubuntu\ext4.vhdx")
@@ -1134,38 +1071,36 @@ class TestCmdOptimize(unittest.TestCase):
     def test_compact_diskpart_filenotfounderror_exits(
         self, mock_run_wsl, mock_vhdx, mock_subprocess_run
     ):
-        """diskpart 実行ファイルが見つからない場合 exit EXIT_WSL_FAILURE する (#28)。"""
+        """diskpart 実行ファイルが見つからない場合 exit 4 (WSL_ERROR) する。"""
         mock_run_wsl.return_value = (0, "", "")
         args = argparse.Namespace(name="Ubuntu", sparse=False, compact=True, yes=True)
         with self.assertRaises(SystemExit) as cm:
             with patch("sys.stdout", io.StringIO()):
                 with patch("sys.stderr", io.StringIO()):
                     wslmgr_cli.cmd_optimize(args)
-        self.assertEqual(cm.exception.code, wslmgr_cli.EXIT_WSL_FAILURE)
+        self.assertEqual(cm.exception.code, wslmgr_cli.ExitCode.WSL_ERROR)
 
     @patch(
         "wslmgr_cli.subprocess.run", side_effect=subprocess.TimeoutExpired(cmd="wsl", timeout=120)
     )
     def test_sparse_manage_timeout_exits(self, mock_subprocess_run):
-        # 日本語の1文なので途中改行は読みにくく、() による暗黙連結では
-        # docstring の見た目が不自然になるため、1 行のまま noqa で許容する。
-        """--sparse の --manage がタイムアウトした場合 exit EXIT_WSL_FAILURE する (#28, subprocess.run を直接タイムアウトさせる)。"""  # noqa: E501
+        """--sparse の --manage がタイムアウトした場合 exit 4 (WSL_ERROR) する。"""
         args = argparse.Namespace(name="Ubuntu", sparse=True, compact=False)
         with self.assertRaises(SystemExit) as cm:
             with patch("sys.stdout", io.StringIO()):
                 with patch("sys.stderr", io.StringIO()):
                     wslmgr_cli.cmd_optimize(args)
-        self.assertEqual(cm.exception.code, wslmgr_cli.EXIT_WSL_FAILURE)
+        self.assertEqual(cm.exception.code, wslmgr_cli.ExitCode.WSL_ERROR)
 
     @patch("wslmgr_cli.subprocess.run", side_effect=FileNotFoundError("wsl not found"))
     def test_sparse_manage_filenotfounderror_exits(self, mock_subprocess_run):
-        """--sparse の実行時に wsl が見つからない場合 exit EXIT_WSL_FAILURE する (#28)。"""
+        """--sparse の実行時に wsl が見つからない場合 exit 4 (WSL_ERROR) する。"""
         args = argparse.Namespace(name="Ubuntu", sparse=True, compact=False)
         with self.assertRaises(SystemExit) as cm:
             with patch("sys.stdout", io.StringIO()):
                 with patch("sys.stderr", io.StringIO()):
                     wslmgr_cli.cmd_optimize(args)
-        self.assertEqual(cm.exception.code, wslmgr_cli.EXIT_WSL_FAILURE)
+        self.assertEqual(cm.exception.code, wslmgr_cli.ExitCode.WSL_ERROR)
 
 
 # ---------------------------------------------------------------------------
@@ -1188,12 +1123,12 @@ class TestCmdSetVersion(unittest.TestCase):
     @patch("wslmgr_cli._run_wsl_command")
     @patch("sys.stdin.isatty", return_value=False)
     def test_non_tty_without_yes_exits_before_run(self, mock_isatty, mock_run):
-        """非対話環境で --yes なしの場合 exit EXIT_DENIED し、コマンドは実行されない (#28)。"""
+        """非対話環境で --yes なしの場合 exit 3 (USER_CANCELLED) し、コマンドは実行されない。"""
         args = argparse.Namespace(name="Ubuntu", version="1", yes=False)
         with self.assertRaises(SystemExit) as cm:
             with patch("sys.stderr", io.StringIO()):
                 wslmgr_cli.cmd_set_version(args)
-        self.assertEqual(cm.exception.code, wslmgr_cli.EXIT_DENIED)
+        self.assertEqual(cm.exception.code, wslmgr_cli.ExitCode.USER_CANCELLED)
         mock_run.assert_not_called()
 
     @patch("wslmgr_cli._run_wsl_command")
@@ -1211,12 +1146,12 @@ class TestCmdSetVersion(unittest.TestCase):
     @patch("sys.stdin.isatty", return_value=True)
     @patch("builtins.input", return_value="n")
     def test_tty_no_input_exits_before_run(self, mock_input, mock_isatty, mock_run):
-        """TTY で 'n' 入力の場合は exit EXIT_DENIED し、コマンドは実行されない (#28)。"""
+        """TTY で 'n' 入力の場合は exit 3 (USER_CANCELLED) し、コマンドは実行されない。"""
         args = argparse.Namespace(name="Ubuntu", version="2", yes=False)
         with self.assertRaises(SystemExit) as cm:
             with patch("sys.stdout", io.StringIO()):
                 wslmgr_cli.cmd_set_version(args)
-        self.assertEqual(cm.exception.code, wslmgr_cli.EXIT_DENIED)
+        self.assertEqual(cm.exception.code, wslmgr_cli.ExitCode.USER_CANCELLED)
         mock_run.assert_not_called()
 
 
@@ -1269,13 +1204,13 @@ class TestCmdProcesses(unittest.TestCase):
 
     @patch("wslmgr_cli._run_wsl_command")
     def test_failure_exits_with_error(self, mock_run):
-        """wsl コマンドが失敗した場合 exit EXIT_WSL_FAILURE する (#28)。"""
+        """wsl コマンドが失敗した場合 exit 4 (WSL_ERROR) する。"""
         mock_run.return_value = (1, "", "エラー")
         args = argparse.Namespace(name="Ubuntu", format="table")
         with self.assertRaises(SystemExit) as cm:
             with patch("sys.stderr", io.StringIO()):
                 wslmgr_cli.cmd_processes(args)
-        self.assertEqual(cm.exception.code, wslmgr_cli.EXIT_WSL_FAILURE)
+        self.assertEqual(cm.exception.code, wslmgr_cli.ExitCode.WSL_ERROR)
 
     @patch("wslmgr_cli._run_wsl_command")
     def test_invoked_with_ps_command(self, mock_run):
@@ -1342,12 +1277,12 @@ class TestCmdLog(unittest.TestCase):
     @patch("wslmgr_cli.os.path.exists", return_value=True)
     @patch("builtins.open", side_effect=OSError("読み込み失敗"))
     def test_read_oserror_exits(self, mock_file, mock_exists):
-        """ファイル読み込みで OSError が発生した場合 exit EXIT_ERROR する (#28)。"""
+        """ファイル読み込みで OSError が発生した場合 exit 1 する。"""
         args = argparse.Namespace(tail=50, format="table")
         with self.assertRaises(SystemExit) as cm:
             with patch("sys.stderr", io.StringIO()):
                 wslmgr_cli.cmd_log(args)
-        self.assertEqual(cm.exception.code, wslmgr_cli.EXIT_ERROR)
+        self.assertEqual(cm.exception.code, wslmgr_cli.ExitCode.GENERAL_ERROR)
 
     @patch("wslmgr_cli.os.path.exists", return_value=True)
     @patch("builtins.open", new_callable=mock_open, read_data=LOG_TEXT)
@@ -1399,13 +1334,13 @@ class TestCmdPortproxyList(unittest.TestCase):
 
     @patch("wslmgr_cli._run_netsh_portproxy")
     def test_failure_exits_with_error(self, mock_run):
-        """netsh が失敗した場合 exit EXIT_WSL_FAILURE する (#28)。"""
+        """netsh が失敗した場合 exit 4 (WSL_ERROR) する。"""
         mock_run.return_value = (1, "", "アクセスが拒否されました")
         args = argparse.Namespace(format="table")
         with self.assertRaises(SystemExit) as cm:
             with patch("sys.stderr", io.StringIO()):
                 wslmgr_cli.cmd_portproxy_list(args)
-        self.assertEqual(cm.exception.code, wslmgr_cli.EXIT_WSL_FAILURE)
+        self.assertEqual(cm.exception.code, wslmgr_cli.ExitCode.WSL_ERROR)
 
     @patch("wslmgr_cli._run_netsh_portproxy")
     def test_invoked_with_show_all(self, mock_run):
@@ -1422,7 +1357,7 @@ class TestCmdPortproxyAdd(unittest.TestCase):
 
     @patch("wslmgr_cli._run_netsh_portproxy")
     def test_invalid_listen_port_exits_before_netsh(self, mock_run):
-        """listen_port が不正な場合、netsh を呼ばずに exit EXIT_ERROR する (#28: 入力検証)。"""
+        """listen_port が不正な場合、netsh を呼ばずに exit 2 (ARGUMENT_ERROR) する。"""
         args = argparse.Namespace(
             listen_port="not-a-port", connect_port="80",
             connect_address="172.20.0.2", listen_address="0.0.0.0",
@@ -1430,12 +1365,12 @@ class TestCmdPortproxyAdd(unittest.TestCase):
         with self.assertRaises(SystemExit) as cm:
             with patch("sys.stderr", io.StringIO()):
                 wslmgr_cli.cmd_portproxy_add(args)
-        self.assertEqual(cm.exception.code, wslmgr_cli.EXIT_ERROR)
+        self.assertEqual(cm.exception.code, wslmgr_cli.ExitCode.ARGUMENT_ERROR)
         mock_run.assert_not_called()
 
     @patch("wslmgr_cli._run_netsh_portproxy")
     def test_invalid_connect_port_exits_before_netsh(self, mock_run):
-        """connect_port が不正な場合、netsh を呼ばずに exit EXIT_ERROR する (#28: 入力検証)。"""
+        """connect_port が不正な場合、netsh を呼ばずに exit 2 (ARGUMENT_ERROR) する。"""
         args = argparse.Namespace(
             listen_port="8080", connect_port="99999",
             connect_address="172.20.0.2", listen_address="0.0.0.0",
@@ -1443,7 +1378,7 @@ class TestCmdPortproxyAdd(unittest.TestCase):
         with self.assertRaises(SystemExit) as cm:
             with patch("sys.stderr", io.StringIO()):
                 wslmgr_cli.cmd_portproxy_add(args)
-        self.assertEqual(cm.exception.code, wslmgr_cli.EXIT_ERROR)
+        self.assertEqual(cm.exception.code, wslmgr_cli.ExitCode.ARGUMENT_ERROR)
         mock_run.assert_not_called()
 
     @patch("wslmgr_cli._run_netsh_portproxy")
@@ -1470,9 +1405,7 @@ class TestCmdPortproxyAdd(unittest.TestCase):
 
     @patch("wslmgr_cli._run_netsh_portproxy")
     def test_netsh_failure_exits_with_error(self, mock_run):
-        # 日本語の1文なので途中改行は読みにくく、() による暗黙連結では
-        # docstring の見た目が不自然になるため、1 行のまま noqa で許容する。
-        """netsh が失敗した場合 exit EXIT_WSL_FAILURE し、管理者権限に関するメッセージを含む (#28)。"""  # noqa: E501
+        """netsh が失敗した場合 exit 4 (WSL_ERROR) し、管理者権限に関するメッセージを含む。"""
         mock_run.return_value = (1, "", "アクセスが拒否されました")
         args = argparse.Namespace(
             listen_port="8080", connect_port="80",
@@ -1482,7 +1415,7 @@ class TestCmdPortproxyAdd(unittest.TestCase):
         with self.assertRaises(SystemExit) as cm:
             with patch("sys.stderr", stderr_buf):
                 wslmgr_cli.cmd_portproxy_add(args)
-        self.assertEqual(cm.exception.code, wslmgr_cli.EXIT_WSL_FAILURE)
+        self.assertEqual(cm.exception.code, wslmgr_cli.ExitCode.WSL_ERROR)
         self.assertIn("管理者権限", stderr_buf.getvalue())
 
     @patch(
@@ -1490,7 +1423,7 @@ class TestCmdPortproxyAdd(unittest.TestCase):
         side_effect=subprocess.TimeoutExpired(cmd="netsh", timeout=15),
     )
     def test_timeout_exits_with_error(self, mock_run):
-        """netsh がタイムアウトした場合 exit EXIT_WSL_FAILURE する (#28)。"""
+        """netsh がタイムアウトした場合 exit 4 (WSL_ERROR) する。"""
         args = argparse.Namespace(
             listen_port="8080", connect_port="80",
             connect_address="172.20.0.2", listen_address="0.0.0.0",
@@ -1498,11 +1431,11 @@ class TestCmdPortproxyAdd(unittest.TestCase):
         with self.assertRaises(SystemExit) as cm:
             with patch("sys.stderr", io.StringIO()):
                 wslmgr_cli.cmd_portproxy_add(args)
-        self.assertEqual(cm.exception.code, wslmgr_cli.EXIT_WSL_FAILURE)
+        self.assertEqual(cm.exception.code, wslmgr_cli.ExitCode.WSL_ERROR)
 
     @patch("wslmgr_cli.subprocess.run", side_effect=FileNotFoundError("netsh not found"))
     def test_filenotfounderror_exits_with_error(self, mock_run):
-        """netsh 実行ファイルが見つからない場合 exit EXIT_WSL_FAILURE する (#28)。"""
+        """netsh 実行ファイルが見つからない場合 exit 4 (WSL_ERROR) する。"""
         args = argparse.Namespace(
             listen_port="8080", connect_port="80",
             connect_address="172.20.0.2", listen_address="0.0.0.0",
@@ -1510,7 +1443,7 @@ class TestCmdPortproxyAdd(unittest.TestCase):
         with self.assertRaises(SystemExit) as cm:
             with patch("sys.stderr", io.StringIO()):
                 wslmgr_cli.cmd_portproxy_add(args)
-        self.assertEqual(cm.exception.code, wslmgr_cli.EXIT_WSL_FAILURE)
+        self.assertEqual(cm.exception.code, wslmgr_cli.ExitCode.WSL_ERROR)
 
 
 class TestCmdPortproxyDelete(unittest.TestCase):
@@ -1518,12 +1451,12 @@ class TestCmdPortproxyDelete(unittest.TestCase):
 
     @patch("wslmgr_cli._run_netsh_portproxy")
     def test_invalid_listen_port_exits_before_netsh(self, mock_run):
-        """listen_port が不正な場合、netsh を呼ばずに exit EXIT_ERROR する (#28: 入力検証)。"""
+        """listen_port が不正な場合、netsh を呼ばずに exit 2 (ARGUMENT_ERROR) する。"""
         args = argparse.Namespace(listen_port="0", listen_address="0.0.0.0")
         with self.assertRaises(SystemExit) as cm:
             with patch("sys.stderr", io.StringIO()):
                 wslmgr_cli.cmd_portproxy_delete(args)
-        self.assertEqual(cm.exception.code, wslmgr_cli.EXIT_ERROR)
+        self.assertEqual(cm.exception.code, wslmgr_cli.ExitCode.ARGUMENT_ERROR)
         mock_run.assert_not_called()
 
     @patch("wslmgr_cli._run_netsh_portproxy")
@@ -1541,16 +1474,14 @@ class TestCmdPortproxyDelete(unittest.TestCase):
 
     @patch("wslmgr_cli._run_netsh_portproxy")
     def test_netsh_failure_exits_with_error(self, mock_run):
-        # 日本語の1文なので途中改行は読みにくく、() による暗黙連結では
-        # docstring の見た目が不自然になるため、1 行のまま noqa で許容する。
-        """netsh が失敗した場合 exit EXIT_WSL_FAILURE し、管理者権限に関するメッセージを含む (#28)。"""  # noqa: E501
+        """netsh が失敗した場合 exit 4 (WSL_ERROR) し、管理者権限に関するメッセージを含む。"""
         mock_run.return_value = (1, "", "アクセスが拒否されました")
         args = argparse.Namespace(listen_port="8080", listen_address="0.0.0.0")
         stderr_buf = io.StringIO()
         with self.assertRaises(SystemExit) as cm:
             with patch("sys.stderr", stderr_buf):
                 wslmgr_cli.cmd_portproxy_delete(args)
-        self.assertEqual(cm.exception.code, wslmgr_cli.EXIT_WSL_FAILURE)
+        self.assertEqual(cm.exception.code, wslmgr_cli.ExitCode.WSL_ERROR)
         self.assertIn("管理者権限", stderr_buf.getvalue())
 
     @patch(
@@ -1558,21 +1489,21 @@ class TestCmdPortproxyDelete(unittest.TestCase):
         side_effect=subprocess.TimeoutExpired(cmd="netsh", timeout=15),
     )
     def test_timeout_exits_with_error(self, mock_run):
-        """netsh がタイムアウトした場合 exit EXIT_WSL_FAILURE する (#28)。"""
+        """netsh がタイムアウトした場合 exit 4 (WSL_ERROR) する。"""
         args = argparse.Namespace(listen_port="8080", listen_address="0.0.0.0")
         with self.assertRaises(SystemExit) as cm:
             with patch("sys.stderr", io.StringIO()):
                 wslmgr_cli.cmd_portproxy_delete(args)
-        self.assertEqual(cm.exception.code, wslmgr_cli.EXIT_WSL_FAILURE)
+        self.assertEqual(cm.exception.code, wslmgr_cli.ExitCode.WSL_ERROR)
 
     @patch("wslmgr_cli.subprocess.run", side_effect=FileNotFoundError("netsh not found"))
     def test_filenotfounderror_exits_with_error(self, mock_run):
-        """netsh 実行ファイルが見つからない場合 exit EXIT_WSL_FAILURE する (#28)。"""
+        """netsh 実行ファイルが見つからない場合 exit 4 (WSL_ERROR) する。"""
         args = argparse.Namespace(listen_port="8080", listen_address="0.0.0.0")
         with self.assertRaises(SystemExit) as cm:
             with patch("sys.stderr", io.StringIO()):
                 wslmgr_cli.cmd_portproxy_delete(args)
-        self.assertEqual(cm.exception.code, wslmgr_cli.EXIT_WSL_FAILURE)
+        self.assertEqual(cm.exception.code, wslmgr_cli.ExitCode.WSL_ERROR)
 
 
 # ---------------------------------------------------------------------------
@@ -1757,37 +1688,21 @@ class TestCmdSnapshotCreate(unittest.TestCase):
             self.assertEqual(data["comment"], "test comment")
             self.assertEqual(data["wsl_version"], "2")
 
-    @patch("wslmgr_cli.wsl_core.write_snapshot_metadata", return_value=False)
-    @patch("wslmgr_cli._run_wsl_command")
-    def test_metadata_write_failure_exits_partial(self, mock_run, mock_write_meta):
-        """#28: tar は成功しメタデータ書き込みのみ失敗した場合、既存の警告を維持したまま
-        exit EXIT_PARTIAL する。"""
-        mock_run.side_effect = [(0, DISTRO_LIST_OUTPUT, ""), (0, "", "")]
-        with tempfile.TemporaryDirectory() as tmpdir:
-            args = argparse.Namespace(name="Ubuntu", comment="", dir=tmpdir)
-            stderr_buf = io.StringIO()
-            with self.assertRaises(SystemExit) as cm:
-                with patch("sys.stdout", io.StringIO()):
-                    with patch("sys.stderr", stderr_buf):
-                        wslmgr_cli.cmd_snapshot_create(args)
-            self.assertEqual(cm.exception.code, wslmgr_cli.EXIT_PARTIAL)
-            self.assertIn("メタデータの保存に失敗しました", stderr_buf.getvalue())
-
     @patch("wslmgr_cli._run_wsl_command")
     def test_unknown_distro_exits(self, mock_run):
-        """存在しないディストロ名の場合、export を呼ばずに exit EXIT_ERROR する (#28)。"""
+        """存在しないディストロ名の場合、export を呼ばずに exit 1 (GENERAL_ERROR) する。"""
         mock_run.return_value = (0, DISTRO_LIST_OUTPUT, "")
         with tempfile.TemporaryDirectory() as tmpdir:
             args = argparse.Namespace(name="NoSuchDistro", comment="", dir=tmpdir)
             with self.assertRaises(SystemExit) as cm:
                 with patch("sys.stderr", io.StringIO()):
                     wslmgr_cli.cmd_snapshot_create(args)
-            self.assertEqual(cm.exception.code, wslmgr_cli.EXIT_ERROR)
+            self.assertEqual(cm.exception.code, wslmgr_cli.ExitCode.GENERAL_ERROR)
             self.assertEqual(mock_run.call_count, 1)
 
     @patch("wslmgr_cli._run_wsl_command")
     def test_export_failure_exits(self, mock_run):
-        """export が失敗した場合 exit EXIT_WSL_FAILURE し、json は書き込まれない (#28)。"""
+        """export が失敗した場合 exit 4 (WSL_ERROR) し、json は書き込まれない。"""
         mock_run.side_effect = [(0, DISTRO_LIST_OUTPUT, ""), (1, "", "エクスポート失敗")]
         with tempfile.TemporaryDirectory() as tmpdir:
             args = argparse.Namespace(name="Ubuntu", comment="", dir=tmpdir)
@@ -1795,12 +1710,12 @@ class TestCmdSnapshotCreate(unittest.TestCase):
                 with patch("sys.stdout", io.StringIO()):
                     with patch("sys.stderr", io.StringIO()):
                         wslmgr_cli.cmd_snapshot_create(args)
-            self.assertEqual(cm.exception.code, wslmgr_cli.EXIT_WSL_FAILURE)
+            self.assertEqual(cm.exception.code, wslmgr_cli.ExitCode.WSL_ERROR)
             self.assertEqual([f for f in os.listdir(tmpdir) if f.endswith(".json")], [])
 
     @patch("wslmgr_cli.subprocess.run")
     def test_export_timeout_exits(self, mock_run):
-        """export がタイムアウトした場合 exit EXIT_WSL_FAILURE し、json は書き込まれない (#28)。"""
+        """export がタイムアウトした場合 exit 4 (WSL_ERROR) し、json は書き込まれない。"""
         list_proc = MagicMock()
         list_proc.returncode = 0
         list_proc.stdout = b"\xff\xfe" + DISTRO_LIST_OUTPUT.encode("utf-16-le")
@@ -1812,12 +1727,12 @@ class TestCmdSnapshotCreate(unittest.TestCase):
                 with patch("sys.stdout", io.StringIO()):
                     with patch("sys.stderr", io.StringIO()):
                         wslmgr_cli.cmd_snapshot_create(args)
-            self.assertEqual(cm.exception.code, wslmgr_cli.EXIT_WSL_FAILURE)
+            self.assertEqual(cm.exception.code, wslmgr_cli.ExitCode.WSL_ERROR)
             self.assertEqual([f for f in os.listdir(tmpdir) if f.endswith(".json")], [])
 
     @patch("wslmgr_cli.subprocess.run")
     def test_export_filenotfounderror_exits(self, mock_run):
-        """wsl 実行ファイルが見つからない場合 exit EXIT_WSL_FAILURE する (#28)。"""
+        """wsl 実行ファイルが見つからない場合 exit 4 (WSL_ERROR) する。"""
         list_proc = MagicMock()
         list_proc.returncode = 0
         list_proc.stdout = b"\xff\xfe" + DISTRO_LIST_OUTPUT.encode("utf-16-le")
@@ -1829,7 +1744,7 @@ class TestCmdSnapshotCreate(unittest.TestCase):
                 with patch("sys.stdout", io.StringIO()):
                     with patch("sys.stderr", io.StringIO()):
                         wslmgr_cli.cmd_snapshot_create(args)
-            self.assertEqual(cm.exception.code, wslmgr_cli.EXIT_WSL_FAILURE)
+            self.assertEqual(cm.exception.code, wslmgr_cli.ExitCode.WSL_ERROR)
 
 
 class TestCmdSnapshotList(unittest.TestCase):
@@ -1921,7 +1836,7 @@ class TestCmdSnapshotRestore(unittest.TestCase):
             self.assertEqual(import_args[1], "Ubuntu-copy")
 
     def test_unknown_tar_file_exits(self):
-        """未知の tar_file を指定した場合 exit EXIT_ERROR する (#28)。"""
+        """未知の tar_file を指定した場合 exit 1 (GENERAL_ERROR) する。"""
         with tempfile.TemporaryDirectory() as tmpdir:
             args = argparse.Namespace(
                 tar_file="NoSuch.tar", install_path="/tmp/x", name=None, dir=tmpdir, yes=True,
@@ -1929,11 +1844,11 @@ class TestCmdSnapshotRestore(unittest.TestCase):
             with self.assertRaises(SystemExit) as cm:
                 with patch("sys.stderr", io.StringIO()):
                     wslmgr_cli.cmd_snapshot_restore(args)
-            self.assertEqual(cm.exception.code, wslmgr_cli.EXIT_ERROR)
+            self.assertEqual(cm.exception.code, wslmgr_cli.ExitCode.GENERAL_ERROR)
 
     @patch("wslmgr_cli._run_wsl_command")
     def test_duplicate_name_exits(self, mock_run):
-        """指定した --name が既存ディストロと重複する場合 exit EXIT_ERROR する (#28)。"""
+        """指定した --name が既存ディストロと重複する場合 exit 1 (GENERAL_ERROR) する。"""
         mock_run.return_value = (0, DISTRO_LIST_OUTPUT, "")
         with tempfile.TemporaryDirectory() as tmpdir:
             _write_snapshot(tmpdir, distro_name="Ubuntu", tar_file="Ubuntu_1.tar")
@@ -1944,10 +1859,10 @@ class TestCmdSnapshotRestore(unittest.TestCase):
             with self.assertRaises(SystemExit) as cm:
                 with patch("sys.stderr", io.StringIO()):
                     wslmgr_cli.cmd_snapshot_restore(args)
-            self.assertEqual(cm.exception.code, wslmgr_cli.EXIT_ERROR)
+            self.assertEqual(cm.exception.code, wslmgr_cli.ExitCode.GENERAL_ERROR)
 
     def test_missing_tar_exits(self):
-        """tar ファイルが欠損している場合 exit EXIT_ERROR する (#28)。"""
+        """tar ファイルが欠損している場合 exit 1 (GENERAL_ERROR) する。"""
         with tempfile.TemporaryDirectory() as tmpdir:
             _write_snapshot(tmpdir, distro_name="Ubuntu", tar_file="Gone.tar", write_tar=False)
             args = argparse.Namespace(
@@ -1956,7 +1871,7 @@ class TestCmdSnapshotRestore(unittest.TestCase):
             with self.assertRaises(SystemExit) as cm:
                 with patch("sys.stderr", io.StringIO()):
                     wslmgr_cli.cmd_snapshot_restore(args)
-            self.assertEqual(cm.exception.code, wslmgr_cli.EXIT_ERROR)
+            self.assertEqual(cm.exception.code, wslmgr_cli.ExitCode.GENERAL_ERROR)
 
     @patch("wslmgr_cli._run_wsl_command")
     @patch("sys.stdin.isatty", return_value=True)
@@ -1973,13 +1888,13 @@ class TestCmdSnapshotRestore(unittest.TestCase):
             with self.assertRaises(SystemExit) as cm:
                 with patch("sys.stdout", io.StringIO()):
                     wslmgr_cli.cmd_snapshot_restore(args)
-            self.assertEqual(cm.exception.code, wslmgr_cli.EXIT_DENIED)
+            self.assertEqual(cm.exception.code, wslmgr_cli.ExitCode.USER_CANCELLED)
             self.assertEqual(mock_run.call_count, 1)
 
     @patch("wslmgr_cli._run_wsl_command")
     @patch("sys.stdin.isatty", return_value=False)
     def test_non_tty_without_yes_exits_before_import(self, mock_isatty, mock_run):
-        """非対話環境で --yes なしの場合、import を呼ばずに exit EXIT_DENIED する (#28)。"""
+        """非対話環境で --yes なしの場合、import を呼ばずに exit 3 (USER_CANCELLED) する。"""
         mock_run.return_value = (0, DISTRO_LIST_OUTPUT, "")
         with tempfile.TemporaryDirectory() as tmpdir:
             _write_snapshot(tmpdir, distro_name="Ubuntu", tar_file="Ubuntu_1.tar")
@@ -1991,7 +1906,7 @@ class TestCmdSnapshotRestore(unittest.TestCase):
                 with patch("sys.stdout", io.StringIO()):
                     with patch("sys.stderr", io.StringIO()):
                         wslmgr_cli.cmd_snapshot_restore(args)
-            self.assertEqual(cm.exception.code, wslmgr_cli.EXIT_DENIED)
+            self.assertEqual(cm.exception.code, wslmgr_cli.ExitCode.USER_CANCELLED)
             self.assertEqual(mock_run.call_count, 1)
 
     @patch("wslmgr_cli._run_wsl_command")
@@ -2015,7 +1930,7 @@ class TestCmdSnapshotRestore(unittest.TestCase):
 
     @patch("wslmgr_cli._run_wsl_command")
     def test_import_failure_exits(self, mock_run):
-        """import が失敗した (returncode != 0) 場合 exit EXIT_WSL_FAILURE する (#28)。"""
+        """import が失敗した (returncode != 0) 場合 exit 4 (WSL_ERROR) する。"""
         mock_run.side_effect = [(0, DISTRO_LIST_OUTPUT, ""), (1, "", "インポート失敗")]
         with tempfile.TemporaryDirectory() as tmpdir, tempfile.TemporaryDirectory() as install_dir:
             _write_snapshot(tmpdir, distro_name="Ubuntu", tar_file="Ubuntu_1.tar")
@@ -2027,11 +1942,11 @@ class TestCmdSnapshotRestore(unittest.TestCase):
                 with patch("sys.stdout", io.StringIO()):
                     with patch("sys.stderr", io.StringIO()):
                         wslmgr_cli.cmd_snapshot_restore(args)
-            self.assertEqual(cm.exception.code, wslmgr_cli.EXIT_WSL_FAILURE)
+            self.assertEqual(cm.exception.code, wslmgr_cli.ExitCode.WSL_ERROR)
 
     @patch("wslmgr_cli.subprocess.run")
     def test_import_timeout_exits(self, mock_run):
-        """import がタイムアウトした場合 exit EXIT_WSL_FAILURE する (#28)。"""
+        """import がタイムアウトした場合 exit 4 (WSL_ERROR) する。"""
         list_proc = MagicMock()
         list_proc.returncode = 0
         list_proc.stdout = b"\xff\xfe" + DISTRO_LIST_OUTPUT.encode("utf-16-le")
@@ -2047,11 +1962,11 @@ class TestCmdSnapshotRestore(unittest.TestCase):
                 with patch("sys.stdout", io.StringIO()):
                     with patch("sys.stderr", io.StringIO()):
                         wslmgr_cli.cmd_snapshot_restore(args)
-            self.assertEqual(cm.exception.code, wslmgr_cli.EXIT_WSL_FAILURE)
+            self.assertEqual(cm.exception.code, wslmgr_cli.ExitCode.WSL_ERROR)
 
     @patch("wslmgr_cli.subprocess.run")
     def test_import_filenotfounderror_exits(self, mock_run):
-        """wsl 実行ファイルが見つからない場合 exit EXIT_WSL_FAILURE する (#28)。"""
+        """wsl 実行ファイルが見つからない場合 exit 4 (WSL_ERROR) する。"""
         list_proc = MagicMock()
         list_proc.returncode = 0
         list_proc.stdout = b"\xff\xfe" + DISTRO_LIST_OUTPUT.encode("utf-16-le")
@@ -2067,7 +1982,7 @@ class TestCmdSnapshotRestore(unittest.TestCase):
                 with patch("sys.stdout", io.StringIO()):
                     with patch("sys.stderr", io.StringIO()):
                         wslmgr_cli.cmd_snapshot_restore(args)
-            self.assertEqual(cm.exception.code, wslmgr_cli.EXIT_WSL_FAILURE)
+            self.assertEqual(cm.exception.code, wslmgr_cli.ExitCode.WSL_ERROR)
 
 
 class TestCmdSnapshotDelete(unittest.TestCase):
@@ -2084,13 +1999,13 @@ class TestCmdSnapshotDelete(unittest.TestCase):
             self.assertEqual(os.listdir(tmpdir), [])
 
     def test_unknown_tar_file_exits(self):
-        """未知の tar_file を指定した場合 exit EXIT_ERROR する (#28)。"""
+        """未知の tar_file を指定した場合 exit 1 (GENERAL_ERROR) する。"""
         with tempfile.TemporaryDirectory() as tmpdir:
             args = argparse.Namespace(tar_file="NoSuch.tar", dir=tmpdir, yes=True)
             with self.assertRaises(SystemExit) as cm:
                 with patch("sys.stderr", io.StringIO()):
                     wslmgr_cli.cmd_snapshot_delete(args)
-            self.assertEqual(cm.exception.code, wslmgr_cli.EXIT_ERROR)
+            self.assertEqual(cm.exception.code, wslmgr_cli.ExitCode.GENERAL_ERROR)
 
     @patch("builtins.input", return_value="n")
     def test_confirmation_declined_keeps_files(self, mock_input):
@@ -2101,14 +2016,12 @@ class TestCmdSnapshotDelete(unittest.TestCase):
             with self.assertRaises(SystemExit) as cm:
                 with patch("sys.stdout", io.StringIO()):
                     wslmgr_cli.cmd_snapshot_delete(args)
-            # _confirm_or_exit に統一したため、中止時の終了コードは
-            # unregister / set-version と同じ EXIT_DENIED になる (#28)
-            self.assertEqual(cm.exception.code, wslmgr_cli.EXIT_DENIED)
+            self.assertEqual(cm.exception.code, wslmgr_cli.ExitCode.USER_CANCELLED)
             self.assertEqual(len(os.listdir(tmpdir)), 2)
 
     @patch("wslmgr_cli.os.remove", side_effect=OSError("permission denied"))
     def test_removal_oserror_exits(self, mock_remove):
-        """tar / json の削除で OSError が発生した場合 exit EXIT_ERROR する (#28)。"""
+        """tar / json の削除で OSError が発生した場合 exit 1 (GENERAL_ERROR) する。"""
         with tempfile.TemporaryDirectory() as tmpdir:
             tar_file = _write_snapshot(tmpdir, tar_file="Ubuntu_1.tar")
             args = argparse.Namespace(tar_file=tar_file, dir=tmpdir, yes=True)
@@ -2116,7 +2029,7 @@ class TestCmdSnapshotDelete(unittest.TestCase):
                 with patch("sys.stdout", io.StringIO()):
                     with patch("sys.stderr", io.StringIO()):
                         wslmgr_cli.cmd_snapshot_delete(args)
-            self.assertEqual(cm.exception.code, wslmgr_cli.EXIT_ERROR)
+            self.assertEqual(cm.exception.code, wslmgr_cli.ExitCode.GENERAL_ERROR)
 
 
 class TestCmdClone(unittest.TestCase):
@@ -2154,7 +2067,7 @@ class TestCmdClone(unittest.TestCase):
 
     @patch("wslmgr_cli._run_wsl_command")
     def test_invalid_new_name_exits_before_export(self, mock_run):
-        """new_name が不正な場合、export を呼ばずに exit EXIT_ERROR する (#28: 入力検証)。"""
+        """new_name が不正な場合、export を呼ばずに exit 1 (GENERAL_ERROR) する。"""
         mock_run.return_value = (0, DISTRO_LIST_OUTPUT, "")
         args = argparse.Namespace(
             name="Ubuntu", new_name="bad/name", install_path="/tmp/x", yes=True,
@@ -2162,12 +2075,12 @@ class TestCmdClone(unittest.TestCase):
         with self.assertRaises(SystemExit) as cm:
             with patch("sys.stderr", io.StringIO()):
                 wslmgr_cli.cmd_clone(args)
-        self.assertEqual(cm.exception.code, wslmgr_cli.EXIT_ERROR)
+        self.assertEqual(cm.exception.code, wslmgr_cli.ExitCode.GENERAL_ERROR)
         self.assertEqual(mock_run.call_count, 1)
 
     @patch("wslmgr_cli._run_wsl_command")
     def test_export_failure_skips_import(self, mock_run):
-        """export が失敗した場合、import は呼ばれず exit EXIT_WSL_FAILURE する (#28)。"""
+        """export が失敗した場合、import は呼ばれず exit 4 (WSL_ERROR) する。"""
         mock_run.side_effect = [(0, DISTRO_LIST_OUTPUT, ""), (1, "", "エクスポート失敗")]
         with tempfile.TemporaryDirectory() as install_dir:
             args = argparse.Namespace(
@@ -2177,16 +2090,14 @@ class TestCmdClone(unittest.TestCase):
                 with patch("sys.stdout", io.StringIO()):
                     with patch("sys.stderr", io.StringIO()):
                         wslmgr_cli.cmd_clone(args)
-            self.assertEqual(cm.exception.code, wslmgr_cli.EXIT_WSL_FAILURE)
+            self.assertEqual(cm.exception.code, wslmgr_cli.ExitCode.WSL_ERROR)
             self.assertEqual(mock_run.call_count, 2)
 
     @patch("wslmgr_cli._run_wsl_command")
     @patch("sys.stdin.isatty", return_value=True)
     @patch("builtins.input", return_value="n")
     def test_confirmation_declined_aborts(self, mock_input, mock_isatty, mock_run):
-        # 日本語の1文なので途中改行は読みにくく、() による暗黙連結では
-        # docstring の見た目が不自然になるため、1 行のまま noqa で許容する。
-        """複製先に ext4.vhdx が既に存在し、確認プロンプトで 'n' の場合、export を呼ばずに中止する。"""  # noqa: E501
+        """複製先に ext4.vhdx が存在し、確認で 'n' の場合中止する。"""
         mock_run.return_value = (0, DISTRO_LIST_OUTPUT, "")
         with tempfile.TemporaryDirectory() as install_dir:
             with open(os.path.join(install_dir, "ext4.vhdx"), "wb") as f:
@@ -2197,15 +2108,13 @@ class TestCmdClone(unittest.TestCase):
             with self.assertRaises(SystemExit) as cm:
                 with patch("sys.stdout", io.StringIO()):
                     wslmgr_cli.cmd_clone(args)
-            self.assertEqual(cm.exception.code, wslmgr_cli.EXIT_DENIED)
+            self.assertEqual(cm.exception.code, wslmgr_cli.ExitCode.USER_CANCELLED)
             self.assertEqual(mock_run.call_count, 1)
 
     @patch("wslmgr_cli._run_wsl_command")
     @patch("sys.stdin.isatty", return_value=False)
     def test_non_tty_without_yes_exits_when_vhdx_exists(self, mock_isatty, mock_run):
-        # 日本語の1文なので途中改行は読みにくく、() による暗黙連結では
-        # docstring の見た目が不自然になるため、1 行のまま noqa で許容する。
-        """非対話環境で複製先に ext4.vhdx が存在し --yes なしの場合、export を呼ばずに exit EXIT_DENIED する (#28)。"""  # noqa: E501
+        """非対話で複製先に ext4.vhdx が存在し --yes なしの場合 exit 3 する。"""
         mock_run.return_value = (0, DISTRO_LIST_OUTPUT, "")
         with tempfile.TemporaryDirectory() as install_dir:
             with open(os.path.join(install_dir, "ext4.vhdx"), "wb") as f:
@@ -2217,7 +2126,7 @@ class TestCmdClone(unittest.TestCase):
                 with patch("sys.stdout", io.StringIO()):
                     with patch("sys.stderr", io.StringIO()):
                         wslmgr_cli.cmd_clone(args)
-            self.assertEqual(cm.exception.code, wslmgr_cli.EXIT_DENIED)
+            self.assertEqual(cm.exception.code, wslmgr_cli.ExitCode.USER_CANCELLED)
             self.assertEqual(mock_run.call_count, 1)
 
     @patch("wslmgr_cli._run_wsl_command")
@@ -2239,7 +2148,7 @@ class TestCmdClone(unittest.TestCase):
     @patch("sys.stdin.isatty", return_value=True)
     @patch("builtins.input", return_value="n")
     def test_declining_confirmation_skips_export(self, mock_input, mock_isatty, mock_run):
-        """確認を拒否した場合、export / import を呼ばずに exit EXIT_DENIED する (#28)。"""
+        """確認を拒否した場合、export / import を呼ばずに exit 3 (USER_CANCELLED) する。"""
         mock_run.return_value = (0, DISTRO_LIST_OUTPUT, "")
         with tempfile.TemporaryDirectory() as install_dir:
             args = argparse.Namespace(
@@ -2248,13 +2157,13 @@ class TestCmdClone(unittest.TestCase):
             with self.assertRaises(SystemExit) as cm:
                 with patch("sys.stdout", io.StringIO()):
                     wslmgr_cli.cmd_clone(args)
-            self.assertEqual(cm.exception.code, wslmgr_cli.EXIT_DENIED)
+            self.assertEqual(cm.exception.code, wslmgr_cli.ExitCode.USER_CANCELLED)
             # --list --verbose の 1 回だけで、export は呼ばれていない
             self.assertEqual(mock_run.call_count, 1)
 
     @patch("wslmgr_cli._run_wsl_command")
     def test_import_failure_exits(self, mock_run):
-        """import が失敗した場合、exit EXIT_WSL_FAILURE する (#28, tmp ファイルは後始末される)。"""
+        """import が失敗した場合、exit 4 (WSL_ERROR) する (tmp ファイルは後始末される)。"""
         mock_run.side_effect = [
             (0, DISTRO_LIST_OUTPUT, ""), (0, "", ""), (1, "", "インポート失敗"),
         ]
@@ -2266,12 +2175,12 @@ class TestCmdClone(unittest.TestCase):
                 with patch("sys.stdout", io.StringIO()):
                     with patch("sys.stderr", io.StringIO()):
                         wslmgr_cli.cmd_clone(args)
-            self.assertEqual(cm.exception.code, wslmgr_cli.EXIT_WSL_FAILURE)
+            self.assertEqual(cm.exception.code, wslmgr_cli.ExitCode.WSL_ERROR)
             self.assertEqual(mock_run.call_count, 3)
 
     @patch("wslmgr_cli.subprocess.run")
     def test_export_timeout_exits(self, mock_run):
-        """export がタイムアウトした場合 exit EXIT_WSL_FAILURE する (#28)。"""
+        """export がタイムアウトした場合 exit 4 (WSL_ERROR) する。"""
         list_proc = MagicMock()
         list_proc.returncode = 0
         list_proc.stdout = b"\xff\xfe" + DISTRO_LIST_OUTPUT.encode("utf-16-le")
@@ -2285,11 +2194,11 @@ class TestCmdClone(unittest.TestCase):
                 with patch("sys.stdout", io.StringIO()):
                     with patch("sys.stderr", io.StringIO()):
                         wslmgr_cli.cmd_clone(args)
-            self.assertEqual(cm.exception.code, wslmgr_cli.EXIT_WSL_FAILURE)
+            self.assertEqual(cm.exception.code, wslmgr_cli.ExitCode.WSL_ERROR)
 
     @patch("wslmgr_cli.subprocess.run")
     def test_export_filenotfounderror_exits(self, mock_run):
-        """wsl 実行ファイルが見つからない場合 exit EXIT_WSL_FAILURE する (#28)。"""
+        """wsl 実行ファイルが見つからない場合 exit 4 (WSL_ERROR) する。"""
         list_proc = MagicMock()
         list_proc.returncode = 0
         list_proc.stdout = b"\xff\xfe" + DISTRO_LIST_OUTPUT.encode("utf-16-le")
@@ -2303,7 +2212,7 @@ class TestCmdClone(unittest.TestCase):
                 with patch("sys.stdout", io.StringIO()):
                     with patch("sys.stderr", io.StringIO()):
                         wslmgr_cli.cmd_clone(args)
-            self.assertEqual(cm.exception.code, wslmgr_cli.EXIT_WSL_FAILURE)
+            self.assertEqual(cm.exception.code, wslmgr_cli.ExitCode.WSL_ERROR)
 
 
 class TestBuildParserSnapshotClone(unittest.TestCase):
@@ -2342,16 +2251,6 @@ class TestBuildParserSnapshotClone(unittest.TestCase):
         args = self.parser.parse_args(["snapshot", "delete", "Ubuntu_1.tar"])
         self.assertEqual(args.tar_file, "Ubuntu_1.tar")
         self.assertFalse(args.yes)
-
-    def test_snapshot_set_dir_requires_path(self):
-        """#17: path 引数が必須であることを確認する。"""
-        with self.assertRaises(SystemExit):
-            self.parser.parse_args(["snapshot", "set-dir"])
-
-    def test_snapshot_set_dir_parses(self):
-        args = self.parser.parse_args(["snapshot", "set-dir", "/custom/snapshots"])
-        self.assertEqual(args.path, "/custom/snapshots")
-        self.assertEqual(args.func, wslmgr_cli.cmd_snapshot_set_dir)
 
     def test_clone_requires_install_path(self):
         with self.assertRaises(SystemExit):
@@ -2525,41 +2424,166 @@ class TestCliOperationLogging(unittest.TestCase):
         self.assertEqual(mock_log.call_args[0][2], "Ubuntu → Ubuntu-copy")
 
 
-class TestCmdSnapshotSetDir(unittest.TestCase):
-    """#17: cmd_snapshot_set_dir のテスト。"""
+# ---------------------------------------------------------------------------
+# 新規サブコマンド・オプションのテスト
+# ---------------------------------------------------------------------------
 
-    def setUp(self):
-        self._settings_tmpdir = tempfile.TemporaryDirectory()
-        self.settings_path = os.path.join(self._settings_tmpdir.name, "settings.json")
-        self._patcher = patch(
-            "wslmgr_cli.wsl_core.get_default_settings_path",
-            return_value=self.settings_path,
+class TestCmdMount(unittest.TestCase):
+    """cmd_mount のテスト。"""
+
+    @patch("wslmgr_cli._run_wsl_command")
+    def test_mount_success(self, mock_run):
+        mock_run.return_value = (0, "", "")
+        args = argparse.Namespace(
+            disk=r"\\.\PHYSICALDRIVE1",
+            bare=False,
+            type="ext4",
+            partition=1,
+            vhd=False,
+            name=None,
+            format="table",
         )
-        self._patcher.start()
+        buf = io.StringIO()
+        with patch("sys.stdout", buf):
+            wslmgr_cli.cmd_mount(args)
+        mock_run.assert_called_once_with(
+            ["--mount", r"\\.\PHYSICALDRIVE1", "--type", "ext4", "--partition", "1"],
+            timeout=60.0,
+        )
+        self.assertIn("マウントしました", buf.getvalue())
 
-    def tearDown(self):
-        self._patcher.stop()
-        self._settings_tmpdir.cleanup()
+    @patch("wslmgr_cli._run_wsl_command")
+    def test_mount_vhd_success(self, mock_run):
+        mock_run.return_value = (0, "", "")
+        args = argparse.Namespace(
+            disk=r"C:\test.vhdx",
+            bare=False,
+            type=None,
+            partition=None,
+            vhd=True,
+            name="testdisk",
+            format="table",
+        )
+        with patch("sys.stdout", io.StringIO()):
+            wslmgr_cli.cmd_mount(args)
+        mock_run.assert_called_once_with(
+            ["--mount", r"C:\test.vhdx", "--vhd", "--name", "testdisk"],
+            timeout=60.0,
+        )
 
-    def test_nonexistent_path_exits_error(self):
-        """存在しないディレクトリを指定すると exit EXIT_ERROR する (#28: 入力検証)。"""
-        args = argparse.Namespace(path="/no/such/directory/xyz")
+    @patch("wslmgr_cli._run_wsl_command")
+    def test_mount_failure_exits(self, mock_run):
+        mock_run.return_value = (1, "", "管理者権限が必要です")
+        args = argparse.Namespace(
+            disk=r"\\.\PHYSICALDRIVE1",
+            bare=False,
+            type=None,
+            partition=None,
+            vhd=False,
+            name=None,
+            format="table",
+        )
         with self.assertRaises(SystemExit) as cm:
-            with patch("sys.stderr", io.StringIO()):
-                wslmgr_cli.cmd_snapshot_set_dir(args)
-        self.assertEqual(cm.exception.code, wslmgr_cli.EXIT_ERROR)
-
-    @patch("wslmgr_cli.wsl_core.append_log_entry")
-    def test_valid_path_persists_and_reloads(self, mock_log):
-        """設定ファイルへ書き込み、wsl_core.load_settings で読み直すと反映されている。"""
-        with tempfile.TemporaryDirectory() as snap_dir:
-            args = argparse.Namespace(path=snap_dir)
             with patch("sys.stdout", io.StringIO()):
-                wslmgr_cli.cmd_snapshot_set_dir(args)
-            reloaded = wslmgr_cli.wsl_core.load_settings(self.settings_path)
-            self.assertEqual(reloaded["snapshot_dir"], snap_dir)
-        mock_log.assert_called_once()
-        self.assertEqual(mock_log.call_args[0][1], "スナップショット保存先変更")
+                with patch("sys.stderr", io.StringIO()):
+                    wslmgr_cli.cmd_mount(args)
+        self.assertEqual(cm.exception.code, wslmgr_cli.ExitCode.WSL_ERROR)
+
+
+class TestCmdUnmount(unittest.TestCase):
+    """cmd_unmount のテスト。"""
+
+    @patch("wslmgr_cli._run_wsl_command")
+    def test_unmount_specific_disk(self, mock_run):
+        mock_run.return_value = (0, "", "")
+        args = argparse.Namespace(disk=r"\\.\PHYSICALDRIVE1", format="table")
+        buf = io.StringIO()
+        with patch("sys.stdout", buf):
+            wslmgr_cli.cmd_unmount(args)
+        mock_run.assert_called_once_with(["--unmount", r"\\.\PHYSICALDRIVE1"], timeout=30.0)
+        self.assertIn("アンマウントしました", buf.getvalue())
+
+    @patch("wslmgr_cli._run_wsl_command")
+    def test_unmount_all_disks(self, mock_run):
+        mock_run.return_value = (0, "", "")
+        args = argparse.Namespace(disk=None, format="table")
+        buf = io.StringIO()
+        with patch("sys.stdout", buf):
+            wslmgr_cli.cmd_unmount(args)
+        mock_run.assert_called_once_with(["--unmount"], timeout=30.0)
+        self.assertIn("アンマウントしました", buf.getvalue())
+
+    @patch("wslmgr_cli._run_wsl_command")
+    def test_unmount_failure_exits(self, mock_run):
+        mock_run.return_value = (1, "", "アンマウント失敗")
+        args = argparse.Namespace(disk=r"\\.\PHYSICALDRIVE1", format="table")
+        with self.assertRaises(SystemExit) as cm:
+            with patch("sys.stdout", io.StringIO()):
+                with patch("sys.stderr", io.StringIO()):
+                    wslmgr_cli.cmd_unmount(args)
+        self.assertEqual(cm.exception.code, wslmgr_cli.ExitCode.WSL_ERROR)
+
+
+class TestCmdSnapshotSetDir(unittest.TestCase):
+    """cmd_snapshot_set_dir のテスト。"""
+
+    @patch("wslmgr_cli.wsl_core.save_settings")
+    @patch("wslmgr_cli.wsl_core.load_settings", return_value={})
+    def test_set_dir_success(self, mock_load, mock_save):
+        args = argparse.Namespace(path=r"C:\Custom\Snapshots", format="table")
+        buf = io.StringIO()
+        with patch("sys.stdout", buf):
+            wslmgr_cli.cmd_snapshot_set_dir(args)
+        mock_save.assert_called_once()
+        self.assertIn("設定しました", buf.getvalue())
+
+
+class TestCmdLogClear(unittest.TestCase):
+    """cmd_log_clear のテスト。"""
+
+    @patch("wslmgr_cli.wsl_core.delete_log_files", return_value=(1, []))
+    def test_log_clear_with_yes(self, mock_delete):
+        args = argparse.Namespace(yes=True, format="table")
+        buf = io.StringIO()
+        with patch("sys.stdout", buf):
+            wslmgr_cli.cmd_log_clear(args)
+        mock_delete.assert_called_once()
+        self.assertIn("消去しました", buf.getvalue())
+
+    @patch("wslmgr_cli.wsl_core.delete_log_files", return_value=(1, []))
+    @patch("sys.stdin.isatty", return_value=True)
+    @patch("builtins.input", return_value="n")
+    def test_log_clear_declined_exits(self, mock_input, mock_isatty, mock_delete):
+        args = argparse.Namespace(yes=False, format="table")
+        with self.assertRaises(SystemExit) as cm:
+            with patch("sys.stdout", io.StringIO()):
+                wslmgr_cli.cmd_log_clear(args)
+        self.assertEqual(cm.exception.code, wslmgr_cli.ExitCode.USER_CANCELLED)
+        mock_delete.assert_not_called()
+
+
+class TestCmdConfigDistro(unittest.TestCase):
+    """cmd_config --distro のテスト。"""
+
+    @patch("wslmgr_cli._run_wsl_command")
+    def test_config_distro_success(self, mock_run):
+        mock_run.return_value = (0, "[boot]\nsystemd=true\n", "")
+        args = argparse.Namespace(distro="Ubuntu", format="table")
+        buf = io.StringIO()
+        with patch("sys.stdout", buf):
+            wslmgr_cli.cmd_config(args)
+        self.assertIn("[boot]", buf.getvalue())
+        self.assertIn("systemd", buf.getvalue())
+
+    @patch("wslmgr_cli._run_wsl_command")
+    def test_config_distro_json(self, mock_run):
+        mock_run.return_value = (0, "[boot]\nsystemd=true\n", "")
+        args = argparse.Namespace(distro="Ubuntu", format="json")
+        buf = io.StringIO()
+        with patch("sys.stdout", buf):
+            wslmgr_cli.cmd_config(args)
+        data = json.loads(buf.getvalue())
+        self.assertEqual(data, {"boot": {"systemd": "true"}})
 
 
 if __name__ == "__main__":

@@ -58,7 +58,8 @@ Common GUI workflows:
 
 ```powershell
 python wslmgr_cli.py --help
-python wslmgr_cli.py list
+python wslmgr_cli.py --version
+python wslmgr_cli.py list --with-ip --with-disk
 python wslmgr_cli.py list --format json
 python wslmgr_cli.py start Ubuntu
 python wslmgr_cli.py stop Ubuntu
@@ -66,14 +67,19 @@ python wslmgr_cli.py shutdown
 python wslmgr_cli.py export Ubuntu C:\backup\Ubuntu.tar
 python wslmgr_cli.py import UbuntuClone C:\WSL\UbuntuClone C:\backup\Ubuntu.tar
 python wslmgr_cli.py config
+python wslmgr_cli.py config --distro Ubuntu
 python wslmgr_cli.py portproxy list
 python wslmgr_cli.py snapshot create Ubuntu --comment "before upgrade"
 python wslmgr_cli.py snapshot list
 python wslmgr_cli.py snapshot restore Ubuntu_20260101-000000.tar --install-path C:\WSL\Restored
+python wslmgr_cli.py snapshot set-dir D:\WSLSnapshots
 python wslmgr_cli.py clone Ubuntu UbuntuClone --install-path C:\WSL\UbuntuClone
+python wslmgr_cli.py mount C:\disks\data.vhdx --vhd
+python wslmgr_cli.py unmount C:\disks\data.vhdx
+python wslmgr_cli.py log clear --yes
 ```
 
-CLI subcommands include `list`, `start`, `stop`, `shutdown`, `status`, `export`, `import`, `config`, `set-default`, `unregister`, `install`, `optimize`, `set-version`, `processes`, `log`, `portproxy`, `snapshot` (`create`/`list`/`restore`/`delete`/`set-dir`), and `clone`.
+CLI subcommands include `list`, `start`, `stop`, `shutdown`, `status`, `export`, `import`, `config`, `set-default`, `unregister`, `install`, `optimize`, `set-version`, `processes`, `log` (`clear`), `portproxy` (`list`/`add`/`delete`), `snapshot` (`create`/`list`/`restore`/`delete`/`set-dir`), `clone`, `mount`, and `unmount`.
 
 ### Exit Codes
 

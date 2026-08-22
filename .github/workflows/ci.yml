@@ -3,6 +3,7 @@ name: CI
 on:
   push:
     branches: [main]
+    tags: ['v*']
   pull_request:
 
 jobs:
@@ -22,13 +23,18 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
 
+      - name: Install test tools
+        run: pip install coverage
+
       # GUI を起動せずにバイトコードコンパイルだけ行う（tkinter 不要）
       - name: Compile check
-        run: python -m py_compile wslmgr.py wsl_core.py
+        run: python -m py_compile wslmgr.py wsl_core.py wslmgr_cli.py
 
-      # 純粋ロジック (wsl_core) の単体テスト。どの OS でも実行可能
-      - name: Unit tests
-        run: python -m unittest discover -s tests -v
+      # 純粋ロジック (wsl_core) / CLI の単体テストとカバレッジ計測
+      - name: Unit tests & coverage
+        run: |
+          coverage run -m unittest discover -s tests -v
+          coverage report -m
 
       # Windows ランナーは tkinter / winreg が利用可能なため、
       # GUI モジュールの import スモークテストまで実施できる
@@ -55,3 +61,56 @@ jobs:
 
       - name: Ruff check
         run: ruff check .
+
+  build:
+    name: Build Executable (PyInstaller)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.10
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - name: Install PyInstaller
+        run: pip install pyinstaller
+
+      - name: Build with PyInstaller
+        run: pyinstaller --clean WSLManager.spec
+
+      - name: Verify executable artifact
+        run: |
+          if (-not (Test-Path "dist\WSLManager.exe")) {
+            Write-Error "dist\WSLManager.exe was not created"
+            exit 1
+          }
+
+      - name: Upload Build Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: WSLManager-exe
+          path: dist/WSLManager.exe
+
+  release:
+    name: GitHub Release
+    needs: [test, lint, build]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download Build Artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: WSLManager-exe
+          path: dist
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/WSLManager.exe
+          generate_release_notes: true
+
