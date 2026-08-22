@@ -994,6 +994,28 @@ def cmd_snapshot_delete(args: argparse.Namespace) -> None:
     print("削除しました。")
 
 
+def cmd_snapshot_set_dir(args: argparse.Namespace) -> None:
+    """#17: スナップショットの保存先ディレクトリを変更し、設定ファイルに永続化します。
+
+    指定パスの存在確認のみ行います (書き込み権限チェックは行いません)。
+    非破壊的操作のため確認プロンプトは表示しません。
+    """
+    path = args.path
+    if not os.path.isdir(path):
+        print(f"エラー: 「{path}」はディレクトリとして存在しません。", file=sys.stderr)
+        sys.exit(1)
+
+    settings_path = wsl_core.get_default_settings_path()
+    settings = wsl_core.load_settings(settings_path)
+    settings["snapshot_dir"] = path
+    if not wsl_core.save_settings(settings_path, settings):
+        print("エラー: 設定の保存に失敗しました。", file=sys.stderr)
+        sys.exit(1)
+
+    _log_cli_operation("スナップショット保存先変更", path, "成功")
+    print(f"スナップショットの保存先を変更しました: {path}")
+
+
 def _make_snapshot_help_func(parser: argparse.ArgumentParser):
     """``wslmgr snapshot`` (サブサブコマンドなし) 実行時にヘルプを表示する関数を返します。"""
     def _cmd_snapshot_help(_args: argparse.Namespace) -> None:
@@ -1322,6 +1344,12 @@ def build_parser() -> argparse.ArgumentParser:
         "--yes", "-y", action="store_true", help="確認プロンプトを表示せずに実行します"
     )
     p_snapshot_delete.set_defaults(func=cmd_snapshot_delete)
+
+    p_snapshot_set_dir = snapshot_subparsers.add_parser(
+        "set-dir", help="スナップショットの保存先ディレクトリを変更します"
+    )
+    p_snapshot_set_dir.add_argument("path", help="新しい保存先ディレクトリのパス")
+    p_snapshot_set_dir.set_defaults(func=cmd_snapshot_set_dir)
 
     # clone
     p_clone = subparsers.add_parser(

@@ -2262,6 +2262,16 @@ class TestBuildParserSnapshotClone(unittest.TestCase):
         self.assertEqual(args.tar_file, "Ubuntu_1.tar")
         self.assertFalse(args.yes)
 
+    def test_snapshot_set_dir_requires_path(self):
+        """#17: path 引数が必須であることを確認する。"""
+        with self.assertRaises(SystemExit):
+            self.parser.parse_args(["snapshot", "set-dir"])
+
+    def test_snapshot_set_dir_parses(self):
+        args = self.parser.parse_args(["snapshot", "set-dir", "/custom/snapshots"])
+        self.assertEqual(args.path, "/custom/snapshots")
+        self.assertEqual(args.func, wslmgr_cli.cmd_snapshot_set_dir)
+
     def test_clone_requires_install_path(self):
         with self.assertRaises(SystemExit):
             self.parser.parse_args(["clone", "Ubuntu", "Ubuntu-copy"])
@@ -2432,6 +2442,43 @@ class TestCliOperationLogging(unittest.TestCase):
         mock_log.assert_called_once()
         self.assertEqual(mock_log.call_args[0][1], "複製")
         self.assertEqual(mock_log.call_args[0][2], "Ubuntu → Ubuntu-copy")
+
+
+class TestCmdSnapshotSetDir(unittest.TestCase):
+    """#17: cmd_snapshot_set_dir のテスト。"""
+
+    def setUp(self):
+        self._settings_tmpdir = tempfile.TemporaryDirectory()
+        self.settings_path = os.path.join(self._settings_tmpdir.name, "settings.json")
+        self._patcher = patch(
+            "wslmgr_cli.wsl_core.get_default_settings_path",
+            return_value=self.settings_path,
+        )
+        self._patcher.start()
+
+    def tearDown(self):
+        self._patcher.stop()
+        self._settings_tmpdir.cleanup()
+
+    def test_nonexistent_path_exits_error(self):
+        """存在しないディレクトリを指定するとエラー終了する。"""
+        args = argparse.Namespace(path="/no/such/directory/xyz")
+        with self.assertRaises(SystemExit) as cm:
+            with patch("sys.stderr", io.StringIO()):
+                wslmgr_cli.cmd_snapshot_set_dir(args)
+        self.assertEqual(cm.exception.code, 1)
+
+    @patch("wslmgr_cli.wsl_core.append_log_entry")
+    def test_valid_path_persists_and_reloads(self, mock_log):
+        """設定ファイルへ書き込み、wsl_core.load_settings で読み直すと反映されている。"""
+        with tempfile.TemporaryDirectory() as snap_dir:
+            args = argparse.Namespace(path=snap_dir)
+            with patch("sys.stdout", io.StringIO()):
+                wslmgr_cli.cmd_snapshot_set_dir(args)
+            reloaded = wslmgr_cli.wsl_core.load_settings(self.settings_path)
+            self.assertEqual(reloaded["snapshot_dir"], snap_dir)
+        mock_log.assert_called_once()
+        self.assertEqual(mock_log.call_args[0][1], "スナップショット保存先変更")
 
 
 if __name__ == "__main__":

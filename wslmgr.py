@@ -1980,6 +1980,9 @@ class SnapshotManagerDialog(tk.Toplevel):
         ttk.Button(
             bottom, text="フォルダを開く", command=self._open_folder, width=13
         ).pack(side=tk.RIGHT, padx=(4, 0))
+        ttk.Button(
+            bottom, text="保存先変更...", command=self._change_snapshot_dir, width=13
+        ).pack(side=tk.RIGHT, padx=(4, 0))
         ttk.Button(bottom, text="削除", command=self._delete_snapshot, width=10).pack(
             side=tk.RIGHT, padx=(4, 0)
         )
@@ -2204,6 +2207,20 @@ class SnapshotManagerDialog(tk.Toplevel):
             os.startfile(snap_dir)  # type: ignore[attr-defined]
         except OSError as e:
             messagebox.showerror("エラー", str(e), parent=self)
+
+    def _change_snapshot_dir(self) -> None:
+        """#17: スナップショットの保存先ディレクトリを変更します。"""
+        current_dir = self._parent._snapshot_dir()
+        new_dir = filedialog.askdirectory(
+            title="スナップショット保存先フォルダを選択",
+            initialdir=current_dir if os.path.isdir(current_dir) else None,
+            parent=self,
+        )
+        if not new_dir:
+            return
+        self._parent._settings["snapshot_dir"] = new_dir
+        self._parent._save_settings()
+        self._reload()
 
 
 class WSLManager(tk.Tk):
