@@ -1111,6 +1111,19 @@ class TestValidateDistroName(unittest.TestCase):
                 self.assertFalse(valid)
                 self.assertNotEqual(reason, "")
 
+    def test_shell_metachars_invalid(self):
+        """cmd.exe/wt.exe のコマンドライン区切り文字を含む名前は無効。
+
+        `wslmgr.WSLManager._open_terminal` がこの名前を含めて cmd.exe/wt.exe を
+        起動するため、それらが特別扱いする文字は使用禁止とする (#security)。
+        """
+        shell_metachars = ['&', ';', '%', '^', '(', ')']
+        for char in shell_metachars:
+            with self.subTest(char=char):
+                valid, reason = wsl_core.validate_distro_name(f"distro{char}name")
+                self.assertFalse(valid)
+                self.assertNotEqual(reason, "")
+
     def test_too_long(self):
         """65文字以上の名前は無効。"""
         name = "a" * 65

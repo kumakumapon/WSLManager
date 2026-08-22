@@ -3215,6 +3215,17 @@ class WSLManager(tk.Tk):
                 "警告", "ディストリビューションを選択してください。", parent=self
             )
             return
+        # wsl --list の出力から得た名前はこのアプリの作成時バリデーションを
+        # 経由していない可能性がある (他ツールでの登録等)。cmd.exe/wt.exe の
+        # コマンドラインインタプリタに渡す前に必ず再検証する。
+        valid, reason = wsl_core.validate_distro_name(name)
+        if not valid:
+            messagebox.showerror(
+                "エラー",
+                f"「{name}」はターミナル起動時に使用できない名前です: {reason}",
+                parent=self,
+            )
+            return
         try:
             # Windows Terminal を優先
             subprocess.Popen(
