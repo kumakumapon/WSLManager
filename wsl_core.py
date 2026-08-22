@@ -1045,7 +1045,10 @@ class AsyncLogWriter:
     遅くても GUI がカクつきません。
 
     I/O エラーは元の同期実装と同様に握りつぶします (ログの永続化に失敗しても
-    アプリの操作自体は継続させるため)。
+    アプリの操作自体は継続させるため)。ただしキューには上限 (``maxsize``) を
+    設け、溢れた場合は :attr:`dropped_count` を、書き込み失敗時は
+    :attr:`write_error_count` をそれぞれインクリメントして呼び出し元が
+    後から検知できるようにします。
     """
 
     _SENTINEL = object()
@@ -1056,20 +1059,35 @@ class AsyncLogWriter:
         base_name: str = "operations.jsonl",
         max_size: int = 1_048_576,
         max_backups: int = 10,
+        maxsize: int = 1000,
     ) -> None:
         self._log_dir = log_dir
         self._base_name = base_name
         self._max_size = max_size
         self._max_backups = max_backups
-        self._queue: queue.Queue = queue.Queue()
+        self._queue: queue.Queue = queue.Queue(maxsize=maxsize)
         self._thread: threading.Thread | None = None
         self._lock = threading.Lock()
         self._stopped = False
+        self._dropped_count = 0
+        self._write_error_count = 0
 
     @property
     def log_path(self) -> str:
         """ログ本体のフルパス。"""
         return os.path.join(self._log_dir, self._base_name)
+
+    @property
+    def dropped_count(self) -> int:
+        """キュー溢れにより破棄されたログエントリ数。"""
+        with self._lock:
+            return self._dropped_count
+
+    @property
+    def write_error_count(self) -> int:
+        """書き込み時に ``OSError`` が発生した回数。"""
+        with self._lock:
+            return self._write_error_count
 
     def submit(
         self,
@@ -1081,14 +1099,19 @@ class AsyncLogWriter:
     ) -> None:
         """操作ログ1件を書き込みキューに積みます。ブロックしません。
 
-        :meth:`stop` 済みの場合は何もしません。
+        :meth:`stop` 済みの場合は何もしません。キューが満杯の場合は
+        :attr:`dropped_count` をインクリメントして破棄します (ブロックしません)。
         """
         if self._stopped:
             return
         line = serialize_log_entry(operation, target, result, timestamp, source)
         if not self._ensure_thread():
             return
-        self._queue.put(line)
+        try:
+            self._queue.put_nowait(line)
+        except queue.Full:
+            with self._lock:
+                self._dropped_count += 1
 
     def flush(self, timeout: float = 2.0) -> bool:
         """キューに積まれた全エントリが書き込まれるまで待ちます。
@@ -1162,7 +1185,8 @@ class AsyncLogWriter:
                 self._log_dir, self._base_name, self._max_size, self._max_backups
             )
         except OSError:
-            pass
+            with self._lock:
+                self._write_error_count += 1
 
 
 def append_log_entry(

@@ -11,6 +11,8 @@ import re
 import shutil
 import sys
 import tempfile
+import threading
+import time
 import unittest
 from typing import ClassVar
 from unittest import mock
@@ -4129,6 +4131,46 @@ class TestAsyncLogWriter(unittest.TestCase):
         writer.submit("操作", "B", "実行")
         self.assertTrue(writer.flush(timeout=5.0))
         self.assertEqual([e["target"] for e in self._read_entries()], ["B"])
+
+    def test_write_error_increments_write_error_count(self):
+        """#35: _write で OSError が発生すると write_error_count が増える。"""
+        writer = self._make()
+        self.assertEqual(writer.write_error_count, 0)
+        with mock.patch("wsl_core.open", side_effect=OSError("disk full")):
+            writer.submit("操作", "A", "実行")
+            self.assertTrue(writer.flush(timeout=5.0))
+        self.assertEqual(writer.write_error_count, 1)
+
+    def test_default_maxsize_is_not_unlimited(self):
+        """#35: デフォルトの maxsize は無制限 (0) ではない。"""
+        writer = self._make()
+        self.assertGreater(writer._queue.maxsize, 0)
+
+    def test_submit_drops_and_increments_dropped_count_when_queue_full(self):
+        """#35: キュー溢れ時に dropped_count が増え、submit はブロックしない。"""
+        writer = self._make(maxsize=1)
+        block = threading.Event()
+        original_write = writer._write
+
+        def blocking_write(line):
+            block.wait(5.0)
+            original_write(line)
+
+        writer._write = blocking_write
+        try:
+            writer.submit("操作", "A", "実行")
+            # ライタスレッドが "A" をキューから取り出しブロックするまで待つ
+            time.sleep(0.2)
+            writer.submit("操作", "B", "実行")  # キュー枠 (maxsize=1) を埋める
+            self.assertEqual(writer.dropped_count, 0)
+            start = time.monotonic()
+            writer.submit("操作", "C", "実行")  # キュー満杯 -> 破棄されるはず
+            elapsed = time.monotonic() - start
+            self.assertLess(elapsed, 1.0)
+            self.assertEqual(writer.dropped_count, 1)
+        finally:
+            block.set()
+        self.assertTrue(writer.flush(timeout=5.0))
 
     def test_stop_flushes_pending_entries(self):
         writer = self._make()
