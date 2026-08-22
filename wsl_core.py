@@ -245,7 +245,7 @@ def parse_wslconfig(text: str) -> dict[str, dict[str, str]]:
     return result
 
 
-def parse_wsl_version(output: str) -> dict[str, str]:
+def parse_wsl_version(output: str) -> dict[str, str | list[str]]:
     """``wsl --version`` のデコード済みテキスト出力を解析してバージョン情報の dict を返します。
 
     各行を ``:`` (最初の出現のみ) で分割し、左辺のキーワードを正規化キーに対応付けます。
@@ -259,14 +259,19 @@ def parse_wsl_version(output: str) -> dict[str, str]:
     - 「DXCore」を含む行                   → ``"dxcore"``
     - 「Windows」を含む行                  → ``"windows"``
 
-    いずれのパターンにも一致しない行、または ``:`` を含まない行はスキップします。
+    いずれのパターンにも一致しない行 (既知パターン非一致、または ``:`` を含まない非空行) は
+    ``result["_unparsed_lines"]`` (list[str]) に集約されます。未解析行が1件もない場合は
+    ``_unparsed_lines`` キー自体が結果 dict に含まれません。
     ``output`` が空文字または None の場合は空 dict を返します。
     """
     if not output:
         return {}
-    result: dict[str, str] = {}
+    result: dict[str, str | list[str]] = {}
+    unparsed_lines: list[str] = []
     for raw_line in output.splitlines():
         if ":" not in raw_line:
+            if raw_line.strip():
+                unparsed_lines.append(raw_line)
             continue
         left, _, right = raw_line.partition(":")
         left_strip = left.strip()
@@ -285,6 +290,10 @@ def parse_wsl_version(output: str) -> dict[str, str]:
             result["dxcore"] = value
         elif "Windows" in left_strip:
             result["windows"] = value
+        else:
+            unparsed_lines.append(raw_line)
+    if unparsed_lines:
+        result["_unparsed_lines"] = unparsed_lines
     return result
 
 

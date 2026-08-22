@@ -687,6 +687,25 @@ class TestParseWslVersion(unittest.TestCase):
         """None は {} を返す。"""
         self.assertEqual(wsl_core.parse_wsl_version(None), {})
 
+    def test_unknown_line_collected_in_unparsed_lines(self):
+        """既知パターンに一致しない ``:`` 付きの行は _unparsed_lines に集約される。"""
+        output = self.ENGLISH_OUTPUT + "SomeUnknownField: some value\n"
+        result = wsl_core.parse_wsl_version(output)
+        self.assertIn("_unparsed_lines", result)
+        self.assertIn("SomeUnknownField: some value", result["_unparsed_lines"])
+
+    def test_line_without_colon_collected_in_unparsed_lines(self):
+        """``:`` を含まない非空行も _unparsed_lines に集約される。"""
+        output = self.ENGLISH_OUTPUT + "no colon in this line\n"
+        result = wsl_core.parse_wsl_version(output)
+        self.assertIn("_unparsed_lines", result)
+        self.assertIn("no colon in this line", result["_unparsed_lines"])
+
+    def test_no_unparsed_lines_key_absent_when_all_known(self):
+        """未知行が1件もない場合は _unparsed_lines キーが結果に含まれない。"""
+        result = wsl_core.parse_wsl_version(self.ENGLISH_OUTPUT)
+        self.assertNotIn("_unparsed_lines", result)
+
     def test_partial_output_missing_wslg(self):
         """WSLg 行がない部分的な出力では wslg キーが含まれない。"""
         partial = (
@@ -702,7 +721,7 @@ class TestParseWslVersion(unittest.TestCase):
         self.assertNotIn("msrdc", result)
 
     def test_line_without_colon_skipped(self):
-        """コロンを含まない行はスキップされる。"""
+        """コロンを含まない行は既知キーとしては解析されず _unparsed_lines に集約される。"""
         output = (
             "WSL version: 2.4.4.0\n"
             "this line has no colon\n"
@@ -711,10 +730,11 @@ class TestParseWslVersion(unittest.TestCase):
         result = wsl_core.parse_wsl_version(output)
         self.assertEqual(result["wsl"], "2.4.4.0")
         self.assertEqual(result["kernel"], "5.15.167.4-1")
-        self.assertEqual(len(result), 2)
+        self.assertEqual(result["_unparsed_lines"], ["this line has no colon"])
+        self.assertEqual(len(result), 3)
 
     def test_unrecognized_line_skipped(self):
-        """パターンに一致しない行はスキップされる。"""
+        """パターンに一致しない行は既知キーとしては解析されず _unparsed_lines に集約される。"""
         output = (
             "WSL version: 2.4.4.0\n"
             "Unknown field: somevalue\n"
@@ -723,6 +743,7 @@ class TestParseWslVersion(unittest.TestCase):
         self.assertIn("wsl", result)
         self.assertNotIn("Unknown field", result)
         self.assertNotIn("somevalue", result.keys())
+        self.assertEqual(result["_unparsed_lines"], ["Unknown field: somevalue"])
 
     def test_value_whitespace_stripped(self):
         """値の前後の空白が除去される。"""
