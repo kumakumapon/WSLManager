@@ -627,6 +627,11 @@ class WslConfigDialog(tk.Toplevel):
             text="変更の反映には WSL の全停止 (wsl --shutdown) が必要です。",
             foreground="#555555",
         ).pack(anchor=tk.W)
+        ttk.Label(
+            info_frame,
+            text="コメント行（# で始まる行）は保存時に保持されません。",
+            foreground="#555555",
+        ).pack(anchor=tk.W)
 
         # パス表示
         ttk.Label(frame, text=f"編集ファイル: {self._path}", foreground="#777777").pack(
@@ -785,6 +790,11 @@ class DistroConfDialog(tk.Toplevel):
         ttk.Label(
             info_frame,
             text="停止中のディストロは読み書きのために一時的に起動されます。",
+            foreground="#555555",
+        ).pack(anchor=tk.W)
+        ttk.Label(
+            info_frame,
+            text="コメント行（# で始まる行）は保存時に保持されません。",
             foreground="#555555",
         ).pack(anchor=tk.W)
 
@@ -1970,6 +1980,9 @@ class SnapshotManagerDialog(tk.Toplevel):
         ttk.Button(
             bottom, text="フォルダを開く", command=self._open_folder, width=13
         ).pack(side=tk.RIGHT, padx=(4, 0))
+        ttk.Button(
+            bottom, text="保存先変更...", command=self._change_snapshot_dir, width=13
+        ).pack(side=tk.RIGHT, padx=(4, 0))
         ttk.Button(bottom, text="削除", command=self._delete_snapshot, width=10).pack(
             side=tk.RIGHT, padx=(4, 0)
         )
@@ -2195,6 +2208,20 @@ class SnapshotManagerDialog(tk.Toplevel):
         except OSError as e:
             messagebox.showerror("エラー", str(e), parent=self)
 
+    def _change_snapshot_dir(self) -> None:
+        """#17: スナップショットの保存先ディレクトリを変更します。"""
+        current_dir = self._parent._snapshot_dir()
+        new_dir = filedialog.askdirectory(
+            title="スナップショット保存先フォルダを選択",
+            initialdir=current_dir if os.path.isdir(current_dir) else None,
+            parent=self,
+        )
+        if not new_dir:
+            return
+        self._parent._settings["snapshot_dir"] = new_dir
+        self._parent._save_settings()
+        self._reload()
+
 
 class WSLManager(tk.Tk):
     """WSL2 ディストリビューション管理メインウィンドウ。"""
@@ -2230,6 +2257,8 @@ class WSLManager(tk.Tk):
         self._log_file = os.path.join(self._log_dir, "operations.jsonl")
         # ログ書き込みは Tk のイベントループを塞がないよう専用スレッドに委譲する
         self._log_writer = wsl_core.AsyncLogWriter(self._log_dir)
+        # #35: ログ書き込みキューの溢れ/書き込み失敗を一度だけステータスバーに通知するためのフラグ
+        self._log_writer_warning_shown = False
         self._load_persisted_log()
         self._settings_path = wsl_core.get_default_settings_path()
         self._settings = wsl_core.load_settings(self._settings_path)
@@ -2715,6 +2744,7 @@ class WSLManager(tk.Tk):
         if self._refresh_pending:
             self._refresh_pending = False
             self._refresh()
+        self._check_log_writer_health()
 
     def _render_distros(self, selected: str | None = None) -> None:
         """フィルタを適用してツリービューを再描画します。
@@ -2777,6 +2807,24 @@ class WSLManager(tk.Tk):
 
     def _set_status(self, msg: str) -> None:
         self._status_var.set(msg)
+
+    def _check_log_writer_health(self) -> None:
+        """#35: ログ書き込みのキュー溢れ/失敗を検知し、初回のみステータスバーに警告表示します。
+
+        定期更新 (自動更新タイマー / 手動更新) のタイミングで呼び出す想定です。
+        メインスレッドから ``self._log_writer`` のプロパティを読むだけなので、
+        既存の GUI 更新パターン (メインスレッドから触る) を踏襲しています。
+        """
+        if self._log_writer_warning_shown:
+            return
+        dropped = self._log_writer.dropped_count
+        write_errors = self._log_writer.write_error_count
+        if dropped > 0 or write_errors > 0:
+            self._log_writer_warning_shown = True
+            self._set_status(
+                "警告: 操作ログの書き込みに問題が発生しています"
+                f"（キュー溢れによる破棄: {dropped} 件 / 書き込み失敗: {write_errors} 件）"
+            )
 
     def _call_soon_safe(self, fn: callable) -> None:
         """バックグラウンドスレッドから UI 更新を安全にスケジュールします。

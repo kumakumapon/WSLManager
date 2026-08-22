@@ -21,6 +21,14 @@ from datetime import datetime
 
 import wsl_core
 
+# ── 終了コード (#28) ────────────────────────────────────────────────────────
+# 0=成功, 2=argparse標準のコマンドライン引数エラー (変更なし)。
+EXIT_OK = 0
+EXIT_ERROR = 1
+EXIT_DENIED = 3
+EXIT_WSL_FAILURE = 4
+EXIT_PARTIAL = 5
+
 # ── Windows 専用フラグ ──────────────────────────────────────────────────────
 CREATE_NO_WINDOW = 0x08000000 if sys.platform == "win32" else 0
 
@@ -134,7 +142,7 @@ def cmd_list(args: argparse.Namespace) -> None:
     if returncode != 0:
         msg = stderr.strip() or "ディストリビューション一覧の取得に失敗しました。"
         print(f"エラー: {msg}", file=sys.stderr)
-        sys.exit(1)
+        sys.exit(EXIT_WSL_FAILURE)
 
     distros = wsl_core.parse_distro_list(stdout)
 
@@ -171,7 +179,7 @@ def cmd_start(args: argparse.Namespace) -> None:
         msg = stderr.strip() or "不明なエラー"
         _log_cli_operation("起動", name, msg)
         print(f"エラー: 「{name}」の起動に失敗しました: {msg}", file=sys.stderr)
-        sys.exit(1)
+        sys.exit(EXIT_WSL_FAILURE)
 
 
 # ---------------------------------------------------------------------------
@@ -189,7 +197,7 @@ def cmd_stop(args: argparse.Namespace) -> None:
         msg = stderr.strip() or "不明なエラー"
         _log_cli_operation("停止", name, msg)
         print(f"エラー: 「{name}」の停止に失敗しました: {msg}", file=sys.stderr)
-        sys.exit(1)
+        sys.exit(EXIT_WSL_FAILURE)
 
 
 # ---------------------------------------------------------------------------
@@ -206,7 +214,7 @@ def cmd_shutdown(args: argparse.Namespace) -> None:
         msg = stderr.strip() or "不明なエラー"
         _log_cli_operation("全停止", "全ディストリビューション", msg)
         print(f"エラー: WSL の全停止に失敗しました: {msg}", file=sys.stderr)
-        sys.exit(1)
+        sys.exit(EXIT_WSL_FAILURE)
 
 
 # ---------------------------------------------------------------------------
@@ -220,17 +228,23 @@ _RESOURCE_USAGE_CMD = (
 
 
 def cmd_status(args: argparse.Namespace) -> None:
-    """実行中ディストリビューションのリソース使用状況を表示します。"""
+    """実行中ディストリビューションのリソース使用状況を表示します。
+
+    #28: 個別ディストロのリソース取得失敗があっても、全ディストロの結果を
+    最後まで集計・表示してから、失敗が1件でもあった場合に EXIT_PARTIAL で
+    終了します (ループ内で即 exit しません)。
+    """
     returncode, stdout, stderr = _run_wsl_command(["--list", "--verbose"], timeout=15.0)
     if returncode != 0:
         msg = stderr.strip() or "ディストリビューション一覧の取得に失敗しました。"
         print(f"エラー: {msg}", file=sys.stderr)
-        sys.exit(1)
+        sys.exit(EXIT_WSL_FAILURE)
 
     distros = wsl_core.parse_distro_list(stdout)
     running = [d for d in distros if d["state"] == "Running"]
 
     results: list[dict] = []
+    had_failure = False
     for d in running:
         rc, out, _err = _run_wsl_command(
             ["-d", d["name"], "--", "sh", "-lc", _RESOURCE_USAGE_CMD], timeout=10.0
@@ -239,15 +253,18 @@ def cmd_status(args: argparse.Namespace) -> None:
             cpu, memory = wsl_core.parse_resource_usage(out.strip())
         else:
             cpu, memory = "-", "-"
+            had_failure = True
         results.append({"name": d["name"], "cpu": cpu, "memory": memory})
 
     if args.format == "json":
         print(json.dumps(results, ensure_ascii=False, indent=2))
-        return
+    else:
+        headers = ["Name", "CPU(%)", "Memory(MB)"]
+        rows = [[r["name"], r["cpu"], r["memory"]] for r in results]
+        print(_format_table(headers, rows))
 
-    headers = ["Name", "CPU(%)", "Memory(MB)"]
-    rows = [[r["name"], r["cpu"], r["memory"]] for r in results]
-    print(_format_table(headers, rows))
+    if had_failure:
+        sys.exit(EXIT_PARTIAL)
 
 
 # ---------------------------------------------------------------------------
@@ -275,7 +292,7 @@ def cmd_export(args: argparse.Namespace) -> None:
         msg = stderr.strip() or "不明なエラー"
         _log_cli_operation("エクスポート", name, msg)
         print(f"エラー: 「{name}」のエクスポートに失敗しました: {msg}", file=sys.stderr)
-        sys.exit(1)
+        sys.exit(EXIT_WSL_FAILURE)
 
 
 # ---------------------------------------------------------------------------
@@ -291,7 +308,7 @@ def cmd_import(args: argparse.Namespace) -> None:
     valid, reason = wsl_core.validate_distro_name(name)
     if not valid:
         print(f"エラー: {reason}", file=sys.stderr)
-        sys.exit(1)
+        sys.exit(EXIT_ERROR)
 
     if os.path.exists(os.path.join(install_path, "ext4.vhdx")):
         _confirm_or_exit(
@@ -311,7 +328,7 @@ def cmd_import(args: argparse.Namespace) -> None:
         msg = stderr.strip() or "不明なエラー"
         _log_cli_operation("インポート", name, msg)
         print(f"エラー: 「{name}」のインポートに失敗しました: {msg}", file=sys.stderr)
-        sys.exit(1)
+        sys.exit(EXIT_WSL_FAILURE)
 
 
 # ---------------------------------------------------------------------------
@@ -323,20 +340,20 @@ def cmd_config(args: argparse.Namespace) -> None:
     path = os.path.expanduser("~/.wslconfig")
     if not os.path.exists(path):
         print(f"エラー: {path} が見つかりません。", file=sys.stderr)
-        sys.exit(1)
+        sys.exit(EXIT_ERROR)
 
     try:
         with open(path, encoding="utf-8") as f:
             text = f.read()
     except OSError as e:
         print(f"エラー: .wslconfig の読み込みに失敗しました: {e}", file=sys.stderr)
-        sys.exit(1)
+        sys.exit(EXIT_ERROR)
 
     try:
         sections = wsl_core.parse_wslconfig(text)
     except wsl_core.WslConfigParseError as e:
         print(f"エラー: .wslconfig のパースに失敗しました: {e}", file=sys.stderr)
-        sys.exit(1)
+        sys.exit(EXIT_ERROR)
 
     if args.format == "json":
         print(json.dumps(sections, ensure_ascii=False, indent=2))
@@ -381,7 +398,7 @@ def _confirm_or_exit(prompt: str, assume_yes: bool) -> None:
         return
     if not sys.stdin.isatty():
         print("エラー: 非対話環境で実行するには --yes を指定してください。", file=sys.stderr)
-        sys.exit(1)
+        sys.exit(EXIT_DENIED)
     try:
         answer = input(f"{prompt} [y/N]: ")
     except EOFError:
@@ -389,7 +406,7 @@ def _confirm_or_exit(prompt: str, assume_yes: bool) -> None:
         answer = ""
     if answer.strip().lower() not in ("y", "yes"):
         print("中止しました。")
-        sys.exit(1)
+        sys.exit(EXIT_DENIED)
 
 
 def _get_distro_vhdx_path(name: str) -> str | None:
@@ -452,7 +469,7 @@ def cmd_set_default(args: argparse.Namespace) -> None:
         msg = stderr.strip() or "不明なエラー"
         _log_cli_operation("デフォルト設定", name, msg)
         print(f"エラー: 「{name}」のデフォルト設定に失敗しました: {msg}", file=sys.stderr)
-        sys.exit(1)
+        sys.exit(EXIT_WSL_FAILURE)
 
 
 # ---------------------------------------------------------------------------
@@ -474,7 +491,7 @@ def cmd_unregister(args: argparse.Namespace) -> None:
         msg = stderr.strip() or "不明なエラー"
         _log_cli_operation("アンインストール", name, msg)
         print(f"エラー: 「{name}」のアンインストールに失敗しました: {msg}", file=sys.stderr)
-        sys.exit(1)
+        sys.exit(EXIT_WSL_FAILURE)
 
 
 # ---------------------------------------------------------------------------
@@ -495,7 +512,7 @@ def cmd_install(args: argparse.Namespace) -> None:
         msg = stderr.strip() or "不明なエラー"
         _log_cli_operation("インストール", name, msg)
         print(f"エラー: 「{name}」のインストールに失敗しました: {msg}", file=sys.stderr)
-        sys.exit(1)
+        sys.exit(EXIT_WSL_FAILURE)
 
 
 # ---------------------------------------------------------------------------
@@ -520,14 +537,14 @@ def cmd_optimize(args: argparse.Namespace) -> None:
             msg = stderr.strip() or "不明なエラー"
             _log_cli_operation("スパース化", name, msg)
             print(f"エラー: 「{name}」のスパース化に失敗しました: {msg}", file=sys.stderr)
-            sys.exit(1)
+            sys.exit(EXIT_WSL_FAILURE)
         return
 
     # --compact
     vhdx_path = _get_distro_vhdx_path(name)
     if vhdx_path is None:
         print(f"エラー: 「{name}」の仮想ディスク (ext4.vhdx) が見つかりません。", file=sys.stderr)
-        sys.exit(1)
+        sys.exit(EXIT_ERROR)
 
     _confirm_or_exit(
         f"「{name}」の仮想ディスクを圧縮します。この操作は取り消せません。続行しますか?",
@@ -554,11 +571,11 @@ def cmd_optimize(args: argparse.Namespace) -> None:
     except subprocess.TimeoutExpired:
         _log_cli_operation("圧縮", name, "タイムアウト")
         print(f"エラー: 「{name}」の仮想ディスクの圧縮がタイムアウトしました。", file=sys.stderr)
-        sys.exit(1)
+        sys.exit(EXIT_WSL_FAILURE)
     except OSError as e:
         _log_cli_operation("圧縮", name, str(e))
         print(f"エラー: 「{name}」の仮想ディスクの圧縮に失敗しました: {e}", file=sys.stderr)
-        sys.exit(1)
+        sys.exit(EXIT_WSL_FAILURE)
     finally:
         if script_path is not None:
             try:
@@ -572,7 +589,7 @@ def cmd_optimize(args: argparse.Namespace) -> None:
     else:
         _log_cli_operation("圧縮", name, f"終了コード {result.returncode}")
         print(f"エラー: 「{name}」の仮想ディスクの圧縮に失敗しました。", file=sys.stderr)
-        sys.exit(1)
+        sys.exit(EXIT_WSL_FAILURE)
 
 
 # ---------------------------------------------------------------------------
@@ -598,7 +615,7 @@ def cmd_set_version(args: argparse.Namespace) -> None:
         msg = stderr.strip() or "不明なエラー"
         _log_cli_operation("バージョン変換", name, msg)
         print(f"エラー: 「{name}」の変換に失敗しました: {msg}", file=sys.stderr)
-        sys.exit(1)
+        sys.exit(EXIT_WSL_FAILURE)
 
 
 # ---------------------------------------------------------------------------
@@ -620,7 +637,7 @@ def cmd_processes(args: argparse.Namespace) -> None:
     if returncode != 0:
         msg = stderr.strip() or "プロセス一覧の取得に失敗しました。"
         print(f"エラー: {msg}", file=sys.stderr)
-        sys.exit(1)
+        sys.exit(EXIT_WSL_FAILURE)
 
     processes = wsl_core.parse_process_list(stdout)
 
@@ -653,7 +670,7 @@ def cmd_log(args: argparse.Namespace) -> None:
             text = f.read()
     except OSError as e:
         print(f"エラー: 操作ログの読み込みに失敗しました: {e}", file=sys.stderr)
-        sys.exit(1)
+        sys.exit(EXIT_ERROR)
 
     entries = wsl_core.deserialize_log_entries(text)
     entries = wsl_core.tail_entries(entries, args.tail)
@@ -676,7 +693,7 @@ def cmd_portproxy_list(args: argparse.Namespace) -> None:
     if returncode != 0:
         msg = stderr.strip() or "ポートフォワーディング一覧の取得に失敗しました。"
         print(f"エラー: {msg}", file=sys.stderr)
-        sys.exit(1)
+        sys.exit(EXIT_WSL_FAILURE)
 
     rules = wsl_core.parse_portproxy_output(stdout)
 
@@ -701,11 +718,11 @@ def cmd_portproxy_add(args: argparse.Namespace) -> None:
     valid, reason = wsl_core.validate_port_number(args.listen_port)
     if not valid:
         print(f"エラー: {reason}", file=sys.stderr)
-        sys.exit(1)
+        sys.exit(EXIT_ERROR)
     valid, reason = wsl_core.validate_port_number(args.connect_port)
     if not valid:
         print(f"エラー: {reason}", file=sys.stderr)
-        sys.exit(1)
+        sys.exit(EXIT_ERROR)
 
     listen_port = args.listen_port
     connect_port = args.connect_port
@@ -733,7 +750,7 @@ def cmd_portproxy_add(args: argparse.Namespace) -> None:
             "（管理者権限が必要な場合があります）",
             file=sys.stderr,
         )
-        sys.exit(1)
+        sys.exit(EXIT_WSL_FAILURE)
 
 
 def cmd_portproxy_delete(args: argparse.Namespace) -> None:
@@ -741,7 +758,7 @@ def cmd_portproxy_delete(args: argparse.Namespace) -> None:
     valid, reason = wsl_core.validate_port_number(args.listen_port)
     if not valid:
         print(f"エラー: {reason}", file=sys.stderr)
-        sys.exit(1)
+        sys.exit(EXIT_ERROR)
 
     listen_port = args.listen_port
     listen_address = args.listen_address
@@ -761,7 +778,7 @@ def cmd_portproxy_delete(args: argparse.Namespace) -> None:
             "（管理者権限が必要な場合があります）",
             file=sys.stderr,
         )
-        sys.exit(1)
+        sys.exit(EXIT_WSL_FAILURE)
 
 
 def _make_portproxy_help_func(parser: argparse.ArgumentParser):
@@ -801,13 +818,13 @@ def cmd_snapshot_create(args: argparse.Namespace) -> None:
     if returncode != 0:
         msg = stderr.strip() or "ディストリビューション一覧の取得に失敗しました。"
         print(f"エラー: {msg}", file=sys.stderr)
-        sys.exit(1)
+        sys.exit(EXIT_WSL_FAILURE)
 
     distros = wsl_core.parse_distro_list(stdout)
     matched = next((d for d in distros if d["name"] == name), None)
     if matched is None:
         print(f"エラー: 「{name}」というディストリビューションが見つかりません。", file=sys.stderr)
-        sys.exit(1)
+        sys.exit(EXIT_ERROR)
     wsl_version = str(matched.get("version") or "") or "2"
 
     snap_dir = _resolve_snapshot_dir(args)
@@ -815,7 +832,7 @@ def cmd_snapshot_create(args: argparse.Namespace) -> None:
         os.makedirs(snap_dir, exist_ok=True)
     except OSError as e:
         print(f"エラー: {e}", file=sys.stderr)
-        sys.exit(1)
+        sys.exit(EXIT_ERROR)
 
     timestamp = time.strftime(wsl_core.SNAPSHOT_TIMESTAMP_FORMAT)
     basename = wsl_core.build_snapshot_basename(name, timestamp)
@@ -833,7 +850,7 @@ def cmd_snapshot_create(args: argparse.Namespace) -> None:
         msg = stderr.strip() or "不明なエラー"
         _log_cli_operation("スナップショット作成", name, msg)
         print(f"エラー: 「{name}」のスナップショット作成に失敗しました: {msg}", file=sys.stderr)
-        sys.exit(1)
+        sys.exit(EXIT_WSL_FAILURE)
 
     try:
         size_bytes = os.path.getsize(tar_path)
@@ -844,11 +861,16 @@ def cmd_snapshot_create(args: argparse.Namespace) -> None:
     metadata = wsl_core.build_snapshot_metadata(
         name, wsl_version, args.comment or "", size_bytes, created_at, tar_name
     )
-    if not wsl_core.write_snapshot_metadata(json_path, metadata):
+    metadata_ok = wsl_core.write_snapshot_metadata(json_path, metadata)
+    if not metadata_ok:
         print("警告: メタデータの保存に失敗しました。", file=sys.stderr)
 
     _log_cli_operation("スナップショット作成", name, tar_path)
     print(f"「{name}」のスナップショットを作成しました: {tar_path}")
+
+    # #28: tar 本体は成功、メタデータ JSON の書き込みのみ失敗した場合は部分失敗として扱う。
+    if not metadata_ok:
+        sys.exit(EXIT_PARTIAL)
 
 
 def cmd_snapshot_list(args: argparse.Namespace) -> None:
@@ -894,16 +916,16 @@ def cmd_snapshot_restore(args: argparse.Namespace) -> None:
         print(
             f"エラー: 「{args.tar_file}」というスナップショットが見つかりません。", file=sys.stderr
         )
-        sys.exit(1)
+        sys.exit(EXIT_ERROR)
     if not snap.get("tar_exists", True):
         print(f"エラー: tar ファイルが見つかりません: {snap.get('tar_path', '')}", file=sys.stderr)
-        sys.exit(1)
+        sys.exit(EXIT_ERROR)
 
     returncode, stdout, stderr = _run_wsl_command(["--list", "--verbose"], timeout=15.0)
     if returncode != 0:
         msg = stderr.strip() or "ディストリビューション一覧の取得に失敗しました。"
         print(f"エラー: {msg}", file=sys.stderr)
-        sys.exit(1)
+        sys.exit(EXIT_WSL_FAILURE)
     distros = wsl_core.parse_distro_list(stdout)
     existing = [d["name"] for d in distros]
 
@@ -913,11 +935,11 @@ def cmd_snapshot_restore(args: argparse.Namespace) -> None:
         valid, reason = wsl_core.validate_distro_name(new_name)
         if not valid:
             print(f"エラー: {reason}", file=sys.stderr)
-            sys.exit(1)
+            sys.exit(EXIT_ERROR)
         existing_casefold = {n.casefold() for n in existing}
         if new_name.casefold() in existing_casefold:
             print("エラー: 同名のディストリビューションが既に存在します。", file=sys.stderr)
-            sys.exit(1)
+            sys.exit(EXIT_ERROR)
     else:
         new_name = wsl_core.default_clone_name(distro_name, existing)
 
@@ -949,7 +971,7 @@ def cmd_snapshot_restore(args: argparse.Namespace) -> None:
         msg = stderr.strip() or "不明なエラー"
         _log_cli_operation("スナップショット復元", new_name, msg)
         print(f"エラー: 「{new_name}」への復元に失敗しました: {msg}", file=sys.stderr)
-        sys.exit(1)
+        sys.exit(EXIT_WSL_FAILURE)
 
 
 def cmd_snapshot_delete(args: argparse.Namespace) -> None:
@@ -961,7 +983,7 @@ def cmd_snapshot_delete(args: argparse.Namespace) -> None:
         print(
             f"エラー: 「{args.tar_file}」というスナップショットが見つかりません。", file=sys.stderr
         )
-        sys.exit(1)
+        sys.exit(EXIT_ERROR)
 
     print("次のスナップショットを削除します。この操作は取り消せません。")
     print(f"  ディストリビューション: {snap.get('distro_name', '')}")
@@ -988,10 +1010,32 @@ def cmd_snapshot_delete(args: argparse.Namespace) -> None:
             "スナップショット削除", snap.get("tar_file", args.tar_file), "; ".join(errors)
         )
         print("エラー: 削除に失敗しました: " + "; ".join(errors), file=sys.stderr)
-        sys.exit(1)
+        sys.exit(EXIT_ERROR)
 
     _log_cli_operation("スナップショット削除", snap.get("tar_file", args.tar_file), "成功")
     print("削除しました。")
+
+
+def cmd_snapshot_set_dir(args: argparse.Namespace) -> None:
+    """#17: スナップショットの保存先ディレクトリを変更し、設定ファイルに永続化します。
+
+    指定パスの存在確認のみ行います (書き込み権限チェックは行いません)。
+    非破壊的操作のため確認プロンプトは表示しません。
+    """
+    path = args.path
+    if not os.path.isdir(path):
+        print(f"エラー: 「{path}」はディレクトリとして存在しません。", file=sys.stderr)
+        sys.exit(EXIT_ERROR)
+
+    settings_path = wsl_core.get_default_settings_path()
+    settings = wsl_core.load_settings(settings_path)
+    settings["snapshot_dir"] = path
+    if not wsl_core.save_settings(settings_path, settings):
+        print("エラー: 設定の保存に失敗しました。", file=sys.stderr)
+        sys.exit(EXIT_ERROR)
+
+    _log_cli_operation("スナップショット保存先変更", path, "成功")
+    print(f"スナップショットの保存先を変更しました: {path}")
 
 
 def _make_snapshot_help_func(parser: argparse.ArgumentParser):
@@ -1016,20 +1060,20 @@ def cmd_clone(args: argparse.Namespace) -> None:
     if returncode != 0:
         msg = stderr.strip() or "ディストリビューション一覧の取得に失敗しました。"
         print(f"エラー: {msg}", file=sys.stderr)
-        sys.exit(1)
+        sys.exit(EXIT_WSL_FAILURE)
 
     distros = wsl_core.parse_distro_list(stdout)
     matched = next((d for d in distros if d["name"] == name), None)
     if matched is None:
         print(f"エラー: 「{name}」というディストリビューションが見つかりません。", file=sys.stderr)
-        sys.exit(1)
+        sys.exit(EXIT_ERROR)
     version = str(matched.get("version") or "") or "2"
 
     existing = [d["name"] for d in distros]
     valid, reason = wsl_core.validate_clone_name(new_name, existing)
     if not valid:
         print(f"エラー: {reason}", file=sys.stderr)
-        sys.exit(1)
+        sys.exit(EXIT_ERROR)
 
     print("次の内容で複製します。")
     print(f"  複製元: {name}")
@@ -1052,7 +1096,7 @@ def cmd_clone(args: argparse.Namespace) -> None:
             msg = stderr.strip() or "不明なエラー"
             _log_cli_operation("複製", f"{name} → {new_name}", msg)
             print(f"エラー: 「{name}」のエクスポートに失敗しました: {msg}", file=sys.stderr)
-            sys.exit(1)
+            sys.exit(EXIT_WSL_FAILURE)
 
         print(f"「{name}」を複製中… (2/2 インポート)")
         returncode, _stdout, stderr = _run_wsl_command(
@@ -1062,7 +1106,7 @@ def cmd_clone(args: argparse.Namespace) -> None:
             msg = stderr.strip() or "不明なエラー"
             _log_cli_operation("複製", f"{name} → {new_name}", msg)
             print(f"エラー: 「{new_name}」のインポートに失敗しました: {msg}", file=sys.stderr)
-            sys.exit(1)
+            sys.exit(EXIT_WSL_FAILURE)
 
         _log_cli_operation("複製", f"{name} → {new_name}", "成功")
         print(f"「{name}」を「{new_name}」として複製しました。")
@@ -1322,6 +1366,12 @@ def build_parser() -> argparse.ArgumentParser:
         "--yes", "-y", action="store_true", help="確認プロンプトを表示せずに実行します"
     )
     p_snapshot_delete.set_defaults(func=cmd_snapshot_delete)
+
+    p_snapshot_set_dir = snapshot_subparsers.add_parser(
+        "set-dir", help="スナップショットの保存先ディレクトリを変更します"
+    )
+    p_snapshot_set_dir.add_argument("path", help="新しい保存先ディレクトリのパス")
+    p_snapshot_set_dir.set_defaults(func=cmd_snapshot_set_dir)
 
     # clone
     p_clone = subparsers.add_parser(
