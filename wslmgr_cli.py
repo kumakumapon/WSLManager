@@ -34,6 +34,14 @@ class ExitCode:
     PARTIAL_FAILURE = 5
 
 
+# モジュールレベルの定数エイリアス
+EXIT_OK = ExitCode.SUCCESS
+EXIT_ERROR = ExitCode.GENERAL_ERROR
+EXIT_DENIED = ExitCode.USER_CANCELLED
+EXIT_WSL_FAILURE = ExitCode.WSL_ERROR
+EXIT_PARTIAL = ExitCode.PARTIAL_FAILURE
+
+
 # ── Windows 専用フラグ ──────────────────────────────────────────────────────
 CREATE_NO_WINDOW = 0x08000000 if sys.platform == "win32" else 0
 

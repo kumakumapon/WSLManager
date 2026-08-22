@@ -81,16 +81,20 @@ python wslmgr_cli.py log clear --yes
 
 CLI subcommands include `list`, `start`, `stop`, `shutdown`, `status`, `export`, `import`, `config`, `set-default`, `unregister`, `install`, `optimize`, `set-version`, `processes`, `log` (`clear`), `portproxy` (`list`/`add`/`delete`), `snapshot` (`create`/`list`/`restore`/`delete`/`set-dir`), `clone`, `mount`, and `unmount`.
 
-#### CLI Exit Codes
+### Exit Codes
 
-| Exit Code | Name | Description |
-|-----------|------|-------------|
-| `0` | Success | Command completed successfully |
-| `1` | General Error | Validation errors, missing files, duplicate names, OS errors |
-| `2` | Argument Error | Invalid command-line arguments (argparse syntax error) |
-| `3` | User Cancelled | Operation cancelled by user or aborted in non-interactive mode without `--yes` |
-| `4` | WSL Error | WSL command execution failure, timeout, or executable not found |
-| `5` | Partial Failure | Main action succeeded but some secondary operations or resource queries failed |
+`wslmgr_cli.py` uses the following exit codes:
+
+| Code | Meaning |
+|------|---------|
+| `0` | Success |
+| `1` | General error (input validation failure, e.g. an invalid distro name, port number, missing file, or `.wslconfig` parse error) |
+| `2` | Command-line argument error (standard `argparse` behavior, unchanged) |
+| `3` | Confirmation denied (the user declined a destructive-operation prompt, or `--yes` was required but not supplied in a non-interactive environment) |
+| `4` | Underlying command failure (`wsl.exe`, `diskpart`, or `netsh` returned a non-zero exit code, timed out, or could not be found) |
+| `5` | Partial failure (the command completed but part of the result failed, e.g. `status` could not read every distro's resource usage, or `snapshot create` exported the tar but failed to write its JSON metadata) |
+
+**Breaking change:** prior to this scheme, every failure exited with code `1`. Scripts that only check for "exit code != 0 means failure" are unaffected, but scripts that specifically check `exit code == 1` to distinguish failure types should be updated to check the new codes above.
 
 ### Build An Executable
 

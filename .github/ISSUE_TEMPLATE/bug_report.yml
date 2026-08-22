@@ -1,70 +1,101 @@
-name: バグ報告 (Bug Report)
-description: 動作の不具合やエラーに関する報告
-labels: ["bug"]
+name: Bug Report
+description: WSL Manager (GUI/CLI) の不具合を報告します。
+title: "[Bug]: "
+labels:
+  - bug
+  - needs-triage
 body:
   - type: markdown
     attributes:
       value: |
-        バグの報告ありがとうございます。再現性の確認のため、以下の情報をご記入ください。
-  - type: textarea
-    id: description
-    attributes:
-      label: 問題の概要
-      description: どのような問題が発生したかを具体的に記述してください。
-    validations:
-      required: true
+        Secret、アクセストークン、個人情報、実運用データは記載しないでください。
+        `wslmgr_cli.py log` の出力を貼る場合も、ディストロ名やパスに機微な情報が
+        含まれていないか確認してください。
+
   - type: input
-    id: windows_version
+    id: windows-version
     attributes:
-      label: Windows バージョン / ビルド
-      placeholder: 例: Windows 11 Pro 23H2 (Build 22631.xxxx)
+      label: Windows バージョン
+      description: 設定 > システム > バージョン情報 の「OS ビルド」など。
+      placeholder: "例: Windows 11 23H2 (OS ビルド 22631.4890)"
     validations:
       required: true
+
   - type: input
-    id: wsl_version
+    id: wsl-version
     attributes:
-      label: WSL バージョン (`wsl --version`)
-      placeholder: 例: 2.3.24.0 (WSL2)
+      label: WSL バージョン
+      description: "`wsl --version` の出力、または GUI の「WSL バージョン情報」ダイアログの内容。"
+      placeholder: "例: WSL 2.4.4.0 / カーネル 5.15.167.4-1"
     validations:
       required: true
+
   - type: input
-    id: python_version
+    id: python-version
     attributes:
-      label: Python バージョン (または配布 exe 版)
-      placeholder: 例: Python 3.10.11 / WSLManager.exe v1.0.0
+      label: Python バージョン
+      description: "ソースから実行している場合のみ。`python --version` の出力。ビルド済み exe を使用している場合は空欄で構いません。"
+      placeholder: "例: Python 3.12.4"
     validations:
-      required: true
+      required: false
+
   - type: dropdown
     id: interface
     attributes:
-      label: 発生したインターフェース
+      label: GUI or CLI
+      description: 問題が発生したインターフェースを選択してください。
       options:
         - GUI (wslmgr.py / WSLManager.exe)
-        - CLI (wslmgr_cli.py / wslmgr)
+        - CLI (wslmgr_cli.py)
         - 両方
     validations:
       required: true
+
   - type: textarea
-    id: steps
+    id: reproduction-steps
     attributes:
       label: 再現手順
-      description: 問題が発生する手順を箇条書きで記入してください。
+      description: 最小の再現手順を記載してください。CLI の場合は実行したコマンドをそのまま記載してください。
       placeholder: |
         1. ...
         2. ...
         3. ...
     validations:
       required: true
+
   - type: textarea
-    id: expected
+    id: expected-result
     attributes:
-      label: 期待される動作
-      description: 本来どのように動作すべきかを記述してください。
+      label: 期待する挙動
+      description: 本来どう動作するべきかを記載してください。
     validations:
       required: true
+
   - type: textarea
-    id: logs
+    id: actual-result
     attributes:
-      label: ログ抜粋 / エラー出力
-      description: CLI 出力や `wslmgr_cli.py log --tail 20` の出力を貼り付けてください。
-      render: shell
+      label: 実際の挙動
+      description: エラーメッセージ、スタックトレース、スクリーンショットなどを記載してください。
+    validations:
+      required: true
+
+  - type: textarea
+    id: log-excerpt
+    attributes:
+      label: 操作ログ抜粋 (wslmgr_cli.py log)
+      description: |
+        関連する操作の前後を `python wslmgr_cli.py log --tail 20` などで取得し、貼り付けてください。
+        ディストロ名やパスなど機微な情報は必要に応じてマスクしてください。
+      render: text
+      placeholder: "例: python wslmgr_cli.py log --tail 20 の出力"
+    validations:
+      required: false
+
+  - type: textarea
+    id: related-information
+    attributes:
+      label: 関連情報
+      description: 関連 Issue/PR、影響範囲、回避策などがあれば記載してください。
+      placeholder: "関連: #123"
+    validations:
+      required: false

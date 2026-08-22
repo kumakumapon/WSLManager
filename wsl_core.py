@@ -390,7 +390,7 @@ def parse_wslconfig(text: str) -> dict[str, dict[str, str]]:
     return result
 
 
-def parse_wsl_version(output: str) -> dict[str, Any]:
+def parse_wsl_version(output: str) -> dict[str, str | list[str]]:
     """``wsl --version`` のデコード済みテキスト出力を解析してバージョン情報の dict を返します。
 
     各行を ``:`` (最初の出現のみ) で分割し、左辺のキーワードを正規化キーに対応付けます。
@@ -404,19 +404,21 @@ def parse_wsl_version(output: str) -> dict[str, Any]:
     - 「DXCore」を含む行                   → ``"dxcore"``
     - 「Windows」を含む行                  → ``"windows"``
 
-    認識できなかった非空行は ``result["_unparsed_lines"]`` にリストとして保持します。
+    いずれのパターンにも一致しない行 (既知パターン非一致、または ``:`` を含まない非空行) は
+    ``result["_unparsed_lines"]`` (list[str]) に集約されます。未解析行が1件もない場合は
+    ``_unparsed_lines`` キー自体が結果 dict に含まれません。
     ``output`` が空文字または None の場合は空 dict を返します。
     """
     if not output:
         return {}
-    result: dict[str, Any] = {}
-    unparsed: list[str] = []
+    result: dict[str, str | list[str]] = {}
+    unparsed_lines: list[str] = []
     for raw_line in output.splitlines():
         line = raw_line.strip()
         if not line:
             continue
         if ":" not in line:
-            unparsed.append(line)
+            unparsed_lines.append(line)
             continue
         left, _, right = line.partition(":")
         left_strip = left.strip()
@@ -445,10 +447,10 @@ def parse_wsl_version(output: str) -> dict[str, Any]:
             matched = True
 
         if not matched:
-            unparsed.append(line)
+            unparsed_lines.append(line)
 
-    if unparsed:
-        result["_unparsed_lines"] = unparsed
+    if unparsed_lines:
+        result["_unparsed_lines"] = unparsed_lines
     return result
 
 
@@ -1232,6 +1234,12 @@ class AsyncLogWriter:
     ``queue.Queue`` に積むだけで呼び出し元をブロックしないため、
     ``%APPDATA%`` がネットワークドライブ上にある環境などで書き込みが
     遅くても GUI がカクつきません。
+
+    I/O エラーは元の同期実装と同様に握りつぶします (ログの永続化に失敗しても
+    アプリの操作自体は継続させるため)。ただしキューには上限 (``maxsize``) を
+    設け、溢れた場合は :attr:`dropped_count` を、書き込み失敗時は
+    :attr:`write_error_count` をそれぞれインクリメントして呼び出し元が
+    後から検知できるようにします。
     """
 
     _SENTINEL = object()
@@ -1242,19 +1250,18 @@ class AsyncLogWriter:
         base_name: str = "operations.jsonl",
         max_size: int = 1_048_576,
         max_backups: int = 10,
-        max_queue_size: int = 1000,
+        maxsize: int = 1000,
     ) -> None:
         self._log_dir = log_dir
         self._base_name = base_name
         self._max_size = max_size
         self._max_backups = max_backups
-        self._max_queue_size = max_queue_size
-        self._queue: queue.Queue = queue.Queue(maxsize=max_queue_size)
+        self._queue: queue.Queue = queue.Queue(maxsize=maxsize)
         self._thread: threading.Thread | None = None
         self._lock = threading.Lock()
         self._stopped = False
-        self._write_error_count = 0
         self._dropped_count = 0
+        self._write_error_count = 0
 
     @property
     def log_path(self) -> str:
@@ -1262,14 +1269,16 @@ class AsyncLogWriter:
         return os.path.join(self._log_dir, self._base_name)
 
     @property
-    def write_error_count(self) -> int:
-        """書き込み (I/O) 失敗回数。"""
-        return self._write_error_count
+    def dropped_count(self) -> int:
+        """キュー溢れにより破棄されたログエントリ数。"""
+        with self._lock:
+            return self._dropped_count
 
     @property
-    def dropped_count(self) -> int:
-        """キュー満杯により破棄されたログ件数。"""
-        return self._dropped_count
+    def write_error_count(self) -> int:
+        """書き込み時に ``OSError`` が発生した回数。"""
+        with self._lock:
+            return self._write_error_count
 
     def submit(
         self,
@@ -1281,9 +1290,8 @@ class AsyncLogWriter:
     ) -> None:
         """操作ログ1件を書き込みキューに積みます。ブロックしません。
 
-        :meth:`stop` 済みの場合は何もしません。
-        キューが満杯の場合は最古のエントリではなく本件を破棄し、
-        ``dropped_count`` をインクリメントします。
+        :meth:`stop` 済みの場合は何もしません。キューが満杯の場合は
+        :attr:`dropped_count` をインクリメントして破棄します (ブロックしません)。
         """
         if self._stopped:
             return
@@ -1293,7 +1301,8 @@ class AsyncLogWriter:
         try:
             self._queue.put_nowait(line)
         except queue.Full:
-            self._dropped_count += 1
+            with self._lock:
+                self._dropped_count += 1
 
     def flush(self, timeout: float = 2.0) -> bool:
         """キューに積まれた全エントリが書き込まれるまで待ちます。
@@ -1373,7 +1382,8 @@ class AsyncLogWriter:
                 self._log_dir, self._base_name, self._max_size, self._max_backups
             )
         except OSError:
-            self._write_error_count += 1
+            with self._lock:
+                self._write_error_count += 1
 
 
 def append_log_entry(
