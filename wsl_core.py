@@ -694,9 +694,13 @@ def validate_distro_name(name: str) -> tuple[bool, str]:
 
     ディストロ名はレジストリキー名・``\\\\wsl.localhost\\<name>`` パス・
     エクスポートファイル名として使われるため、Windows のファイル名規則に
-    反する名前を無効とします。以下のルールを検証します:
+    反する名前を無効とします。また、GUI のターミナル起動機能
+    (:meth:`wslmgr.WSLManager._open_terminal`) がこの名前を含むコマンドラインで
+    ``cmd.exe``/``wt.exe`` を起動するため、それらのコマンドラインインタプリタが
+    特別扱いする文字も無効とします。以下のルールを検証します:
     - 空文字または空白のみは無効
-    - 使用禁止文字 (/ \\ : * ? " < > |) は無効
+    - 使用禁止文字 (/ \\ : * ? " < > | と、cmd.exe/wt.exe の
+      コマンドライン区切り文字である & ; % ^ ( )) は無効
     - 64 文字を超える場合は無効
     - Windows の予約デバイス名 (CON, PRN, AUX, NUL, COM1〜9, LPT1〜9) および
       それらに拡張子を付けた名前 (例: "nul.txt") は無効 (大文字小文字を区別しない)
@@ -709,7 +713,7 @@ def validate_distro_name(name: str) -> tuple[bool, str]:
     """
     if not name or not name.strip():
         return False, "ディストリビューション名を入力してください"
-    invalid_chars = set(r'/\:*?"<>|')
+    invalid_chars = set(r'/\:*?"<>|&;%^()')
     found = [c for c in name if c in invalid_chars]
     if found:
         return False, f"使用できない文字が含まれています: {''.join(sorted(set(found)))}"
