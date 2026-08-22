@@ -627,6 +627,11 @@ class WslConfigDialog(tk.Toplevel):
             text="変更の反映には WSL の全停止 (wsl --shutdown) が必要です。",
             foreground="#555555",
         ).pack(anchor=tk.W)
+        ttk.Label(
+            info_frame,
+            text="コメント行（# で始まる行）は保存時に保持されません。",
+            foreground="#555555",
+        ).pack(anchor=tk.W)
 
         # パス表示
         ttk.Label(frame, text=f"編集ファイル: {self._path}", foreground="#777777").pack(
@@ -785,6 +790,11 @@ class DistroConfDialog(tk.Toplevel):
         ttk.Label(
             info_frame,
             text="停止中のディストロは読み書きのために一時的に起動されます。",
+            foreground="#555555",
+        ).pack(anchor=tk.W)
+        ttk.Label(
+            info_frame,
+            text="コメント行（# で始まる行）は保存時に保持されません。",
             foreground="#555555",
         ).pack(anchor=tk.W)
 
