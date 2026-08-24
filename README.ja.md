@@ -42,6 +42,10 @@ WSL Manager は、WSL ディストリビューションを管理するための 
 python wslmgr.py
 ```
 
+Windows では `start_wslmanager.bat` をダブルクリックして起動することもできます。
+`dist\WSLManager.exe` があればそれを優先し、無い場合はローカルの `.venv` または
+Python Launcher を使用します。
+
 メイン画面にはインストール済みディストリビューションが表示されます。行を選択し、ツールバー、メニューバー、ダブルクリック、右クリックメニューから操作します。
 
 主な GUI 操作:
