@@ -409,4 +409,3 @@ def tail_entries(entries: list, n: int) -> list:
     if n >= len(entries):
         return list(entries)
     return entries[-n:]
-

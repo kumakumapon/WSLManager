@@ -226,7 +226,3 @@ __all__ = [
     "validate_wslconf_bool",
     "write_snapshot_metadata",
 ]
-
-
-
-

@@ -127,4 +127,3 @@ def detect_network_mode(config: dict[str, dict[str, str]]) -> str:
     if normalized in ("", "nat"):
         return "nat"
     return normalized
-
