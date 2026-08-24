@@ -2447,6 +2447,8 @@ class WSLManager(tk.Tk):
         self._process_windows: dict[str, ProcessWindow] = {}
         self._transfer_dialogs: list[TransferProgressDialog] = []
         self._all_distros: list[dict] = []
+        self._resource_history = wsl_core.ResourceHistory()
+        self._resource_history_visible = False
         self._operation_log: list[str] = []
         self._log_dir = wsl_core.get_default_log_dir()
         self._log_file = os.path.join(self._log_dir, "operations.jsonl")
@@ -2493,6 +2495,7 @@ class WSLManager(tk.Tk):
         self._build_menubar()
         self._build_toolbar(main_frame)
         self._build_treeview(main_frame)
+        self._build_resource_history_panel(main_frame)
         self._build_statusbar(main_frame)
 
     def _build_menubar(self) -> None:
@@ -2707,6 +2710,12 @@ class WSLManager(tk.Tk):
             width=2,
             command=lambda: self._filter_var.set(""),
         ).pack(side=tk.LEFT, padx=2)
+        self._history_toggle = ttk.Button(
+            secondary_row,
+            text="📈 履歴を表示",
+            command=self._toggle_resource_history,
+        )
+        self._history_toggle.pack(side=tk.RIGHT, padx=2)
 
     def _build_treeview(self, parent: ttk.Frame) -> None:
         tree_frame = ttk.Frame(parent)
@@ -2768,14 +2777,116 @@ class WSLManager(tk.Tk):
 
     def _build_statusbar(self, parent: ttk.Frame) -> None:
         self._status_var = tk.StringVar(value="準備完了")
-        status_bar = ttk.Label(
+        self._statusbar = ttk.Label(
             parent,
             textvariable=self._status_var,
             relief=tk.SUNKEN,
             anchor=tk.W,
             padding=(4, 2),
         )
-        status_bar.pack(fill=tk.X, pady=(8, 0))
+        self._statusbar.pack(fill=tk.X, pady=(8, 0))
+
+    def _build_resource_history_panel(self, parent: ttk.Frame) -> None:
+        """CPU とメモリの最近30分の推移を表示する、折りたたみ可能なパネル。"""
+        self._history_frame = ttk.Labelframe(parent, text="リソース履歴（直近30分）")
+        self._cpu_history_canvas = tk.Canvas(
+            self._history_frame, height=130, highlightthickness=0, background="white"
+        )
+        self._memory_history_canvas = tk.Canvas(
+            self._history_frame, height=130, highlightthickness=0, background="white"
+        )
+        ttk.Label(self._history_frame, text="CPU 使用率").pack(anchor=tk.W, padx=6, pady=(4, 0))
+        self._cpu_history_canvas.pack(fill=tk.X, padx=6)
+        ttk.Label(self._history_frame, text="メモリ使用量").pack(anchor=tk.W, padx=6, pady=(2, 0))
+        self._memory_history_canvas.pack(fill=tk.X, padx=6, pady=(0, 4))
+        self._cpu_history_canvas.bind(
+            "<Configure>", lambda _event: self._draw_resource_history()
+        )
+        self._memory_history_canvas.bind(
+            "<Configure>", lambda _event: self._draw_resource_history()
+        )
+
+    def _toggle_resource_history(self) -> None:
+        self._resource_history_visible = not self._resource_history_visible
+        if self._resource_history_visible:
+            self._history_frame.pack(fill=tk.X, pady=(6, 0), before=self._statusbar)
+            self._history_toggle.configure(text="📈 履歴を隠す")
+            self._draw_resource_history()
+        else:
+            self._history_frame.pack_forget()
+            self._history_toggle.configure(text="📈 履歴を表示")
+
+    def _draw_resource_history(self) -> None:
+        if not self._resource_history_visible:
+            return
+        self._draw_history_canvas(self._cpu_history_canvas, "cpu")
+        self._draw_history_canvas(self._memory_history_canvas, "memory")
+
+    def _draw_history_canvas(self, canvas: tk.Canvas, metric: str) -> None:
+        """Canvas に1メトリックの系列・軸・凡例を安全に描画します。"""
+        canvas.delete("all")
+        width, height = canvas.winfo_width(), canvas.winfo_height()
+        if width <= 2 or height <= 2:
+            return
+        layout = wsl_core.prepare_chart_layout(
+            self._resource_history, metric, width, height
+        )
+        for tick in layout.y_ticks:
+            canvas.create_line(
+                layout.plot_x0, tick.pos, layout.plot_x1, tick.pos, fill="#e6e6e6"
+            )
+            canvas.create_text(
+                layout.plot_x0 - 4, tick.pos, text=tick.label, anchor=tk.E, fill="#555"
+            )
+        for tick in layout.x_ticks:
+            canvas.create_line(
+                tick.pos, layout.plot_y0, tick.pos, layout.plot_y1, fill="#f0f0f0"
+            )
+            canvas.create_text(
+                tick.pos,
+                layout.plot_y1 + 12,
+                text=tick.label,
+                anchor=tk.N,
+                fill="#555",
+            )
+        canvas.create_rectangle(
+            layout.plot_x0, layout.plot_y0, layout.plot_x1, layout.plot_y1, outline="#bdbdbd"
+        )
+        for series in layout.series:
+            for segment in series.segments:
+                if len(segment) > 1:
+                    coordinates = [
+                        coordinate for point in segment for coordinate in point
+                    ]
+                    canvas.create_line(*coordinates, fill=series.color, width=2)
+                elif segment:
+                    x, y = segment[0]
+                    canvas.create_oval(x - 2, y - 2, x + 2, y + 2, fill=series.color, outline="")
+        if layout.empty:
+            canvas.create_text(
+                (layout.plot_x0 + layout.plot_x1) / 2,
+                (layout.plot_y0 + layout.plot_y1) / 2,
+                text="有効な履歴データはありません",
+                fill="#666",
+            )
+        legend_x = layout.plot_x0 + 6
+        for series in layout.series:
+            canvas.create_line(
+                legend_x,
+                layout.plot_y0 + 8,
+                legend_x + 12,
+                layout.plot_y0 + 8,
+                fill=series.color,
+                width=2,
+            )
+            canvas.create_text(
+                legend_x + 16,
+                layout.plot_y0 + 8,
+                text=series.name,
+                anchor=tk.W,
+                fill="#333",
+            )
+            legend_x += 22 + len(series.name) * 7
 
     # ── ディストリビューション情報取得 ─────────────────────────────────────
 
@@ -2922,7 +3033,9 @@ class WSLManager(tk.Tk):
             return
 
         self._all_distros = distros
+        self._resource_history.record_refresh(distros)
         self._render_distros(selected)
+        self._draw_resource_history()
 
         count = len(distros)
         running = sum(1 for d in distros if d["state"] == "Running")
