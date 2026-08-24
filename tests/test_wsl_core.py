@@ -22,6 +22,61 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import wsl_core
 
+
+class TestResourceHistory(unittest.TestCase):
+    """TASK-003 の履歴保持とグラフ用データの回帰テスト。"""
+
+    def test_history_retains_only_recent_bounded_samples(self):
+        history = wsl_core.ResourceHistory(window_seconds=60, max_samples=2)
+        history.record_sample("Ubuntu", "10.5", "256 MB", timestamp=100)
+        history.record_sample("Ubuntu", "20", "512", timestamp=150)
+        history.record_sample("Ubuntu", "30", "768", timestamp=160)
+
+        samples = history.get_samples("Ubuntu")
+
+        self.assertEqual([sample.timestamp for sample in samples], [150.0, 160.0])
+        self.assertEqual(samples[-1].cpu, 30.0)
+        self.assertEqual(samples[-1].memory, 768.0)
+
+    def test_invalid_resource_values_create_safe_chart_gaps(self):
+        history = wsl_core.ResourceHistory()
+        history.record_sample("Ubuntu", "10", "100", timestamp=1000)
+        history.record_sample("Ubuntu", "-", "not a number", timestamp=1010)
+        history.record_sample("Ubuntu", float("nan"), None, timestamp=1020)
+
+        layout = wsl_core.prepare_chart_layout(
+            history, "cpu", width=500, height=150, now=1020, time_window=60
+        )
+
+        self.assertFalse(layout.empty)
+        self.assertEqual(len(layout.series), 1)
+        self.assertEqual(len(layout.series[0].points), 1)
+        self.assertEqual(len(layout.series[0].segments), 1)
+
+    def test_refresh_prunes_a_distro_that_has_disappeared(self):
+        history = wsl_core.ResourceHistory(window_seconds=60)
+        history.record_sample("Removed", "1", "10", timestamp=100)
+        history.record_refresh([], timestamp=101)
+
+        self.assertEqual(history.get_distro_names(), [])
+
+    def test_empty_chart_and_colors_are_deterministic(self):
+        layout = wsl_core.prepare_chart_layout(
+            wsl_core.ResourceHistory(), "memory", width=400, height=120, now=1000
+        )
+
+        self.assertTrue(layout.empty)
+        self.assertEqual(layout.series, [])
+        self.assertEqual(
+            wsl_core.get_distro_color("Ubuntu"), wsl_core.get_distro_color("Ubuntu")
+        )
+
+    def test_invalid_chart_metric_is_rejected(self):
+        with self.assertRaises(ValueError):
+            wsl_core.prepare_chart_layout(
+                wsl_core.ResourceHistory(), "disk", width=400, height=120
+            )
+
 # ---------------------------------------------------------------------------
 # decode_wsl_output
 # ---------------------------------------------------------------------------

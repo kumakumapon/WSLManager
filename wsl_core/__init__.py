@@ -36,9 +36,9 @@ from .logging import (
     tail_entries,
 )
 from .parsing import (
-_WSL_UPDATE_UP_TO_DATE_PATTERNS,  # noqa: F401
-_WSL_UPDATE_VERSION_RE_EN,  # noqa: F401
-_WSL_UPDATE_VERSION_RE_JA,  # noqa: F401
+    _WSL_UPDATE_UP_TO_DATE_PATTERNS,  # noqa: F401
+    _WSL_UPDATE_VERSION_RE_EN,  # noqa: F401
+    _WSL_UPDATE_VERSION_RE_JA,  # noqa: F401
     WslConfigParseError,
     build_diskpart_compact_script,
     build_wsl_mount_args,
@@ -59,17 +59,30 @@ _WSL_UPDATE_VERSION_RE_JA,  # noqa: F401
     parse_wslconfig,
 )
 from .portproxy import (
-_SS_PROCESS_RE,  # noqa: F401
+    _SS_PROCESS_RE,  # noqa: F401
     detect_network_mode,
     parse_portproxy_output,
     parse_ss_output,
+)
+from .resource_history import (
+    DEFAULT_PALETTE,
+    ChartAxisTick,
+    ChartLayout,
+    ChartPoint,
+    ChartSeries,
+    ResourceHistory,
+    ResourceSample,
+    calculate_nice_ceiling,
+    get_distro_color,
+    parse_numeric_resource,
+    prepare_chart_layout,
 )
 from .runner import (
     decode_wsl_output,
     run_wsl,
 )
 from .settings import (
-_GEOMETRY_RE,  # noqa: F401
+    _GEOMETRY_RE,  # noqa: F401
     DEFAULT_SETTINGS,
     PARTIAL_WRITE_SUFFIX,
     atomic_write_text,
@@ -84,7 +97,7 @@ _GEOMETRY_RE,  # noqa: F401
     save_wslconfig,
 )
 from .snapshot import (
-_SNAPSHOT_FORBIDDEN_CHARS,  # noqa: F401
+    _SNAPSHOT_FORBIDDEN_CHARS,  # noqa: F401
     SNAPSHOT_TIMESTAMP_FORMAT,
     build_distro_snapshot,
     build_snapshot_basename,
@@ -118,10 +131,10 @@ from .types import (
     WslResult,
 )
 from .validation import (
-_HOSTNAME_LABEL_RE,  # noqa: F401
-_LINUX_USERNAME_RE,  # noqa: F401
-_MEMORY_RE,  # noqa: F401
-_WINDOWS_RESERVED_NAMES,  # noqa: F401
+    _HOSTNAME_LABEL_RE,  # noqa: F401
+    _LINUX_USERNAME_RE,  # noqa: F401
+    _MEMORY_RE,  # noqa: F401
+    _WINDOWS_RESERVED_NAMES,  # noqa: F401
     default_clone_name,
     parse_memory_to_bytes,
     validate_clone_name,
@@ -140,16 +153,23 @@ __version__ = "1.0.0"
 
 __all__ = [
     "CURRENT_SCHEMA_VERSION",
+    "DEFAULT_PALETTE",
     "DEFAULT_SETTINGS",
     "PARTIAL_WRITE_SUFFIX",
     "SNAPSHOT_TIMESTAMP_FORMAT",
     "AsyncLogWriter",
+    "ChartAxisTick",
+    "ChartLayout",
+    "ChartPoint",
+    "ChartSeries",
     "DiskUsage",
     "DistroInfo",
     "ListeningSocket",
     "LogEntry",
     "PortproxyRule",
     "ProcessInfo",
+    "ResourceHistory",
+    "ResourceSample",
     "Settings",
     "SnapshotMetadata",
     "WslConfigParseError",
@@ -163,6 +183,7 @@ __all__ = [
     "build_snapshot_metadata",
     "build_wsl_mount_args",
     "build_wsl_unmount_args",
+    "calculate_nice_ceiling",
     "decode_wsl_output",
     "default_clone_name",
     "delete_log_files",
@@ -183,6 +204,7 @@ __all__ = [
     "get_default_log_dir",
     "get_default_settings_path",
     "get_default_snapshot_dir",
+    "get_distro_color",
     "is_numeric",
     "is_valid_geometry",
     "load_settings",
@@ -195,6 +217,7 @@ __all__ = [
     "parse_distro_list",
     "parse_ip_addresses",
     "parse_memory_to_bytes",
+    "parse_numeric_resource",
     "parse_online_distros",
     "parse_os_release",
     "parse_portproxy_output",
@@ -206,6 +229,7 @@ __all__ = [
     "parse_wsl_version",
     "parse_wslconfig",
     "partial_write_path",
+    "prepare_chart_layout",
     "rotate_log_files",
     "run_wsl",
     "sanitize_snapshot_name",
