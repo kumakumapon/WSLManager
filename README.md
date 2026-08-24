@@ -42,6 +42,10 @@ Key capabilities:
 python wslmgr.py
 ```
 
+On Windows, you can also double-click `start_wslmanager.bat`. It launches
+`dist\WSLManager.exe` when available, otherwise it uses the local `.venv` or
+the Python Launcher.
+
 The main window shows installed distributions. Select a row, then use the toolbar, menu bar, double-click action, or right-click context menu to manage it.
 
 Common GUI workflows:
