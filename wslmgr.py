@@ -2449,6 +2449,7 @@ class WSLManager(tk.Tk):
         self._all_distros: list[dict] = []
         self._resource_history = wsl_core.ResourceHistory()
         self._resource_history_visible = False
+        self._history_layouts: dict[str, wsl_core.ChartLayout] = {}
         self._operation_log: list[str] = []
         self._log_dir = wsl_core.get_default_log_dir()
         self._log_file = os.path.join(self._log_dir, "operations.jsonl")
@@ -2459,6 +2460,7 @@ class WSLManager(tk.Tk):
         self._load_persisted_log()
         self._settings_path = wsl_core.get_default_settings_path()
         self._settings = wsl_core.load_settings(self._settings_path)
+        self._language = wsl_core.resolve_language(self._settings["language"])
         if self._settings["window_geometry"]:
             try:
                 self.geometry(self._settings["window_geometry"])
@@ -2474,6 +2476,10 @@ class WSLManager(tk.Tk):
             self._refresh()
 
     # ── UI 構築 ──────────────────────────────────────────────────────────────
+
+    def _t(self, key: str, **values: object) -> str:
+        """Translate text used by the main application shell."""
+        return wsl_core.translate(key, self._language, **values)
 
     def _setup_theme(self) -> None:
         """利用可能な ttk テーマを検出し、デフォルトテーマを設定します。"""
@@ -2505,101 +2511,101 @@ class WSLManager(tk.Tk):
         # ── ファイル ──
         file_menu = tk.Menu(menubar, tearoff=0)
         file_menu.add_command(
-            label="インポート...",
+            label=self._t("gui.action.import"),
             command=self._import_distro_image,
             accelerator="Ctrl+I",
         )
         file_menu.add_command(
-            label="エクスポート...",
+            label=self._t("gui.action.export"),
             command=self._export_distro_image,
             accelerator="Ctrl+E",
         )
         file_menu.add_separator()
         file_menu.add_command(
-            label="終了",
+            label=self._t("gui.action.exit"),
             command=self.on_closing,
             accelerator="Alt+F4",
         )
-        menubar.add_cascade(label="ファイル", menu=file_menu)
+        menubar.add_cascade(label=self._t("gui.menu.file"), menu=file_menu)
 
         # ── ディストリビューション ──
         distro_menu = tk.Menu(menubar, tearoff=0)
         distro_menu.add_command(
-            label="起動 / ターミナル",
+            label=self._t("gui.action.start_terminal"),
             command=self._open_terminal,
             accelerator="Return",
         )
         distro_menu.add_command(
-            label="停止",
+            label=self._t("gui.action.stop"),
             command=self._stop_distro,
             accelerator="Delete",
         )
         distro_menu.add_command(
-            label="全停止",
+            label=self._t("gui.action.shutdown"),
             command=self._shutdown_all,
             accelerator="Ctrl+Shift+Q",
         )
         distro_menu.add_separator()
         distro_menu.add_command(
-            label="デフォルトに設定",
+            label=self._t("gui.action.set_default"),
             command=self._set_default,
         )
         distro_menu.add_command(
-            label="WSL1/WSL2 変換",
+            label=self._t("gui.action.convert"),
             command=self._convert_version,
         )
         distro_menu.add_separator()
         distro_menu.add_command(
-            label="インストール...",
+            label=self._t("gui.action.install"),
             command=self._install_distro,
         )
         distro_menu.add_command(
-            label="アンインストール...",
+            label=self._t("gui.action.unregister"),
             command=self._uninstall_distro,
         )
-        menubar.add_cascade(label="ディストリビューション", menu=distro_menu)
+        menubar.add_cascade(label=self._t("gui.menu.distribution"), menu=distro_menu)
 
         # ── ツール ──
         tools_menu = tk.Menu(menubar, tearoff=0)
         tools_menu.add_command(
-            label="詳細情報...",
+            label=self._t("gui.action.details"),
             command=self._show_detail,
             accelerator="Ctrl+D",
         )
         tools_menu.add_command(
-            label="プロセス一覧",
+            label=self._t("gui.action.processes"),
             command=self._show_processes,
             accelerator="Ctrl+P",
         )
         tools_menu.add_command(
-            label="エクスプローラーで開く",
+            label=self._t("gui.action.explorer"),
             command=self._open_in_explorer,
         )
         tools_menu.add_command(
-            label="ディスク最適化...",
+            label=self._t("gui.action.optimize"),
             command=self._open_disk_optimize,
         )
         tools_menu.add_command(
-            label="スナップショット管理...",
+            label=self._t("gui.action.snapshots"),
             command=self._open_snapshot_manager,
         )
         tools_menu.add_separator()
         tools_menu.add_command(
-            label="ディスクのマウント...",
+            label=self._t("gui.action.mount"),
             command=self._open_mount,
         )
         tools_menu.add_command(
-            label="ディスクのアンマウント...",
+            label=self._t("gui.action.unmount"),
             command=self._open_unmount,
         )
         tools_menu.add_separator()
         tools_menu.add_command(
-            label="WSL 設定 (.wslconfig)",
+            label=self._t("gui.action.wsl_config"),
             command=self._open_wslconfig,
             accelerator="Ctrl+,",
         )
         tools_menu.add_command(
-            label="操作ログ...",
+            label=self._t("gui.action.log"),
             command=self._show_log_viewer,
             accelerator="Ctrl+L",
         )
@@ -2613,24 +2619,34 @@ class WSLManager(tk.Tk):
                 value=theme_name,
                 command=lambda t=theme_name: self._change_theme(t),
             )
-        tools_menu.add_cascade(label="テーマ", menu=theme_menu)
-        menubar.add_cascade(label="ツール", menu=tools_menu)
+        tools_menu.add_cascade(label=self._t("gui.action.theme"), menu=theme_menu)
+        language_menu = tk.Menu(tools_menu, tearoff=0)
+        self._language_var = tk.StringVar(value=self._settings["language"])
+        for language in (wsl_core.LANGUAGE_AUTO, *wsl_core.SUPPORTED_LANGUAGES):
+            language_menu.add_radiobutton(
+                label=self._t(f"language.{language}"),
+                variable=self._language_var,
+                value=language,
+                command=lambda value=language: self._change_language(value),
+            )
+        tools_menu.add_cascade(label=self._t("gui.menu.language"), menu=language_menu)
+        menubar.add_cascade(label=self._t("gui.menu.tools"), menu=tools_menu)
 
         # ── ヘルプ ──
         help_menu = tk.Menu(menubar, tearoff=0)
         help_menu.add_command(
-            label="WSL バージョン情報...",
+            label=self._t("gui.action.wsl_version"),
             command=self._show_wsl_version,
         )
         help_menu.add_command(
-            label="WSL を更新",
+            label=self._t("gui.action.update_wsl"),
             command=self._update_wsl,
         )
         help_menu.add_command(
-            label="このアプリについて...",
+            label=self._t("gui.action.about"),
             command=self._show_about,
         )
-        menubar.add_cascade(label="ヘルプ", menu=help_menu)
+        menubar.add_cascade(label=self._t("gui.menu.help"), menu=help_menu)
 
         self.config(menu=menubar)
 
@@ -2660,11 +2676,11 @@ class WSLManager(tk.Tk):
         primary_row.pack(fill=tk.X)
 
         primary_actions = [
-            ("▶  起動", self._start_distro, 8),
-            ("■  停止", self._stop_distro, 8),
-            ("⬛  全停止", self._shutdown_all, 9),
-            ("🖥  ターミナル", self._open_terminal, 10),
-            ("📋  プロセス", self._show_processes, 10),
+            (self._t("gui.toolbar.start"), self._start_distro, 8),
+            (self._t("gui.toolbar.stop"), self._stop_distro, 8),
+            (self._t("gui.toolbar.shutdown"), self._shutdown_all, 11),
+            (self._t("gui.toolbar.terminal"), self._open_terminal, 11),
+            (self._t("gui.toolbar.processes"), self._show_processes, 11),
         ]
         for index, (label, cmd, width) in enumerate(primary_actions):
             if index == 3:
@@ -2674,7 +2690,12 @@ class WSLManager(tk.Tk):
             ttk.Button(primary_row, text=label, command=cmd, width=width).pack(
                 side=tk.LEFT, padx=2
             )
-        ttk.Button(primary_row, text="🔄  更新", command=self._refresh, width=8).pack(
+        ttk.Button(
+            primary_row,
+            text=self._t("gui.toolbar.refresh"),
+            command=self._refresh,
+            width=10,
+        ).pack(
             side=tk.RIGHT, padx=2
         )
 
@@ -2682,10 +2703,10 @@ class WSLManager(tk.Tk):
         secondary_row.pack(fill=tk.X, pady=(4, 0))
 
         secondary_actions = [
-            ("📦  インストール", self._install_distro, 12),
-            ("📥  インポート", self._import_distro_image, 10),
-            ("📤  エクスポート", self._export_distro_image, 10),
-            ("⚙  WSL設定", self._open_wslconfig, 10),
+            (self._t("gui.toolbar.install"), self._install_distro, 12),
+            (self._t("gui.toolbar.import"), self._import_distro_image, 10),
+            (self._t("gui.toolbar.export"), self._export_distro_image, 10),
+            (self._t("gui.toolbar.wsl_config"), self._open_wslconfig, 13),
         ]
         for label, cmd, width in secondary_actions:
             ttk.Button(secondary_row, text=label, command=cmd, width=width).pack(
@@ -2695,7 +2716,7 @@ class WSLManager(tk.Tk):
         self._auto_refresh_var = tk.BooleanVar(value=self._settings["auto_refresh"])
         ttk.Checkbutton(
             secondary_row,
-            text="自動更新",
+            text=self._t("gui.auto_refresh"),
             variable=self._auto_refresh_var,
             command=self._toggle_auto_refresh,
         ).pack(side=tk.LEFT, padx=(8, 4))
@@ -2712,7 +2733,7 @@ class WSLManager(tk.Tk):
         ).pack(side=tk.LEFT, padx=2)
         self._history_toggle = ttk.Button(
             secondary_row,
-            text="📈 履歴を表示",
+            text=self._t("gui.history.show"),
             command=self._toggle_resource_history,
         )
         self._history_toggle.pack(side=tk.RIGHT, padx=2)
@@ -2727,13 +2748,13 @@ class WSLManager(tk.Tk):
         )
 
         self._tree.heading("default", text="")
-        self._tree.heading("name", text="ディストリビューション名")
-        self._tree.heading("state", text="状態")
-        self._tree.heading("version", text="バージョン")
+        self._tree.heading("name", text=self._t("gui.column.name"))
+        self._tree.heading("state", text=self._t("gui.column.state"))
+        self._tree.heading("version", text=self._t("gui.column.version"))
         self._tree.heading("cpu", text="CPU(%)")
-        self._tree.heading("memory", text="メモリ(MB)")
-        self._tree.heading("disk", text="ディスク(GB)")
-        self._tree.heading("ip", text="IPアドレス")
+        self._tree.heading("memory", text=self._t("gui.column.memory"))
+        self._tree.heading("disk", text=self._t("gui.column.disk"))
+        self._tree.heading("ip", text=self._t("gui.column.ip"))
 
         self._tree.column("default", width=26, minwidth=26, anchor=tk.CENTER)
         self._tree.column("name", width=180, minwidth=120)
@@ -2776,7 +2797,7 @@ class WSLManager(tk.Tk):
         self._sorter.set_state(self._settings["sort_column"], self._settings["sort_desc"])
 
     def _build_statusbar(self, parent: ttk.Frame) -> None:
-        self._status_var = tk.StringVar(value="準備完了")
+        self._status_var = tk.StringVar(value=self._t("gui.status.ready"))
         self._statusbar = ttk.Label(
             parent,
             textvariable=self._status_var,
@@ -2799,12 +2820,16 @@ class WSLManager(tk.Tk):
         self._cpu_history_canvas.pack(fill=tk.X, padx=6)
         ttk.Label(self._history_frame, text="メモリ使用量").pack(anchor=tk.W, padx=6, pady=(2, 0))
         self._memory_history_canvas.pack(fill=tk.X, padx=6, pady=(0, 4))
-        self._cpu_history_canvas.bind(
-            "<Configure>", lambda _event: self._draw_resource_history()
-        )
-        self._memory_history_canvas.bind(
-            "<Configure>", lambda _event: self._draw_resource_history()
-        )
+        for canvas, metric in (
+            (self._cpu_history_canvas, "cpu"),
+            (self._memory_history_canvas, "memory"),
+        ):
+            canvas.bind("<Configure>", lambda _event: self._draw_resource_history())
+            canvas.bind(
+                "<Motion>",
+                lambda event, c=canvas, m=metric: self._on_history_canvas_motion(c, m, event),
+            )
+            canvas.bind("<Leave>", lambda _event, c=canvas: self._clear_history_tooltip(c))
 
     def _toggle_resource_history(self) -> None:
         self._resource_history_visible = not self._resource_history_visible
@@ -2813,6 +2838,8 @@ class WSLManager(tk.Tk):
             self._history_toggle.configure(text="📈 履歴を隠す")
             self._draw_resource_history()
         else:
+            self._clear_history_tooltip(self._cpu_history_canvas)
+            self._clear_history_tooltip(self._memory_history_canvas)
             self._history_frame.pack_forget()
             self._history_toggle.configure(text="📈 履歴を表示")
 
@@ -2827,10 +2854,12 @@ class WSLManager(tk.Tk):
         canvas.delete("all")
         width, height = canvas.winfo_width(), canvas.winfo_height()
         if width <= 2 or height <= 2:
+            self._history_layouts.pop(str(canvas), None)
             return
         layout = wsl_core.prepare_chart_layout(
             self._resource_history, metric, width, height
         )
+        self._history_layouts[str(canvas)] = layout
         for tick in layout.y_ticks:
             canvas.create_line(
                 layout.plot_x0, tick.pos, layout.plot_x1, tick.pos, fill="#e6e6e6"
@@ -2887,6 +2916,83 @@ class WSLManager(tk.Tk):
                 fill="#333",
             )
             legend_x += 22 + len(series.name) * 7
+
+    def _on_history_canvas_motion(
+        self, canvas: tk.Canvas, metric: str, event: tk.Event
+    ) -> None:
+        """Show the nearest resource-history observation while the cursor is over a graph."""
+        layout = self._history_layouts.get(str(canvas))
+        if not self._resource_history_visible or layout is None:
+            return
+        nearest = wsl_core.find_nearest_chart_point(layout, event.x, event.y)
+        if nearest is None:
+            self._clear_history_tooltip(canvas)
+            return
+        series, point = nearest
+        self._draw_history_tooltip(canvas, metric, series, point, event.x, event.y)
+
+    @staticmethod
+    def _resource_value_label(metric: str, value: float) -> str:
+        """Format an exact sampled value for a resource-history tooltip."""
+        return f"{value:.1f}%" if metric == "cpu" else f"{value:.1f} MB"
+
+    def _draw_history_tooltip(
+        self,
+        canvas: tk.Canvas,
+        metric: str,
+        series: wsl_core.ChartSeries,
+        point: wsl_core.ChartPoint,
+        cursor_x: float,
+        cursor_y: float,
+    ) -> None:
+        self._clear_history_tooltip(canvas)
+        timestamp = datetime.fromtimestamp(point.timestamp).strftime(
+            "%Y-%m-%d %H:%M:%S"
+        )
+        value = self._resource_value_label(metric, point.value)
+        label = f"{series.name}\n{timestamp}\n{value}"
+        text_item = canvas.create_text(
+            cursor_x + 12,
+            cursor_y - 12,
+            text=label,
+            anchor=tk.SW,
+            justify=tk.LEFT,
+            fill="#111",
+            tags="history-tooltip",
+        )
+        bbox = canvas.bbox(text_item)
+        if bbox is None:
+            return
+        width, height = canvas.winfo_width(), canvas.winfo_height()
+        dx = max(4 - bbox[0], min(0, width - 4 - bbox[2]))
+        dy = max(4 - bbox[1], min(0, height - 4 - bbox[3]))
+        if dx or dy:
+            canvas.move(text_item, dx, dy)
+        bbox = canvas.bbox(text_item)
+        if bbox is not None:
+            rectangle = canvas.create_rectangle(
+                bbox[0] - 4,
+                bbox[1] - 3,
+                bbox[2] + 4,
+                bbox[3] + 3,
+                fill="#ffffe0",
+                outline="#777",
+                tags="history-tooltip",
+            )
+            canvas.tag_lower(rectangle, text_item)
+        canvas.create_oval(
+            point.x - 4,
+            point.y - 4,
+            point.x + 4,
+            point.y + 4,
+            outline=series.color,
+            width=2,
+            tags="history-tooltip",
+        )
+
+    @staticmethod
+    def _clear_history_tooltip(canvas: tk.Canvas) -> None:
+        canvas.delete("history-tooltip")
 
     # ── ディストリビューション情報取得 ─────────────────────────────────────
 
@@ -3084,7 +3190,11 @@ class WSLManager(tk.Tk):
             if filter_text and filter_text not in d["name"].casefold():
                 continue
             default_mark = "★" if d["default"] else ""
-            state_jp = self.STATE_JP.get(d["state"], d["state"])
+            state_jp = (
+                self.STATE_JP.get(d["state"], d["state"])
+                if self._language == "ja"
+                else d["state"]
+            )
             version_str = f"WSL{d['version']}" if d["version"] else ""
             tag = "running" if d["state"] == "Running" else "stopped"
             iid = self._tree.insert(
@@ -4329,6 +4439,12 @@ class WSLManager(tk.Tk):
         except tk.TclError:
             self._set_status(f"テーマ「{theme_name}」の適用に失敗しました。")
 
+    def _change_language(self, language: str) -> None:
+        """Persist a language preference for the next application launch."""
+        self._settings["language"] = wsl_core.normalize_language(language)
+        self._save_settings()
+        self._set_status(self._t("gui.language_changed"))
+
     # ── 設定の保存 ───────────────────────────────────────────────────────
 
     def _save_settings(self) -> None:
@@ -4341,6 +4457,7 @@ class WSLManager(tk.Tk):
             "sort_column": sort_col,
             "sort_desc": sort_desc,
             "snapshot_dir": self._settings.get("snapshot_dir"),
+            "language": self._settings.get("language", wsl_core.LANGUAGE_AUTO),
         }
         wsl_core.save_settings(self._settings_path, settings)
 
