@@ -15,6 +15,7 @@ WSL Manager is a Windows desktop utility for managing WSL distributions from a P
 Key capabilities:
 
 - List WSL distributions with state, WSL version, default marker, resource usage, IP address, and disk size.
+- View 30-minute CPU and memory history graphs, with timestamps and exact values on hover.
 - Start distributions, open terminals, terminate one distribution, or shut down all WSL instances.
 - Set the default distribution and convert between WSL1 and WSL2.
 - Install, unregister, import, export, clone, snapshot, restore, and delete distributions.
@@ -48,6 +49,10 @@ the Python Launcher.
 
 The main window shows installed distributions. Select a row, then use the toolbar, menu bar, double-click action, or right-click context menu to manage it.
 
+The interface follows the system language (Japanese or English) by default. Use
+**Tools → Language** to save an explicit language preference; it is applied the
+next time the GUI starts.
+
 Common GUI workflows:
 
 - Refresh the distribution list or enable automatic refresh.
@@ -62,6 +67,7 @@ Common GUI workflows:
 
 ```powershell
 python wslmgr_cli.py --help
+python wslmgr_cli.py --language en --help
 python wslmgr_cli.py --version
 python wslmgr_cli.py list --with-ip --with-disk
 python wslmgr_cli.py list --format json
@@ -77,13 +83,20 @@ python wslmgr_cli.py snapshot create Ubuntu --comment "before upgrade"
 python wslmgr_cli.py snapshot list
 python wslmgr_cli.py snapshot restore Ubuntu_20260101-000000.tar --install-path C:\WSL\Restored
 python wslmgr_cli.py snapshot set-dir D:\WSLSnapshots
+python wslmgr_cli.py snapshot prune --keep 7 --name Ubuntu       # dry-run
+python wslmgr_cli.py snapshot prune --keep 7 --name Ubuntu --yes # delete old generations
+python wslmgr_cli.py snapshot schedule create Ubuntu --time 03:00 --keep 7
 python wslmgr_cli.py clone Ubuntu UbuntuClone --install-path C:\WSL\UbuntuClone
 python wslmgr_cli.py mount C:\disks\data.vhdx --vhd
 python wslmgr_cli.py unmount C:\disks\data.vhdx
 python wslmgr_cli.py log clear --yes
 ```
 
-CLI subcommands include `list`, `start`, `stop`, `shutdown`, `status`, `export`, `import`, `config`, `set-default`, `unregister`, `install`, `optimize`, `set-version`, `processes`, `log` (`clear`), `portproxy` (`list`/`add`/`delete`), `snapshot` (`create`/`list`/`restore`/`delete`/`set-dir`), `clone`, `mount`, and `unmount`.
+CLI subcommands include `list`, `start`, `stop`, `shutdown`, `status`, `export`, `import`, `config`, `set-default`, `unregister`, `install`, `optimize`, `set-version`, `processes`, `log` (`clear`), `portproxy` (`list`/`add`/`delete`), `snapshot` (`create`/`list`/`restore`/`delete`/`prune`/`set-dir`/`schedule`), `clone`, `mount`, and `unmount`.
+
+The CLI uses the saved GUI language preference (or the system language) for its
+localized top-level/list help and standard list output. Override it per invocation with
+`--language auto`, `--language ja`, or `--language en` before the subcommand.
 
 ### Exit Codes
 
@@ -161,6 +174,8 @@ The app wraps existing Windows commands instead of using a service or daemon:
 - Snapshots are stored as tar files plus JSON metadata.
 - The default snapshot directory is under the user profile.
 - Snapshot restore imports into a new distribution name instead of overwriting the source distribution.
+- `snapshot prune --keep N` shows deletion candidates by default; it removes old tar/metadata pairs only with `--yes`, keeping the newest N snapshots per distribution.
+- On Windows, `snapshot schedule create <name> --time HH:MM --keep N` registers a daily Task Scheduler job. Registration and removal both require confirmation; the created job explicitly carries `--yes` because its retention deletion was approved during registration. Use `snapshot schedule list` or `delete <name>` to manage it.
 - Operation logs are serialized as structured records and rotated by helper functions in `wsl_core.py`.
 
 ### Packaging
