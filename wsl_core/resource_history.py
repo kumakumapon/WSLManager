@@ -56,6 +56,38 @@ class ChartLayout:
     empty: bool = False
 
 
+def find_nearest_chart_point(
+    layout: ChartLayout, x: float, y: float, max_distance: float = 12.0
+) -> tuple[ChartSeries, ChartPoint] | None:
+    """Return the plotted point nearest to a canvas coordinate.
+
+    ``None`` is returned when the cursor is outside the requested hit radius.
+    Keeping this calculation independent from tkinter makes hover behaviour
+    deterministic and testable on every supported platform.
+    """
+    try:
+        cursor_x, cursor_y, radius = float(x), float(y), float(max_distance)
+    except (TypeError, ValueError):
+        return None
+    if (
+        not all(math.isfinite(value) for value in (cursor_x, cursor_y, radius))
+        or radius < 0
+    ):
+        return None
+
+    nearest: tuple[ChartSeries, ChartPoint] | None = None
+    nearest_distance_squared = radius * radius
+    for series in layout.series:
+        for point in series.points:
+            distance_squared = (
+                (point.x - cursor_x) ** 2 + (point.y - cursor_y) ** 2
+            )
+            if distance_squared <= nearest_distance_squared:
+                nearest = (series, point)
+                nearest_distance_squared = distance_squared
+    return nearest
+
+
 DEFAULT_PALETTE: list[str] = [
     "#2080f0",
     "#f05050",
