@@ -15,6 +15,7 @@ WSL Manager は、WSL ディストリビューションを管理するための 
 主な機能:
 
 - WSL ディストリビューションの状態、WSL バージョン、デフォルト設定、リソース使用量、IP アドレス、ディスクサイズを一覧表示
+- CPU・メモリ使用量の直近30分の履歴グラフを表示し、ホバーで系列名・時刻・正確な値を確認
 - ディストリビューションの起動、ターミナル起動、個別停止、全停止
 - デフォルトディストリビューション設定、WSL1/WSL2 変換
 - インストール、登録解除、インポート、エクスポート、複製、スナップショット作成、復元、削除
@@ -48,6 +49,9 @@ Python Launcher を使用します。
 
 メイン画面にはインストール済みディストリビューションが表示されます。行を選択し、ツールバー、メニューバー、ダブルクリック、右クリックメニューから操作します。
 
+画面表示は既定でシステム言語（日本語または英語）に追従します。**ツール → 言語**
+から明示的な言語設定を保存でき、次回 GUI 起動時に反映されます。
+
 主な GUI 操作:
 
 - ディストリビューション一覧の更新、自動更新の有効化
@@ -62,6 +66,7 @@ Python Launcher を使用します。
 
 ```powershell
 python wslmgr_cli.py --help
+python wslmgr_cli.py --language en --help
 python wslmgr_cli.py --version
 python wslmgr_cli.py list --with-ip --with-disk
 python wslmgr_cli.py list --format json
@@ -77,13 +82,20 @@ python wslmgr_cli.py snapshot create Ubuntu --comment "アップグレード前"
 python wslmgr_cli.py snapshot list
 python wslmgr_cli.py snapshot restore Ubuntu_20260101-000000.tar --install-path C:\WSL\Restored
 python wslmgr_cli.py snapshot set-dir D:\WSLSnapshots
+python wslmgr_cli.py snapshot prune --keep 7 --name Ubuntu       # dry-run
+python wslmgr_cli.py snapshot prune --keep 7 --name Ubuntu --yes # 古い世代を削除
+python wslmgr_cli.py snapshot schedule create Ubuntu --time 03:00 --keep 7
 python wslmgr_cli.py clone Ubuntu UbuntuClone --install-path C:\WSL\UbuntuClone
 python wslmgr_cli.py mount C:\disks\data.vhdx --vhd
 python wslmgr_cli.py unmount C:\disks\data.vhdx
 python wslmgr_cli.py log clear --yes
 ```
 
-CLI サブコマンドには `list`、`start`、`stop`、`shutdown`、`status`、`export`、`import`、`config`、`set-default`、`unregister`、`install`、`optimize`、`set-version`、`processes`、`log` (`clear`)、`portproxy` (`list`/`add`/`delete`)、`snapshot` (`create`/`list`/`restore`/`delete`/`set-dir`)、`clone`、`mount`、`unmount` があります。
+CLI サブコマンドには `list`、`start`、`stop`、`shutdown`、`status`、`export`、`import`、`config`、`set-default`、`unregister`、`install`、`optimize`、`set-version`、`processes`、`log` (`clear`)、`portproxy` (`list`/`add`/`delete`)、`snapshot` (`create`/`list`/`restore`/`delete`/`prune`/`set-dir`/`schedule`)、`clone`、`mount`、`unmount` があります。
+
+CLI は保存済みの GUI 言語設定（未指定ならシステム言語）を使ってトップレベルと
+`list` のヘルプ、および標準の一覧出力を表示します。サブコマンドの前に `--language auto`、`--language ja`、
+`--language en` を指定すると、その実行だけ上書きできます。
 
 ### 終了コード
 
@@ -161,6 +173,8 @@ dist\WSLManager.exe
 - スナップショットは tar ファイルと JSON メタデータで保存します。
 - 既定のスナップショット保存先はユーザープロファイル配下です。
 - 復元は元ディストリビューションを上書きせず、新しいディストリビューション名でインポートします。
+- `snapshot prune --keep N` は既定で削除候補だけを表示します。`--yes` を明示した場合のみ、ディストリビューションごとに新しい N 世代を残して、古い tar/メタデータ組を削除します。
+- Windows では `snapshot schedule create <name> --time HH:MM --keep N` により毎日実行するタスクを登録できます。登録・削除には確認が必要です。登録したタスクには、登録時に承認した世代整理のための `--yes` が明示的に含まれます。`snapshot schedule list` / `delete <name>` で管理できます。
 - 操作ログは構造化レコードとしてシリアライズし、`wsl_core.py` のヘルパーでローテーションします。
 
 ### パッケージング

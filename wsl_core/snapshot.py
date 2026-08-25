@@ -201,6 +201,32 @@ def total_snapshots_size(snapshots: list[dict]) -> int:
     return total
 
 
+def snapshots_to_prune(
+    snapshots: list[dict], keep: int, distro_name: str | None = None
+) -> list[dict]:
+    """世代保持数を超えた削除候補を新しい順の一覧から返します。
+
+    保持数はディストリビューションごとに適用します。``distro_name`` を指定した
+    場合は、そのディストリビューションだけを対象にします。削除や I/O は行いません。
+    ``keep`` は 1 以上でなければならず、不正な場合は :class:`ValueError` を送出します。
+    """
+    if not isinstance(keep, int) or isinstance(keep, bool) or keep < 1:
+        raise ValueError("keep must be an integer greater than or equal to 1")
+
+    grouped: dict[str, list[dict]] = {}
+    for snapshot in snapshots:
+        name = snapshot.get("distro_name")
+        if not isinstance(name, str) or (distro_name is not None and name != distro_name):
+            continue
+        grouped.setdefault(name, []).append(snapshot)
+
+    candidates: list[dict] = []
+    for group in grouped.values():
+        group.sort(key=lambda item: str(item.get("created_at", "")), reverse=True)
+        candidates.extend(group[keep:])
+    return candidates
+
+
 def write_snapshot_metadata(json_path: str, metadata: dict) -> bool:
     """スナップショットのメタデータ dict を JSON ファイルとしてアトミックに保存します。
 

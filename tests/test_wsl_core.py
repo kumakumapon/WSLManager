@@ -77,6 +77,26 @@ class TestResourceHistory(unittest.TestCase):
                 wsl_core.ResourceHistory(), "disk", width=400, height=120
             )
 
+    def test_nearest_chart_point_uses_hit_radius_and_closest_series(self):
+        history = wsl_core.ResourceHistory()
+        history.record_sample("Ubuntu", "10", "100", timestamp=1000)
+        history.record_sample("Debian", "20", "200", timestamp=1000)
+        layout = wsl_core.prepare_chart_layout(
+            history, "cpu", width=500, height=150, now=1000, time_window=60
+        )
+        series_by_name = {series.name: series for series in layout.series}
+        ubuntu = series_by_name["Ubuntu"]
+        debian = series_by_name["Debian"]
+
+        self.assertIsNone(wsl_core.find_nearest_chart_point(layout, -10, -10))
+        found = wsl_core.find_nearest_chart_point(layout, debian.points[0].x, debian.points[0].y)
+
+        self.assertIsNotNone(found)
+        assert found is not None
+        self.assertEqual(found[0].name, "Debian")
+        self.assertEqual(found[1].value, 20.0)
+        self.assertNotEqual(ubuntu.points[0].y, debian.points[0].y)
+
 # ---------------------------------------------------------------------------
 # decode_wsl_output
 # ---------------------------------------------------------------------------
@@ -2867,6 +2887,7 @@ class TestNormalizeSettings(unittest.TestCase):
             "sort_column": "name",
             "sort_desc": True,
             "snapshot_dir": "/mnt/snapshots",
+            "language": "ja",
         }
         self.assertEqual(wsl_core.normalize_settings(data), data)
 
@@ -2994,6 +3015,7 @@ class TestLoadSettings(unittest.TestCase):
             "sort_column": "name",
             "sort_desc": True,
             "snapshot_dir": "/mnt/snapshots",
+            "language": "auto",
         }
         with open(path, "w", encoding="utf-8") as f:
             json.dump(data, f)
@@ -3034,6 +3056,7 @@ class TestSaveSettings(unittest.TestCase):
             "sort_column": "state",
             "sort_desc": False,
             "snapshot_dir": "/mnt/snapshots",
+            "language": "en",
         }
         wsl_core.save_settings(path, data)
         self.assertEqual(wsl_core.load_settings(path), data)
@@ -3918,6 +3941,24 @@ class TestTotalSnapshotsSize(unittest.TestCase):
         self.assertEqual(wsl_core.total_snapshots_size(snapshots), 100)
 
 
+class TestSnapshotsToPrune(unittest.TestCase):
+    """世代保持の削除候補選択を確認する。"""
+
+    def test_keeps_newest_per_distro(self):
+        snapshots = [
+            {"distro_name": "Ubuntu", "created_at": "2026-01-03", "tar_file": "u3.tar"},
+            {"distro_name": "Ubuntu", "created_at": "2026-01-02", "tar_file": "u2.tar"},
+            {"distro_name": "Ubuntu", "created_at": "2026-01-01", "tar_file": "u1.tar"},
+            {"distro_name": "Debian", "created_at": "2026-01-01", "tar_file": "d1.tar"},
+        ]
+        result = wsl_core.snapshots_to_prune(snapshots, 2)
+        self.assertEqual([item["tar_file"] for item in result], ["u1.tar"])
+
+    def test_rejects_invalid_keep(self):
+        with self.assertRaises(ValueError):
+            wsl_core.snapshots_to_prune([], 0)
+
+
 # ---------------------------------------------------------------------------
 # write_snapshot_metadata
 # ---------------------------------------------------------------------------
@@ -4400,6 +4441,23 @@ class TestAppendLogEntry(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
+# i18n
+# ---------------------------------------------------------------------------
+
+class TestI18n(unittest.TestCase):
+    def test_detect_system_language(self):
+        self.assertEqual(wsl_core.detect_system_language("ja_JP.UTF-8"), "ja")
+        self.assertEqual(wsl_core.detect_system_language("en_US.UTF-8"), "en")
+
+    def test_resolve_language_honours_manual_preference(self):
+        self.assertEqual(wsl_core.resolve_language("ja", "en_US"), "ja")
+        self.assertEqual(wsl_core.resolve_language("en", "ja_JP"), "en")
+        self.assertEqual(wsl_core.resolve_language("auto", "ja_JP"), "ja")
+
+    def test_normalize_settings_keeps_only_supported_language_values(self):
+        self.assertEqual(wsl_core.normalize_settings({"language": "en"})["language"], "en")
+        self.assertEqual(wsl_core.normalize_settings({"language": "de"})["language"], "auto")
+
 
 if __name__ == "__main__":
     unittest.main()

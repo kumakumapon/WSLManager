@@ -46,6 +46,15 @@ EXIT_PARTIAL = ExitCode.PARTIAL_FAILURE
 CREATE_NO_WINDOW = 0x08000000 if sys.platform == "win32" else 0
 
 
+def _language_for_args(args: argparse.Namespace) -> str:
+    """Resolve the CLI language selected by the parser or a lightweight test arg."""
+    return wsl_core.resolve_language(getattr(args, "language", wsl_core.LANGUAGE_AUTO))
+
+
+def _t(args: argparse.Namespace, key: str, **values: object) -> str:
+    return wsl_core.translate(key, _language_for_args(args), **values)
+
+
 # ---------------------------------------------------------------------------
 # subprocess ヘルパー
 # ---------------------------------------------------------------------------
@@ -139,8 +148,8 @@ def cmd_list(args: argparse.Namespace) -> None:
     """``wsl --list --verbose`` の結果を表示します。"""
     returncode, stdout, stderr = _run_wsl_command(["--list", "--verbose"], timeout=15.0)
     if returncode != 0:
-        msg = stderr.strip() or "ディストリビューション一覧の取得に失敗しました。"
-        print(f"エラー: {msg}", file=sys.stderr)
+        msg = stderr.strip() or _t(args, "cli.list_error")
+        print(f"{_t(args, 'cli.error')}: {msg}", file=sys.stderr)
         sys.exit(ExitCode.WSL_ERROR)
 
     distros = wsl_core.parse_distro_list(stdout)
@@ -170,7 +179,12 @@ def cmd_list(args: argparse.Namespace) -> None:
         print(json.dumps(distros, ensure_ascii=False, indent=2))
         return
 
-    headers = ["Name", "State", "Version", "Default"]
+    headers = [
+        _t(args, "cli.header.name"),
+        _t(args, "cli.header.state"),
+        _t(args, "cli.header.version"),
+        _t(args, "cli.header.default"),
+    ]
     if fetch_ip:
         headers.append("IP")
     if fetch_disk:
@@ -949,6 +963,62 @@ def _find_snapshot_by_tar_file(snapshots: list[dict], tar_file: str) -> dict | N
     return next((s for s in snapshots if s.get("tar_file") == tar_file), None)
 
 
+def _delete_snapshot_files(snapshot: dict, snapshot_dir: str) -> list[str]:
+    """スナップショット配下の tar / JSON を削除し、失敗メッセージを返します。
+
+    ``load_snapshots`` が生成した同一ディレクトリ直下のファイルだけを対象にする。
+    メタデータが改ざんされていても保存先外を削除しないための最終防衛線である。
+    """
+    directory = os.path.abspath(snapshot_dir)
+    errors: list[str] = []
+    for key, exists in (("tar_path", snapshot.get("tar_exists", True)), ("json_path", True)):
+        path = snapshot.get(key, "")
+        if not exists or not isinstance(path, str) or not path:
+            continue
+        absolute = os.path.abspath(path)
+        if os.path.dirname(absolute) != directory:
+            errors.append(f"安全でない削除対象を拒否しました: {path}")
+            continue
+        try:
+            os.remove(absolute)
+        except OSError as e:
+            errors.append(str(e))
+    return errors
+
+
+def _prune_snapshots(
+    snapshot_dir: str, keep: int, distro_name: str | None, dry_run: bool, assume_yes: bool
+) -> list[dict]:
+    """保持数を超えたスナップショットを表示または削除して候補を返します。"""
+    snapshots = wsl_core.load_snapshots(snapshot_dir)
+    try:
+        candidates = wsl_core.snapshots_to_prune(snapshots, keep, distro_name)
+    except ValueError as e:
+        print(f"エラー: {e}", file=sys.stderr)
+        sys.exit(ExitCode.ARGUMENT_ERROR)
+
+    if not candidates:
+        print("削除対象のスナップショットはありません。")
+        return []
+
+    print(f"保持数 {keep} を超える {len(candidates)} 件のスナップショット:")
+    for snapshot in candidates:
+        print(f"  {snapshot.get('distro_name', '')}: {snapshot.get('tar_file', '')}")
+    if dry_run:
+        print("dry-run: 削除は実行していません。実行するには --yes を指定してください。")
+        return candidates
+
+    _confirm_or_exit("上記のスナップショットを完全に削除します。よろしいですか?", assume_yes)
+    errors: list[str] = []
+    for snapshot in candidates:
+        errors.extend(_delete_snapshot_files(snapshot, snapshot_dir))
+    if errors:
+        print("エラー: 削除に失敗しました: " + "; ".join(errors), file=sys.stderr)
+        sys.exit(ExitCode.GENERAL_ERROR)
+
+    return candidates
+
+
 def cmd_snapshot_create(args: argparse.Namespace) -> None:
     """指定したディストリビューションのスナップショット (tar + メタデータ) を作成します。"""
     name = args.name
@@ -1011,6 +1081,17 @@ def cmd_snapshot_create(args: argparse.Namespace) -> None:
         target=name,
         detail={"tar_path": tar_path, "json_path": json_path, "size_bytes": size_bytes},
     )
+
+    keep = getattr(args, "keep", None)
+    if keep is not None:
+        # 新規スナップショットのメタデータ保存後に評価し、失敗時でも最新世代を保持する。
+        _prune_snapshots(
+            snap_dir,
+            keep,
+            name,
+            dry_run=False,
+            assume_yes=getattr(args, "yes", False),
+        )
 
     if not meta_ok:
         sys.exit(ExitCode.PARTIAL_FAILURE)
@@ -1142,19 +1223,7 @@ def cmd_snapshot_delete(args: argparse.Namespace) -> None:
         print(f"  ファイル: {snap.get('tar_file', '')}")
     _confirm_or_exit("よろしいですか?", args.yes)
 
-    errors: list[str] = []
-    tar_path = snap.get("tar_path", "")
-    json_path = snap.get("json_path", "")
-    if snap.get("tar_exists", True) and tar_path:
-        try:
-            os.remove(tar_path)
-        except OSError as e:
-            errors.append(str(e))
-    if json_path:
-        try:
-            os.remove(json_path)
-        except OSError as e:
-            errors.append(str(e))
+    errors = _delete_snapshot_files(snap, snap_dir)
 
     if errors:
         _log_cli_operation(
@@ -1165,6 +1234,110 @@ def cmd_snapshot_delete(args: argparse.Namespace) -> None:
 
     _log_cli_operation("スナップショット削除", snap.get("tar_file", args.tar_file), "成功")
     _print_action_result(args, "削除しました。", target=snap.get("tar_file", args.tar_file))
+
+
+def cmd_snapshot_prune(args: argparse.Namespace) -> None:
+    """保持数を超えたスナップショットを dry-run または削除します。"""
+    snap_dir = _resolve_snapshot_dir(args)
+    candidates = _prune_snapshots(
+        snap_dir, args.keep, args.name, dry_run=not args.yes, assume_yes=args.yes
+    )
+    _print_action_result(
+        args,
+        (
+            f"{len(candidates)} 件のスナップショットを"
+            f"{'削除しました' if args.yes else '削除候補として表示しました'}。"
+        ),
+        target=args.name or snap_dir,
+        detail={"count": len(candidates), "dry_run": not args.yes},
+    )
+
+
+def _scheduled_task_name(distro_name: str) -> str:
+    """ディストロごとに安定した Windows タスク名を返します。"""
+    return "WSLManager-Snapshot-" + wsl_core.sanitize_snapshot_name(distro_name)
+
+
+def _build_scheduled_snapshot_command(args: argparse.Namespace) -> str:
+    """Task Scheduler に登録する、自己完結したスナップショットコマンドを構築します。"""
+    command = [sys.executable, os.path.abspath(__file__), "snapshot", "create", args.name]
+    command.extend(
+        ["--dir", os.path.abspath(args.dir), "--keep", str(args.keep), "--yes", "--quiet"]
+    )
+    return subprocess.list2cmdline(command)
+
+
+def _run_schtasks(command: list[str]) -> tuple[int, str, str]:
+    """Windows Task Scheduler コマンドを実行する。"""
+    try:
+        result = subprocess.run(
+            command, capture_output=True, text=True, errors="replace", timeout=30.0
+        )
+    except subprocess.TimeoutExpired:
+        return -1, "", "タスク スケジューラの操作がタイムアウトしました。"
+    except OSError as e:
+        return -1, "", str(e)
+    return result.returncode, result.stdout, result.stderr
+
+
+def _require_windows_task_scheduler() -> None:
+    if sys.platform != "win32":
+        print("エラー: スケジュール機能は Windows でのみ利用できます。", file=sys.stderr)
+        sys.exit(ExitCode.GENERAL_ERROR)
+
+
+def cmd_snapshot_schedule_create(args: argparse.Namespace) -> None:
+    """毎日実行する安全なスナップショットタスクを Windows に登録します。"""
+    _require_windows_task_scheduler()
+    snap_dir = _resolve_snapshot_dir(args)
+    try:
+        datetime.strptime(args.time, "%H:%M")
+    except ValueError:
+        print("エラー: --time は HH:MM (24時間形式) で指定してください。", file=sys.stderr)
+        sys.exit(ExitCode.ARGUMENT_ERROR)
+    if args.keep < 1:
+        print("エラー: --keep は 1 以上にしてください。", file=sys.stderr)
+        sys.exit(ExitCode.ARGUMENT_ERROR)
+    args.dir = snap_dir
+    task_name = _scheduled_task_name(args.name)
+    if not getattr(args, "quiet", False):
+        print(f"毎日 {args.time} に「{args.name}」をバックアップし、{args.keep} 世代を保持します。")
+        print(f"  タスク名: {task_name}")
+        print(f"  保存先: {snap_dir}")
+    _confirm_or_exit("既存の同名タスクがあれば置き換えます。よろしいですか?", args.yes)
+    rc, _out, err = _run_schtasks([
+        "schtasks", "/create", "/tn", task_name, "/tr", _build_scheduled_snapshot_command(args),
+        "/sc", "DAILY", "/st", args.time, "/f",
+    ])
+    if rc != 0:
+        print(f"エラー: タスクの登録に失敗しました: {err.strip()}", file=sys.stderr)
+        sys.exit(ExitCode.GENERAL_ERROR)
+    _print_action_result(args, "定期スナップショットを登録しました。", target=task_name)
+
+
+def cmd_snapshot_schedule_list(args: argparse.Namespace) -> None:
+    """WSLManager が登録した定期スナップショットタスクを表示します。"""
+    _require_windows_task_scheduler()
+    rc, out, err = _run_schtasks(["schtasks", "/query", "/fo", "LIST", "/v"])
+    if rc != 0:
+        print(f"エラー: タスク一覧の取得に失敗しました: {err.strip()}", file=sys.stderr)
+        sys.exit(ExitCode.GENERAL_ERROR)
+    blocks = [block for block in out.split("\n\n") if "WSLManager-Snapshot-" in block]
+    print("\n\n".join(blocks) if blocks else "定期スナップショットは登録されていません。")
+
+
+def cmd_snapshot_schedule_delete(args: argparse.Namespace) -> None:
+    """定期スナップショットタスクを削除します（バックアップデータは削除しない）。"""
+    _require_windows_task_scheduler()
+    task_name = _scheduled_task_name(args.name)
+    if not getattr(args, "quiet", False):
+        print(f"タスク「{task_name}」を削除します。バックアップデータは削除しません。")
+    _confirm_or_exit("よろしいですか?", args.yes)
+    rc, _out, err = _run_schtasks(["schtasks", "/delete", "/tn", task_name, "/f"])
+    if rc != 0:
+        print(f"エラー: タスクの削除に失敗しました: {err.strip()}", file=sys.stderr)
+        sys.exit(ExitCode.GENERAL_ERROR)
+    _print_action_result(args, "定期スナップショットを削除しました。", target=task_name)
 
 
 def cmd_snapshot_set_dir(args: argparse.Namespace) -> None:
@@ -1331,38 +1504,46 @@ def cmd_unmount(args: argparse.Namespace) -> None:
 # エントリーポイント
 # ---------------------------------------------------------------------------
 
-def build_parser() -> argparse.ArgumentParser:
+def build_parser(language: str | None = None) -> argparse.ArgumentParser:
     """argparse のパーサーとサブコマンドを構築して返します。"""
+    active_language = wsl_core.resolve_language(language)
+    def t(key: str) -> str:
+        return wsl_core.translate(key, active_language)
     parser = argparse.ArgumentParser(
         prog="wslmgr",
-        description="WSL Manager - コマンドラインインターフェース",
+        description=t("cli.description"),
     )
     parser.add_argument(
         "--version", action="version", version=f"WSL Manager {wsl_core.__version__}"
     )
     parser.add_argument(
-        "--quiet", "-q", action="store_true", help="成功時のメッセージ出力を抑制します"
+        "--quiet", "-q", action="store_true", help=t("cli.quiet")
+    )
+    parser.add_argument(
+        "--language", choices=(wsl_core.LANGUAGE_AUTO, *wsl_core.SUPPORTED_LANGUAGES),
+        default=language if language is not None else wsl_core.LANGUAGE_AUTO,
+        help=t("cli.language"),
     )
 
     subparsers = parser.add_subparsers(dest="command")
 
     # list
-    p_list = subparsers.add_parser("list", help="WSL ディストリビューションの一覧を表示します")
+    p_list = subparsers.add_parser("list", help=t("cli.list"))
     p_list.add_argument(
         "--format", choices=["table", "json", "csv"], default="table",
-        help="出力フォーマット (既定: table)",
+        help=t("cli.format"),
     )
     p_list.add_argument(
         "--with-ip", action="store_true",
-        help="実行中ディストリビューションの IP アドレスも取得します",
+        help=t("cli.with_ip"),
     )
     p_list.add_argument(
         "--with-disk", action="store_true",
-        help="実行中ディストリビューションのディスク使用量も取得します",
+        help=t("cli.with_disk"),
     )
     p_list.add_argument(
         "--all-info", "-a", action="store_true",
-        help="IP アドレスおよびディスク使用量を含めて表示します",
+        help=t("cli.all_info"),
     )
     p_list.set_defaults(func=cmd_list)
 
@@ -1622,6 +1803,12 @@ def build_parser() -> argparse.ArgumentParser:
         "--comment", default="", help="スナップショットのコメント (任意)"
     )
     p_snapshot_create.add_argument(
+        "--keep", type=int, help="作成後にディストリビューションごとに保持する世代数"
+    )
+    p_snapshot_create.add_argument(
+        "--yes", "-y", action="store_true", help="世代整理の確認プロンプトを表示せずに実行します"
+    )
+    p_snapshot_create.add_argument(
         "--dir", help="スナップショット保存先ディレクトリ (既定: 設定値)"
     )
     p_snapshot_create.add_argument(
@@ -1679,6 +1866,50 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_snapshot_delete.add_argument("--quiet", "-q", action="store_true", help="出力を抑制します")
     p_snapshot_delete.set_defaults(func=cmd_snapshot_delete)
+
+    p_snapshot_prune = snapshot_subparsers.add_parser(
+        "prune", help="保持数を超えたスナップショットを確認・削除します"
+    )
+    p_snapshot_prune.add_argument("--keep", type=int, required=True, help="保持する世代数 (1 以上)")
+    p_snapshot_prune.add_argument("--name", help="対象ディストリビューション名 (省略時: 全て)")
+    p_snapshot_prune.add_argument("--dir", help="スナップショット保存先ディレクトリ (既定: 設定値)")
+    p_snapshot_prune.add_argument(
+        "--yes", "-y", action="store_true", help="確認済みとして実際に削除します (既定: dry-run)"
+    )
+    p_snapshot_prune.add_argument(
+        "--format", choices=["table", "json"], default="table", help="出力フォーマット"
+    )
+    p_snapshot_prune.add_argument("--quiet", "-q", action="store_true", help="出力を抑制します")
+    p_snapshot_prune.set_defaults(func=cmd_snapshot_prune)
+
+    p_snapshot_schedule = snapshot_subparsers.add_parser(
+        "schedule", help="Windows Task Scheduler に定期スナップショットを登録します"
+    )
+    p_snapshot_schedule.set_defaults(func=_make_snapshot_help_func(p_snapshot_schedule))
+    schedule_subparsers = p_snapshot_schedule.add_subparsers(dest="schedule_command")
+    p_schedule_create = schedule_subparsers.add_parser(
+        "create", help="毎日の定期スナップショットを登録します"
+    )
+    p_schedule_create.add_argument("name", help="対象ディストリビューション名")
+    p_schedule_create.add_argument("--time", default="03:00", help="実行時刻 HH:MM (既定: 03:00)")
+    p_schedule_create.add_argument("--keep", type=int, default=7, help="保持する世代数 (既定: 7)")
+    p_schedule_create.add_argument(
+        "--dir", help="スナップショット保存先ディレクトリ (既定: 設定値)"
+    )
+    p_schedule_create.add_argument("--yes", "-y", action="store_true", help="登録確認を省略します")
+    p_schedule_create.add_argument("--quiet", "-q", action="store_true", help="出力を抑制します")
+    p_schedule_create.set_defaults(func=cmd_snapshot_schedule_create)
+    p_schedule_list = schedule_subparsers.add_parser(
+        "list", help="登録済みの定期スナップショットを表示します"
+    )
+    p_schedule_list.set_defaults(func=cmd_snapshot_schedule_list)
+    p_schedule_delete = schedule_subparsers.add_parser(
+        "delete", help="定期スナップショットを削除します"
+    )
+    p_schedule_delete.add_argument("name", help="対象ディストリビューション名")
+    p_schedule_delete.add_argument("--yes", "-y", action="store_true", help="削除確認を省略します")
+    p_schedule_delete.add_argument("--quiet", "-q", action="store_true", help="出力を抑制します")
+    p_schedule_delete.set_defaults(func=cmd_snapshot_schedule_delete)
 
     p_snapshot_set_dir = snapshot_subparsers.add_parser(
         "set-dir", help="スナップショットの保存先ディレクトリを設定します"
@@ -1744,8 +1975,20 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _language_preference_from_argv(argv: list[str]) -> str:
+    """Read a global ``--language`` override before building localized help text."""
+    for index, value in enumerate(argv):
+        if value.startswith("--language="):
+            return value.partition("=")[2]
+        if value == "--language" and index + 1 < len(argv):
+            return argv[index + 1]
+    settings = wsl_core.load_settings(wsl_core.get_default_settings_path())
+    return str(settings.get("language", wsl_core.LANGUAGE_AUTO))
+
+
 def main() -> None:
-    parser = build_parser()
+    preference = _language_preference_from_argv(sys.argv[1:])
+    parser = build_parser(preference)
     args = parser.parse_args()
     if not hasattr(args, "func"):
         parser.print_help()
