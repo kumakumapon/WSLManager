@@ -11,6 +11,7 @@ import sys
 import tempfile
 from typing import Any
 
+from .i18n import normalize_language
 from .parsing import dump_wslconfig
 from .types import CURRENT_SCHEMA_VERSION
 
@@ -22,6 +23,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "sort_column": None,     # メイン一覧のソート列 ID (None は未ソート)
     "sort_desc": False,      # ソートが降順かどうか
     "snapshot_dir": None,    # スナップショット保存先 (None はデフォルト)
+    "language": "auto",     # 表示言語 (auto, ja, en)
 }
 
 _GEOMETRY_RE = re.compile(r"^\d+x\d+([+-]-?\d+[+-]-?\d+)?$")
@@ -103,6 +105,8 @@ def normalize_settings(data: Any) -> dict[str, Any]:
     snapshot_dir = data.get("snapshot_dir")
     if isinstance(snapshot_dir, str) and snapshot_dir:
         result["snapshot_dir"] = snapshot_dir
+
+    result["language"] = normalize_language(data.get("language"))
 
     return result
 
