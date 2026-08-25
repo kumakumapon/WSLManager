@@ -2032,6 +2032,56 @@ class TestCmdSnapshotDelete(unittest.TestCase):
             self.assertEqual(cm.exception.code, wslmgr_cli.ExitCode.GENERAL_ERROR)
 
 
+class TestCmdSnapshotPrune(unittest.TestCase):
+    def test_dry_run_keeps_files(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            _write_snapshot(tmpdir, tar_file="Ubuntu_old.tar", created_at="2026-01-01T00:00:00")
+            _write_snapshot(tmpdir, tar_file="Ubuntu_new.tar", created_at="2026-01-02T00:00:00")
+            args = argparse.Namespace(dir=tmpdir, keep=1, name="Ubuntu", yes=False)
+            with patch("sys.stdin.isatty", return_value=False), patch("sys.stdout", io.StringIO()):
+                wslmgr_cli.cmd_snapshot_prune(args)
+            self.assertTrue(os.path.exists(os.path.join(tmpdir, "Ubuntu_old.tar")))
+
+    def test_yes_deletes_only_old_generation(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            _write_snapshot(tmpdir, tar_file="Ubuntu_old.tar", created_at="2026-01-01T00:00:00")
+            _write_snapshot(tmpdir, tar_file="Ubuntu_new.tar", created_at="2026-01-02T00:00:00")
+            args = argparse.Namespace(dir=tmpdir, keep=1, name="Ubuntu", yes=True)
+            with patch("sys.stdout", io.StringIO()):
+                wslmgr_cli.cmd_snapshot_prune(args)
+            self.assertFalse(os.path.exists(os.path.join(tmpdir, "Ubuntu_old.tar")))
+            self.assertTrue(os.path.exists(os.path.join(tmpdir, "Ubuntu_new.tar")))
+
+    def test_rejects_path_outside_snapshot_dir(self):
+        with tempfile.TemporaryDirectory() as tmpdir, tempfile.NamedTemporaryFile() as outside:
+            snap = {"tar_path": outside.name, "json_path": "", "tar_exists": True}
+            errors = wslmgr_cli._delete_snapshot_files(snap, tmpdir)
+            self.assertTrue(errors)
+            self.assertTrue(os.path.exists(outside.name))
+
+
+class TestSnapshotSchedule(unittest.TestCase):
+    def test_scheduled_command_has_explicit_retention_confirmation(self):
+        args = argparse.Namespace(name="Ubuntu Main", dir="/snapshots", keep=7)
+        command = wslmgr_cli._build_scheduled_snapshot_command(args)
+        self.assertIn("snapshot create", command)
+        self.assertIn("--keep 7", command)
+        self.assertIn("--yes", command)
+
+    def test_schedule_create_invokes_schtasks(self):
+        args = argparse.Namespace(
+            name="Ubuntu", dir="/snapshots", keep=3, time="03:00", yes=True, quiet=True
+        )
+        completed = MagicMock(returncode=0, stdout="", stderr="")
+        with patch.object(wslmgr_cli.sys, "platform", "win32"), patch(
+            "wslmgr_cli.subprocess.run", return_value=completed
+        ) as mock_run, patch("sys.stdout", io.StringIO()):
+            wslmgr_cli.cmd_snapshot_schedule_create(args)
+        command = mock_run.call_args[0][0]
+        self.assertEqual(command[:3], ["schtasks", "/create", "/tn"])
+        self.assertIn("/f", command)
+
+
 class TestCmdClone(unittest.TestCase):
     """cmd_clone のテスト。"""
 
@@ -2560,6 +2610,24 @@ class TestCmdLogClear(unittest.TestCase):
                 wslmgr_cli.cmd_log_clear(args)
         self.assertEqual(cm.exception.code, wslmgr_cli.ExitCode.USER_CANCELLED)
         mock_delete.assert_not_called()
+
+
+class TestCliI18n(unittest.TestCase):
+    def test_english_parser_help(self):
+        parser = wslmgr_cli.build_parser("en")
+        self.assertIn("command-line interface", parser.format_help())
+        self.assertIn("List WSL distributions", parser.format_help())
+
+    @patch("wslmgr_cli._run_wsl_command")
+    def test_list_uses_selected_language_for_table_headers(self, mock_run):
+        mock_run.return_value = (0, "  NAME      STATE     VERSION\n* Ubuntu    Running   2\n", "")
+        args = argparse.Namespace(
+            format="table", with_ip=False, all_info=False, with_disk=False, language="ja"
+        )
+        with patch("sys.stdout", io.StringIO()) as output:
+            wslmgr_cli.cmd_list(args)
+        self.assertIn("名前", output.getvalue())
+        self.assertIn("状態", output.getvalue())
 
 
 class TestCmdConfigDistro(unittest.TestCase):
