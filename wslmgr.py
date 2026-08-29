@@ -160,7 +160,7 @@ def _get_distro_vhdx_sizes() -> dict[str, float]:
     for name, base_path in _iter_distro_registry():
         vhdx_path = os.path.join(base_path, "ext4.vhdx")
         try:
-            sizes[name] = os.path.getsize(vhdx_path) / (1024 ** 3)
+            sizes[name] = os.path.getsize(vhdx_path) / (1024**3)
         except OSError:
             continue
     return sizes
@@ -206,8 +206,12 @@ class ProcessWindow(tk.Toplevel):
         try:
             result = subprocess.run(
                 [
-                    "wsl", "-d", distro_name, "--",
-                    "sh", "-lc",
+                    "wsl",
+                    "-d",
+                    distro_name,
+                    "--",
+                    "sh",
+                    "-lc",
                     "ps -eo pid,user,pcpu,rss,comm --sort=-pcpu 2>/dev/null"
                     " || ps -eo pid,user,pcpu,rss,comm",
                 ],
@@ -248,9 +252,7 @@ class ProcessWindow(tk.Toplevel):
         ).pack(side=tk.LEFT, padx=8)
 
         ttk.Label(toolbar, text=self._t("gui.common.filter")).pack(side=tk.LEFT, padx=(8, 2))
-        ttk.Entry(toolbar, textvariable=self._filter_var, width=16).pack(
-            side=tk.LEFT, padx=2
-        )
+        ttk.Entry(toolbar, textvariable=self._filter_var, width=16).pack(side=tk.LEFT, padx=2)
         ttk.Button(
             toolbar,
             text=self._t("gui.common.filter_clear"),
@@ -265,9 +267,7 @@ class ProcessWindow(tk.Toplevel):
         tree_frame.pack(fill=tk.BOTH, expand=True)
 
         cols = ("pid", "user", "cpu", "memory", "command")
-        self._tree = ttk.Treeview(
-            tree_frame, columns=cols, show="headings", selectmode="browse"
-        )
+        self._tree = ttk.Treeview(tree_frame, columns=cols, show="headings", selectmode="browse")
         self._tree.heading("pid", text=self._t("gui.process.col_pid"))
         self._tree.heading("user", text=self._t("gui.process.col_user"))
         self._tree.heading("cpu", text=self._t("gui.process.col_cpu"))
@@ -342,7 +342,8 @@ class ProcessWindow(tk.Toplevel):
             ):
                 continue
             self._tree.insert(
-                "", tk.END,
+                "",
+                tk.END,
                 values=(p["pid"], p["user"], p["cpu"], p["memory"], p["command"]),
             )
             displayed += 1
@@ -411,43 +412,51 @@ class ProcessWindow(tk.Toplevel):
                     timeout=5.0,
                 )
             except subprocess.TimeoutExpired:
+
                 def _on_timeout() -> None:
                     try:
                         if self.winfo_exists():
                             self._status_var.set(self._t("gui.process.timeout"))
                     except tk.TclError:
                         pass
+
                 self.after(0, _on_timeout)
                 return
             except OSError as e:
                 err_msg = str(e)
+
                 def _on_oserror() -> None:
                     try:
                         if self.winfo_exists():
                             self._status_var.set(self._t("gui.process.error", error=err_msg))
                     except tk.TclError:
                         pass
+
                 self.after(0, _on_oserror)
                 return
 
             if result.returncode != 0:
                 stderr = wsl_core.decode_wsl_output(result.stderr).strip()
                 err_msg = stderr or f"終了コード {result.returncode}"
+
                 def _on_fail() -> None:
                     try:
                         if self.winfo_exists():
                             self._status_var.set(self._t("gui.process.error", error=err_msg))
                     except tk.TclError:
                         pass
+
                 self.after(0, _on_fail)
             else:
+
                 def _on_success() -> None:
                     try:
                         if self.winfo_exists():
-                            self._status_var.set(f"PID {pid} OK")
+                            self._status_var.set(self._t("gui.process.kill_success", pid=pid))
                             self._do_refresh()
                     except tk.TclError:
                         pass
+
                 self.after(0, _on_success)
 
         threading.Thread(target=_run, daemon=True).start()
@@ -493,9 +502,7 @@ class InstallDialog(tk.Toplevel):
         frame = ttk.Frame(self, padding=12)
         frame.pack(fill=tk.BOTH, expand=True)
 
-        ttk.Label(
-            frame, text=self._t("gui.install.label")
-        ).pack(anchor=tk.W, pady=(0, 6))
+        ttk.Label(frame, text=self._t("gui.install.label")).pack(anchor=tk.W, pady=(0, 6))
 
         if self._candidates:
             list_frame = ttk.Frame(frame)
@@ -580,25 +587,29 @@ class WslConfigDialog(tk.Toplevel):
     # [wsl2] セクションで編集するキーの定義
     # (キー名, ラベルテキスト, ウィジェット種別, Combobox 選択肢 or None)
     _WSL2_FIELDS: ClassVar[list[tuple[str, str, str, list[str] | None]]] = [
-        ("memory",               "memory",               "entry",   None),
-        ("processors",           "processors",           "entry",   None),
-        ("swap",                 "swap",                 "entry",   None),
-        ("swapFile",             "swapFile",             "entry",   None),
-        ("networkingMode",       "networkingMode",       "combo",   ["", "NAT", "mirrored"]),
-        ("localhostForwarding",  "localhostForwarding",  "combo",   ["", "true", "false"]),
-        ("nestedVirtualization", "nestedVirtualization", "combo",   ["", "true", "false"]),
-        ("guiApplications",      "guiApplications",      "combo",   ["", "true", "false"]),
-        ("kernel",               "kernel",               "entry",   None),
-        ("kernelCommandLine",    "kernelCommandLine",    "entry",   None),
-        ("vmIdleTimeout",        "vmIdleTimeout",        "entry",   None),
-        ("dnsTunneling",         "dnsTunneling",         "combo",   ["", "true", "false"]),
-        ("firewall",             "firewall",             "combo",   ["", "true", "false"]),
-        ("autoProxy",            "autoProxy",            "combo",   ["", "true", "false"]),
+        ("memory", "memory", "entry", None),
+        ("processors", "processors", "entry", None),
+        ("swap", "swap", "entry", None),
+        ("swapFile", "swapFile", "entry", None),
+        ("networkingMode", "networkingMode", "combo", ["", "NAT", "mirrored"]),
+        ("localhostForwarding", "localhostForwarding", "combo", ["", "true", "false"]),
+        ("nestedVirtualization", "nestedVirtualization", "combo", ["", "true", "false"]),
+        ("guiApplications", "guiApplications", "combo", ["", "true", "false"]),
+        ("kernel", "kernel", "entry", None),
+        ("kernelCommandLine", "kernelCommandLine", "entry", None),
+        ("vmIdleTimeout", "vmIdleTimeout", "entry", None),
+        ("dnsTunneling", "dnsTunneling", "combo", ["", "true", "false"]),
+        ("firewall", "firewall", "combo", ["", "true", "false"]),
+        ("autoProxy", "autoProxy", "combo", ["", "true", "false"]),
     ]
 
     def __init__(self, parent: tk.Tk) -> None:
         super().__init__(parent)
-        self.title(".wslconfig エディタ")
+        self.title(
+            wsl_core.translate(
+                "gui.wslconfig.title", getattr(parent, "_language", wsl_core.LANGUAGE_AUTO)
+            )
+        )
         self.resizable(True, False)
         self.result: bool | None = None
         self._path = os.path.expanduser("~/.wslconfig")
@@ -722,9 +733,7 @@ class WslConfigDialog(tk.Toplevel):
                 return
 
         # 既存セクション・キーを保持しつつ [wsl2] を更新
-        new_sections: dict[str, dict[str, str]] = {
-            s: dict(kv) for s, kv in self._sections.items()
-        }
+        new_sections: dict[str, dict[str, str]] = {s: dict(kv) for s, kv in self._sections.items()}
         wsl2 = new_sections.setdefault("wsl2", {})
         for key, var in self._field_vars.items():
             wsl2[key] = var.get().strip()
@@ -790,7 +799,13 @@ class DistroConfDialog(tk.Toplevel):
         self._busy = False
         self._sections: dict[str, dict[str, str]] = {}
         self.result: bool | None = None
-        self.title(f"ディストロ設定 (wsl.conf) - {distro_name}")
+        self.title(
+            wsl_core.translate(
+                "gui.distroconf.title",
+                getattr(parent, "_language", wsl_core.LANGUAGE_AUTO),
+                name=distro_name,
+            )
+        )
         self.resizable(True, False)
         self._build_ui()
         self._set_form_enabled(False)
@@ -844,10 +859,11 @@ class DistroConfDialog(tk.Toplevel):
         for section, key, label, widget_type, combo_values in self._FIELDS:
             if section != current_section:
                 current_section = section
-                ttk.Label(
-                    form_frame, text=f"[{section}]", font=("", 10, "bold")
-                ).grid(
-                    row=row_idx, column=0, columnspan=2, sticky=tk.W,
+                ttk.Label(form_frame, text=f"[{section}]", font=("", 10, "bold")).grid(
+                    row=row_idx,
+                    column=0,
+                    columnspan=2,
+                    sticky=tk.W,
                     pady=(8 if row_idx else 0, 4),
                 )
                 row_idx += 1
@@ -976,9 +992,7 @@ class DistroConfDialog(tk.Toplevel):
                 return
 
         # 既存セクション・キーを保持しつつ編集対象のキーだけ上書き/削除する
-        new_sections: dict[str, dict[str, str]] = {
-            s: dict(kv) for s, kv in self._sections.items()
-        }
+        new_sections: dict[str, dict[str, str]] = {s: dict(kv) for s, kv in self._sections.items()}
         for (section, key), var in self._field_vars.items():
             value = var.get().strip()
             sec = new_sections.setdefault(section, {})
@@ -1018,9 +1032,7 @@ class DistroConfDialog(tk.Toplevel):
 
         threading.Thread(target=_run_and_apply, daemon=True).start()
 
-    def _on_saved(
-        self, ok: bool, err: str, new_sections: dict[str, dict[str, str]]
-    ) -> None:
+    def _on_saved(self, ok: bool, err: str, new_sections: dict[str, dict[str, str]]) -> None:
         self._busy = False
         try:
             exists = self.winfo_exists()
@@ -1127,7 +1139,13 @@ class DiskOptimizeDialog(tk.Toplevel):
         self._distro = distro_name
         self._vhdx = vhdx_path
         self._busy = False
-        self.title(f"ディスク最適化 - {distro_name}")
+        self.title(
+            wsl_core.translate(
+                "gui.optimize.title",
+                getattr(parent, "_language", wsl_core.LANGUAGE_AUTO),
+                name=distro_name,
+            )
+        )
         self.resizable(False, False)
         self._build_ui()
         self._update_size()
@@ -1138,7 +1156,7 @@ class DiskOptimizeDialog(tk.Toplevel):
     def _current_size_gb(self) -> float | None:
         """現在の vhdx ファイルサイズ (GB) を返します。取得不可なら None。"""
         try:
-            return os.path.getsize(self._vhdx) / (1024 ** 3)
+            return os.path.getsize(self._vhdx) / (1024**3)
         except OSError:
             return None
 
@@ -1168,9 +1186,7 @@ class DiskOptimizeDialog(tk.Toplevel):
         ttk.Separator(frame, orient=tk.HORIZONTAL).pack(fill=tk.X, pady=(0, 10))
 
         # スパース化
-        ttk.Label(frame, text="スパース VHD 化（推奨）", font=("", 10, "bold")).pack(
-            anchor=tk.W
-        )
+        ttk.Label(frame, text="スパース VHD 化（推奨）", font=("", 10, "bold")).pack(anchor=tk.W)
         ttk.Label(
             frame,
             text="有効化すると以降ディスクが自動的に縮小されます。管理者権限は不要です。",
@@ -1178,17 +1194,13 @@ class DiskOptimizeDialog(tk.Toplevel):
             wraplength=440,
             justify=tk.LEFT,
         ).pack(anchor=tk.W, pady=(0, 4))
-        self._sparse_btn = ttk.Button(
-            frame, text="スパース化を有効にする", command=self._do_sparse
-        )
+        self._sparse_btn = ttk.Button(frame, text="スパース化を有効にする", command=self._do_sparse)
         self._sparse_btn.pack(anchor=tk.W, pady=(0, 10))
 
         ttk.Separator(frame, orient=tk.HORIZONTAL).pack(fill=tk.X, pady=(0, 10))
 
         # diskpart 圧縮
-        ttk.Label(frame, text="今すぐ圧縮（diskpart）", font=("", 10, "bold")).pack(
-            anchor=tk.W
-        )
+        ttk.Label(frame, text="今すぐ圧縮（diskpart）", font=("", 10, "bold")).pack(anchor=tk.W)
         ttk.Label(
             frame,
             text=(
@@ -1199,9 +1211,7 @@ class DiskOptimizeDialog(tk.Toplevel):
             wraplength=440,
             justify=tk.LEFT,
         ).pack(anchor=tk.W, pady=(0, 4))
-        self._compact_btn = ttk.Button(
-            frame, text="今すぐ圧縮する", command=self._do_compact
-        )
+        self._compact_btn = ttk.Button(frame, text="今すぐ圧縮する", command=self._do_compact)
         self._compact_btn.pack(anchor=tk.W, pady=(0, 10))
 
         ttk.Separator(frame, orient=tk.HORIZONTAL).pack(fill=tk.X, pady=(0, 8))
@@ -1217,9 +1227,7 @@ class DiskOptimizeDialog(tk.Toplevel):
 
         btn_row = ttk.Frame(frame)
         btn_row.pack(fill=tk.X, pady=(8, 0))
-        ttk.Button(btn_row, text="閉じる", command=self._on_close, width=10).pack(
-            side=tk.RIGHT
-        )
+        ttk.Button(btn_row, text="閉じる", command=self._on_close, width=10).pack(side=tk.RIGHT)
 
     def _set_busy(self, busy: bool) -> None:
         self._busy = busy
@@ -1273,18 +1281,14 @@ class DiskOptimizeDialog(tk.Toplevel):
         def _run() -> None:
             # 対象ディストロを停止してから set-sparse を実行（停止失敗は無視）
             self._run_cmd(["wsl", "--terminate", distro])
-            rc, err = self._run_cmd(
-                ["wsl", "--manage", distro, "--set-sparse", "true"]
-            )
+            rc, err = self._run_cmd(["wsl", "--manage", distro, "--set-sparse", "true"])
 
             def _done() -> None:
                 if rc == 0:
                     self._set_status_safe("スパース化を有効にしました。")
                     self._update_size()
                 else:
-                    self._set_status_safe(
-                        f"スパース化に失敗しました: {err or '不明なエラー'}"
-                    )
+                    self._set_status_safe(f"スパース化に失敗しました: {err or '不明なエラー'}")
                 self._set_busy(False)
 
             self.after(0, _done)
@@ -1338,8 +1342,7 @@ class DiskOptimizeDialog(tk.Toplevel):
                     if before is not None and after is not None:
                         saved = before - after
                         self._set_status_safe(
-                            f"圧縮完了: {before:.2f} GB → {after:.2f} GB"
-                            f"（{saved:.2f} GB 削減）"
+                            f"圧縮完了: {before:.2f} GB → {after:.2f} GB（{saved:.2f} GB 削減）"
                         )
                     else:
                         self._set_status_safe("圧縮が完了しました。")
@@ -1375,7 +1378,13 @@ class DistroDetailDialog(tk.Toplevel):
     def __init__(self, parent: tk.Tk, distro_name: str) -> None:
         super().__init__(parent)
         self._distro = distro_name
-        self.title(f"詳細情報 - {distro_name}")
+        self.title(
+            wsl_core.translate(
+                "gui.detail.title",
+                getattr(parent, "_language", wsl_core.LANGUAGE_AUTO),
+                name=distro_name,
+            )
+        )
         self.geometry("560x520")
         self.minsize(450, 400)
         self._build_ui()
@@ -1387,9 +1396,7 @@ class DistroDetailDialog(tk.Toplevel):
         main = ttk.Frame(self, padding=12)
         main.pack(fill=tk.BOTH, expand=True)
 
-        ttk.Label(
-            main, text=self._distro, font=("", 13, "bold")
-        ).pack(anchor=tk.W, pady=(0, 8))
+        ttk.Label(main, text=self._distro, font=("", 13, "bold")).pack(anchor=tk.W, pady=(0, 8))
 
         # OS 情報セクション
         self._os_frame = self._section(main, "OS 情報")
@@ -1422,8 +1429,11 @@ class DistroDetailDialog(tk.Toplevel):
 
         cols = ("filesystem", "size", "used", "avail", "use_pct", "mount")
         self._df_tree = ttk.Treeview(
-            df_tree_frame, columns=cols, show="headings",
-            selectmode="none", height=5,
+            df_tree_frame,
+            columns=cols,
+            show="headings",
+            selectmode="none",
+            height=5,
         )
         for cid, text, w in [
             ("filesystem", "ファイルシステム", 130),
@@ -1434,8 +1444,12 @@ class DistroDetailDialog(tk.Toplevel):
             ("mount", "マウント先", 100),
         ]:
             self._df_tree.heading(cid, text=text)
-            self._df_tree.column(cid, width=w, minwidth=50, anchor=tk.CENTER
-                                 if cid != "filesystem" and cid != "mount" else tk.W)
+            self._df_tree.column(
+                cid,
+                width=w,
+                minwidth=50,
+                anchor=tk.CENTER if cid != "filesystem" and cid != "mount" else tk.W,
+            )
         vsb = ttk.Scrollbar(df_tree_frame, orient=tk.VERTICAL, command=self._df_tree.yview)
         self._df_tree.configure(yscrollcommand=vsb.set)
         self._df_tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
@@ -1444,8 +1458,11 @@ class DistroDetailDialog(tk.Toplevel):
         # ステータス
         self._status_var = tk.StringVar(value="情報を取得中…")
         ttk.Label(
-            main, textvariable=self._status_var,
-            relief=tk.SUNKEN, anchor=tk.W, padding=(4, 2),
+            main,
+            textvariable=self._status_var,
+            relief=tk.SUNKEN,
+            anchor=tk.W,
+            padding=(4, 2),
         ).pack(fill=tk.X, pady=(8, 0))
 
         btn_frame = ttk.Frame(main)
@@ -1453,9 +1470,7 @@ class DistroDetailDialog(tk.Toplevel):
         ttk.Button(btn_frame, text="更新", command=self._fetch_all, width=8).pack(
             side=tk.RIGHT, padx=(4, 0)
         )
-        ttk.Button(btn_frame, text="閉じる", command=self.destroy, width=8).pack(
-            side=tk.RIGHT
-        )
+        ttk.Button(btn_frame, text="閉じる", command=self.destroy, width=8).pack(side=tk.RIGHT)
 
     @staticmethod
     def _section(parent: ttk.Frame, title: str) -> ttk.Frame:
@@ -1492,7 +1507,7 @@ class DistroDetailDialog(tk.Toplevel):
             vhdx = _get_distro_vhdx_path(distro)
             if vhdx:
                 try:
-                    size = os.path.getsize(vhdx) / (1024 ** 3)
+                    size = os.path.getsize(vhdx) / (1024**3)
                     data["vhdx"] = f"{size:.2f} GB ({os.path.basename(vhdx)})"
                 except OSError:
                     data["vhdx"] = f"サイズ取得不可 ({vhdx})"
@@ -1547,14 +1562,18 @@ class DistroDetailDialog(tk.Toplevel):
         for item in self._df_tree.get_children():
             self._df_tree.delete(item)
         for entry in data.get("df", []):
-            self._df_tree.insert("", tk.END, values=(
-                entry["filesystem"],
-                wsl_core.format_bytes(entry["total"]),
-                wsl_core.format_bytes(entry["used"]),
-                wsl_core.format_bytes(entry["available"]),
-                entry["use_percent"],
-                entry["mount_point"],
-            ))
+            self._df_tree.insert(
+                "",
+                tk.END,
+                values=(
+                    entry["filesystem"],
+                    wsl_core.format_bytes(entry["total"]),
+                    wsl_core.format_bytes(entry["used"]),
+                    wsl_core.format_bytes(entry["available"]),
+                    entry["use_percent"],
+                    entry["mount_point"],
+                ),
+            )
 
         self._status_var.set("取得完了")
 
@@ -1582,7 +1601,11 @@ class LogViewerDialog(tk.Toplevel):
         super().__init__(parent)
         self._log_entries = log_entries
         self._clear_callback = clear_callback
-        self.title("操作ログ")
+        self.title(
+            wsl_core.translate(
+                "gui.log.title", getattr(parent, "_language", wsl_core.LANGUAGE_AUTO)
+            )
+        )
         self.geometry("600x400")
         self.resizable(True, True)
         self._build_ui()
@@ -1614,9 +1637,7 @@ class LogViewerDialog(tk.Toplevel):
         ttk.Button(btn_frame, text="閉じる", command=self.destroy, width=10).pack(
             side=tk.RIGHT, padx=(4, 0)
         )
-        ttk.Button(btn_frame, text="クリア", command=self._on_clear, width=10).pack(
-            side=tk.RIGHT
-        )
+        ttk.Button(btn_frame, text="クリア", command=self._on_clear, width=10).pack(side=tk.RIGHT)
 
     def _refresh_text(self) -> None:
         """ログエントリをテキストウィジェットに反映します。"""
@@ -1647,7 +1668,11 @@ class WslUpdateConfirmDialog(tk.Toplevel):
 
     def __init__(self, parent: tk.Tk, running_distros: list[str]) -> None:
         super().__init__(parent)
-        self.title("WSL を更新")
+        self.title(
+            wsl_core.translate(
+                "gui.update.title", getattr(parent, "_language", wsl_core.LANGUAGE_AUTO)
+            )
+        )
         self.resizable(False, False)
         self.result: dict | None = None
         self._running_distros = running_distros
@@ -1720,7 +1745,11 @@ class WslVersionDialog(tk.Toplevel):
     ) -> None:
         super().__init__(parent)
         self._on_check_update = on_check_update
-        self.title("WSL バージョン情報")
+        self.title(
+            wsl_core.translate(
+                "gui.version.title", getattr(parent, "_language", wsl_core.LANGUAGE_AUTO)
+            )
+        )
         self.resizable(False, False)
         self._build_ui(lines)
         self.transient(parent)
@@ -1735,9 +1764,7 @@ class WslVersionDialog(tk.Toplevel):
 
         btn_frame = ttk.Frame(frame)
         btn_frame.pack(fill=tk.X, pady=(12, 0))
-        ttk.Button(btn_frame, text="閉じる", command=self.destroy, width=10).pack(
-            side=tk.RIGHT
-        )
+        ttk.Button(btn_frame, text="閉じる", command=self.destroy, width=10).pack(side=tk.RIGHT)
         ttk.Button(
             btn_frame, text="更新を確認", command=self._on_check_update_click, width=12
         ).pack(side=tk.RIGHT, padx=(0, 4))
@@ -1943,13 +1970,19 @@ class TransferProgressDialog(tk.Toplevel):
                 # on_closing 側の後続処理 (他ダイアログの force_cancel・
                 # 終了処理) を止めないよう、ここでも握りつぶす。
                 pass
+
+
 class WslMountDialog(tk.Toplevel):
     """物理ディスクまたは VHD を WSL2 にマウントするダイアログ。"""
 
     def __init__(self, parent: WSLManager) -> None:
         super().__init__(parent)
         self._parent = parent
-        self.title("ディスクのマウント (wsl --mount)")
+        self.title(
+            wsl_core.translate(
+                "gui.mount.title", getattr(parent, "_language", wsl_core.LANGUAGE_AUTO)
+            )
+        )
         self.resizable(False, False)
         self._build_ui()
         self.transient(parent)
@@ -2024,9 +2057,7 @@ class WslMountDialog(tk.Toplevel):
         ttk.Button(btn_frame, text="マウント", command=self._on_mount, width=10).pack(
             side=tk.RIGHT, padx=(4, 0)
         )
-        ttk.Button(btn_frame, text="キャンセル", command=self.destroy, width=10).pack(
-            side=tk.RIGHT
-        )
+        ttk.Button(btn_frame, text="キャンセル", command=self.destroy, width=10).pack(side=tk.RIGHT)
 
     def _browse_vhd(self) -> None:
         path = filedialog.askopenfilename(
@@ -2068,7 +2099,11 @@ class WslUnmountDialog(tk.Toplevel):
     def __init__(self, parent: WSLManager) -> None:
         super().__init__(parent)
         self._parent = parent
-        self.title("ディスクのアンマウント (wsl --unmount)")
+        self.title(
+            wsl_core.translate(
+                "gui.unmount.title", getattr(parent, "_language", wsl_core.LANGUAGE_AUTO)
+            )
+        )
         self.resizable(False, False)
         self._build_ui()
         self.transient(parent)
@@ -2100,9 +2135,7 @@ class WslUnmountDialog(tk.Toplevel):
         ttk.Button(btn_frame, text="アンマウント", command=self._on_unmount, width=12).pack(
             side=tk.RIGHT, padx=(4, 0)
         )
-        ttk.Button(btn_frame, text="キャンセル", command=self.destroy, width=10).pack(
-            side=tk.RIGHT
-        )
+        ttk.Button(btn_frame, text="キャンセル", command=self.destroy, width=10).pack(side=tk.RIGHT)
 
     def _on_unmount(self) -> None:
         disk = self._disk_var.get().strip() or None
@@ -2122,7 +2155,11 @@ class SnapshotManagerDialog(tk.Toplevel):
         super().__init__(parent)
         self._parent = parent
         self._snapshots: list[dict] = []
-        self.title("スナップショット管理")
+        self.title(
+            wsl_core.translate(
+                "gui.snapshot.title", getattr(parent, "_language", wsl_core.LANGUAGE_AUTO)
+            )
+        )
         self.geometry("720x420")
         self.minsize(600, 320)
         self.resizable(True, True)
@@ -2139,20 +2176,16 @@ class SnapshotManagerDialog(tk.Toplevel):
         top_frame.pack(fill=tk.X, pady=(0, 6))
 
         self._dir_var = tk.StringVar(value="保存先: -")
-        ttk.Label(top_frame, textvariable=self._dir_var).pack(
-            side=tk.LEFT, fill=tk.X, expand=True
+        ttk.Label(top_frame, textvariable=self._dir_var).pack(side=tk.LEFT, fill=tk.X, expand=True)
+        ttk.Button(top_frame, text="保存先変更…", command=self._change_dir, width=12).pack(
+            side=tk.RIGHT
         )
-        ttk.Button(
-            top_frame, text="保存先変更…", command=self._change_dir, width=12
-        ).pack(side=tk.RIGHT)
 
         tree_frame = ttk.Frame(main)
         tree_frame.pack(fill=tk.BOTH, expand=True)
 
         cols = ("name", "created_at", "size", "comment")
-        self._tree = ttk.Treeview(
-            tree_frame, columns=cols, show="headings", selectmode="browse"
-        )
+        self._tree = ttk.Treeview(tree_frame, columns=cols, show="headings", selectmode="browse")
         for cid, text, w in [
             ("name", "ディストリビューション", 160),
             ("created_at", "作成日時", 140),
@@ -2177,18 +2210,18 @@ class SnapshotManagerDialog(tk.Toplevel):
         ttk.Button(bottom, text="更新", command=self._reload, width=10).pack(
             side=tk.RIGHT, padx=(4, 0)
         )
-        ttk.Button(
-            bottom, text="フォルダを開く", command=self._open_folder, width=13
-        ).pack(side=tk.RIGHT, padx=(4, 0))
-        ttk.Button(
-            bottom, text="保存先変更...", command=self._change_snapshot_dir, width=13
-        ).pack(side=tk.RIGHT, padx=(4, 0))
+        ttk.Button(bottom, text="フォルダを開く", command=self._open_folder, width=13).pack(
+            side=tk.RIGHT, padx=(4, 0)
+        )
+        ttk.Button(bottom, text="保存先変更...", command=self._change_snapshot_dir, width=13).pack(
+            side=tk.RIGHT, padx=(4, 0)
+        )
         ttk.Button(bottom, text="削除", command=self._delete_snapshot, width=10).pack(
             side=tk.RIGHT, padx=(4, 0)
         )
-        ttk.Button(
-            bottom, text="復元...", command=self._restore_snapshot, width=10
-        ).pack(side=tk.RIGHT, padx=(4, 0))
+        ttk.Button(bottom, text="復元...", command=self._restore_snapshot, width=10).pack(
+            side=tk.RIGHT, padx=(4, 0)
+        )
 
     def _change_dir(self) -> None:
         """スナップショット保存先ディレクトリを変更します。"""
@@ -2232,9 +2265,7 @@ class SnapshotManagerDialog(tk.Toplevel):
             )
 
         total = wsl_core.total_snapshots_size(self._snapshots)
-        self._total_var.set(
-            f"合計: {wsl_core.format_bytes(total)} ({len(self._snapshots)} 件)"
-        )
+        self._total_var.set(f"合計: {wsl_core.format_bytes(total)} ({len(self._snapshots)} 件)")
 
     def _selected_snapshot(self) -> dict | None:
         sel = self._tree.selection()
@@ -2249,9 +2280,7 @@ class SnapshotManagerDialog(tk.Toplevel):
         """選択したスナップショットを新しいディストリビューションとして復元します。"""
         snap = self._selected_snapshot()
         if snap is None:
-            messagebox.showwarning(
-                "警告", "スナップショットを選択してください。", parent=self
-            )
+            messagebox.showwarning("警告", "スナップショットを選択してください。", parent=self)
             return
         if not snap.get("tar_exists", True):
             messagebox.showwarning(
@@ -2283,9 +2312,7 @@ class SnapshotManagerDialog(tk.Toplevel):
             )
             return
 
-        install_path = filedialog.askdirectory(
-            title="インストール先フォルダを選択", parent=self
-        )
+        install_path = filedialog.askdirectory(title="インストール先フォルダを選択", parent=self)
         if not install_path:
             return
 
@@ -2339,9 +2366,7 @@ class SnapshotManagerDialog(tk.Toplevel):
             elif returncode == 0:
                 parent._set_status(f"「{new_name}」に復元しました。")
             else:
-                parent._set_status(
-                    stderr_text or f"「{new_name}」への復元に失敗しました。"
-                )
+                parent._set_status(stderr_text or f"「{new_name}」への復元に失敗しました。")
             parent._refresh()
 
         # 親をメインウィンドウにする。管理ダイアログを親にすると、復元中に
@@ -2360,9 +2385,7 @@ class SnapshotManagerDialog(tk.Toplevel):
         """選択したスナップショットの tar / JSON ファイルを削除します。"""
         snap = self._selected_snapshot()
         if snap is None:
-            messagebox.showwarning(
-                "警告", "スナップショットを選択してください。", parent=self
-            )
+            messagebox.showwarning("警告", "スナップショットを選択してください。", parent=self)
             return
 
         distro_name = snap.get("distro_name", "")
@@ -2396,9 +2419,7 @@ class SnapshotManagerDialog(tk.Toplevel):
                 errors.append(str(e))
 
         if errors:
-            messagebox.showerror(
-                "エラー", "削除に失敗しました:\n" + "\n".join(errors), parent=self
-            )
+            messagebox.showerror("エラー", "削除に失敗しました:\n" + "\n".join(errors), parent=self)
 
         self._parent._log_operation("スナップショット削除", distro_name, tar_file)
         self._reload()
@@ -2413,9 +2434,7 @@ class SnapshotManagerDialog(tk.Toplevel):
             return
 
         if not hasattr(os, "startfile"):
-            messagebox.showinfo(
-                "情報", "この機能は Windows でのみ利用できます。", parent=self
-            )
+            messagebox.showinfo("情報", "この機能は Windows でのみ利用できます。", parent=self)
             return
         try:
             os.startfile(snap_dir)  # type: ignore[attr-defined]
@@ -2679,9 +2698,9 @@ class WSLManager(tk.Tk):
         self.bind_all("<Control-l>", lambda e: self._show_log_viewer())
         self.bind_all(
             "<Delete>",
-            lambda e: self._stop_distro()
-            if not isinstance(e.widget, (tk.Entry, ttk.Entry))
-            else None,
+            lambda e: (
+                self._stop_distro() if not isinstance(e.widget, (tk.Entry, ttk.Entry)) else None
+            ),
         )
         self.bind_all("<Control-Shift-Q>", lambda e: self._shutdown_all())
         self.bind_all("<F5>", lambda e: self._refresh())
@@ -2703,20 +2722,14 @@ class WSLManager(tk.Tk):
         ]
         for index, (label, cmd, width) in enumerate(primary_actions):
             if index == 3:
-                ttk.Separator(primary_row, orient=tk.VERTICAL).pack(
-                    side=tk.LEFT, padx=6, fill=tk.Y
-                )
-            ttk.Button(primary_row, text=label, command=cmd, width=width).pack(
-                side=tk.LEFT, padx=2
-            )
+                ttk.Separator(primary_row, orient=tk.VERTICAL).pack(side=tk.LEFT, padx=6, fill=tk.Y)
+            ttk.Button(primary_row, text=label, command=cmd, width=width).pack(side=tk.LEFT, padx=2)
         ttk.Button(
             primary_row,
             text=self._t("gui.toolbar.refresh"),
             command=self._refresh,
             width=10,
-        ).pack(
-            side=tk.RIGHT, padx=2
-        )
+        ).pack(side=tk.RIGHT, padx=2)
 
         secondary_row = ttk.Frame(toolbar)
         secondary_row.pack(fill=tk.X, pady=(4, 0))
@@ -2741,9 +2754,7 @@ class WSLManager(tk.Tk):
         ).pack(side=tk.LEFT, padx=(8, 4))
 
         ttk.Label(secondary_row, text="🔍").pack(side=tk.LEFT, padx=(4, 2))
-        ttk.Entry(secondary_row, textvariable=self._filter_var, width=12).pack(
-            side=tk.LEFT, padx=2
-        )
+        ttk.Entry(secondary_row, textvariable=self._filter_var, width=12).pack(side=tk.LEFT, padx=2)
         ttk.Button(
             secondary_row,
             text="✕",
@@ -2762,9 +2773,7 @@ class WSLManager(tk.Tk):
         tree_frame.pack(fill=tk.BOTH, expand=True)
 
         cols = ("default", "name", "state", "version", "cpu", "memory", "disk", "ip")
-        self._tree = ttk.Treeview(
-            tree_frame, columns=cols, show="headings", selectmode="browse"
-        )
+        self._tree = ttk.Treeview(tree_frame, columns=cols, show="headings", selectmode="browse")
 
         self._tree.heading("default", text="")
         self._tree.heading("name", text=self._t("gui.column.name"))
@@ -2810,9 +2819,7 @@ class WSLManager(tk.Tk):
         self._tree.tag_configure("stopped", foreground="#888888")
 
         # 列クリックソート
-        self._sorter = TreeviewSorter(
-            self._tree, numeric_columns={"cpu", "memory", "disk"}
-        )
+        self._sorter = TreeviewSorter(self._tree, numeric_columns={"cpu", "memory", "disk"})
         self._sorter.set_state(self._settings["sort_column"], self._settings["sort_desc"])
 
     def _build_statusbar(self, parent: ttk.Frame) -> None:
@@ -2875,21 +2882,15 @@ class WSLManager(tk.Tk):
         if width <= 2 or height <= 2:
             self._history_layouts.pop(str(canvas), None)
             return
-        layout = wsl_core.prepare_chart_layout(
-            self._resource_history, metric, width, height
-        )
+        layout = wsl_core.prepare_chart_layout(self._resource_history, metric, width, height)
         self._history_layouts[str(canvas)] = layout
         for tick in layout.y_ticks:
-            canvas.create_line(
-                layout.plot_x0, tick.pos, layout.plot_x1, tick.pos, fill="#e6e6e6"
-            )
+            canvas.create_line(layout.plot_x0, tick.pos, layout.plot_x1, tick.pos, fill="#e6e6e6")
             canvas.create_text(
                 layout.plot_x0 - 4, tick.pos, text=tick.label, anchor=tk.E, fill="#555"
             )
         for tick in layout.x_ticks:
-            canvas.create_line(
-                tick.pos, layout.plot_y0, tick.pos, layout.plot_y1, fill="#f0f0f0"
-            )
+            canvas.create_line(tick.pos, layout.plot_y0, tick.pos, layout.plot_y1, fill="#f0f0f0")
             canvas.create_text(
                 tick.pos,
                 layout.plot_y1 + 12,
@@ -2903,9 +2904,7 @@ class WSLManager(tk.Tk):
         for series in layout.series:
             for segment in series.segments:
                 if len(segment) > 1:
-                    coordinates = [
-                        coordinate for point in segment for coordinate in point
-                    ]
+                    coordinates = [coordinate for point in segment for coordinate in point]
                     canvas.create_line(*coordinates, fill=series.color, width=2)
                 elif segment:
                     x, y = segment[0]
@@ -2936,9 +2935,7 @@ class WSLManager(tk.Tk):
             )
             legend_x += 22 + len(series.name) * 7
 
-    def _on_history_canvas_motion(
-        self, canvas: tk.Canvas, metric: str, event: tk.Event
-    ) -> None:
+    def _on_history_canvas_motion(self, canvas: tk.Canvas, metric: str, event: tk.Event) -> None:
         """Show the nearest resource-history observation while the cursor is over a graph."""
         layout = self._history_layouts.get(str(canvas))
         if not self._resource_history_visible or layout is None:
@@ -2965,9 +2962,7 @@ class WSLManager(tk.Tk):
         cursor_y: float,
     ) -> None:
         self._clear_history_tooltip(canvas)
-        timestamp = datetime.fromtimestamp(point.timestamp).strftime(
-            "%Y-%m-%d %H:%M:%S"
-        )
+        timestamp = datetime.fromtimestamp(point.timestamp).strftime("%Y-%m-%d %H:%M:%S")
         value = self._resource_value_label(metric, point.value)
         label = f"{series.name}\n{timestamp}\n{value}"
         text_item = canvas.create_text(
@@ -3115,8 +3110,7 @@ class WSLManager(tk.Tk):
                     distro["memory"] = memory
 
                 ip_future_to_distro = {
-                    executor.submit(self._get_distro_ip, d["name"]): d
-                    for d in running_distros
+                    executor.submit(self._get_distro_ip, d["name"]): d for d in running_distros
                 }
                 for future in concurrent.futures.as_completed(ip_future_to_distro):
                     distro = ip_future_to_distro[future]
@@ -3140,9 +3134,7 @@ class WSLManager(tk.Tk):
 
         def _run() -> None:
             distros, err = self._get_distros()
-            self._call_soon_safe(
-                lambda: self._apply_refresh_result(distros, err, selected)
-            )
+            self._call_soon_safe(lambda: self._apply_refresh_result(distros, err, selected))
 
         threading.Thread(target=_run, daemon=True).start()
 
@@ -3168,9 +3160,7 @@ class WSLManager(tk.Tk):
         # フィルタが適用されている場合はフィルタ後の件数を追記
         filter_text = self._filter_var.get().strip().casefold()
         if filter_text:
-            filtered_count = sum(
-                1 for d in distros if filter_text in d["name"].casefold()
-            )
+            filtered_count = sum(1 for d in distros if filter_text in d["name"].casefold())
             self._set_status(
                 f"ディストリビューション数: {count}  "
                 f"(実行中: {running} / 停止中: {count - running})"
@@ -3210,9 +3200,7 @@ class WSLManager(tk.Tk):
                 continue
             default_mark = "★" if d["default"] else ""
             state_jp = (
-                self.STATE_JP.get(d["state"], d["state"])
-                if self._language == "ja"
-                else d["state"]
+                self.STATE_JP.get(d["state"], d["state"]) if self._language == "ja" else d["state"]
             )
             version_str = f"WSL{d['version']}" if d["version"] else ""
             tag = "running" if d["state"] == "Running" else "stopped"
@@ -3280,6 +3268,7 @@ class WSLManager(tk.Tk):
         スレッド内での例外は誰も捕まえないため、スケジュール時と実行時の
         両方をここでガードします。ウィンドウが既に無い場合は黙って捨てます。
         """
+
         def _guarded() -> None:
             try:
                 if self.winfo_exists():
@@ -3306,9 +3295,7 @@ class WSLManager(tk.Tk):
                 with open(self._log_file, encoding="utf-8") as f:
                     entries = wsl_core.deserialize_log_entries(f.read())
                 for entry in entries[-1000:]:
-                    self._operation_log.append(
-                        wsl_core.format_log_entry_from_dict(entry)
-                    )
+                    self._operation_log.append(wsl_core.format_log_entry_from_dict(entry))
         except OSError:
             pass
 
@@ -3351,8 +3338,7 @@ class WSLManager(tk.Tk):
                 messagebox.showwarning(
                     "警告",
                     "一部のログファイルを削除できませんでした。\n"
-                    "他のプロセスが使用中の可能性があります:\n"
-                    + "\n".join(failed),
+                    "他のプロセスが使用中の可能性があります:\n" + "\n".join(failed),
                     parent=dialog if dialog is not None else self,
                 )
 
@@ -3410,13 +3396,9 @@ class WSLManager(tk.Tk):
         ):
             return
         self._log_operation("停止", name, "実行")
-        status_msg = (
-            f"「{name}」を停止中…" if self._language == "ja" else f"Stopping '{name}'..."
-        )
+        status_msg = f"「{name}」を停止中…" if self._language == "ja" else f"Stopping '{name}'..."
         self._set_status(status_msg)
-        ok_msg = (
-            f"「{name}」を停止しました。" if self._language == "ja" else f"Stopped '{name}'."
-        )
+        ok_msg = f"「{name}」を停止しました。" if self._language == "ja" else f"Stopped '{name}'."
         err_msg = (
             f"「{name}」の停止に失敗しました。"
             if self._language == "ja"
@@ -3435,9 +3417,7 @@ class WSLManager(tk.Tk):
         )
         self._set_status(status_msg)
         ok_msg = (
-            "WSL を全停止しました。"
-            if self._language == "ja"
-            else "Shut down all distributions."
+            "WSL を全停止しました。" if self._language == "ja" else "Shut down all distributions."
         )
         err_msg = (
             "WSL の全停止に失敗しました。"
@@ -3496,9 +3476,7 @@ class WSLManager(tk.Tk):
                 creationflags=CREATE_NO_WINDOW,
             )
             self._log_operation("ターミナル起動", name, "Windows Terminal")
-            self._set_status(
-                f"「{name}」のターミナルを開きました (Windows Terminal)。"
-            )
+            self._set_status(f"「{name}」のターミナルを開きました (Windows Terminal)。")
             return
         except FileNotFoundError:
             pass
@@ -3512,9 +3490,7 @@ class WSLManager(tk.Tk):
                 creationflags=CREATE_NEW_CONSOLE,
             )
             self._log_operation("ターミナル起動", name, "コマンド プロンプト")
-            self._set_status(
-                f"「{name}」のターミナルを開きました (コマンド プロンプト)。"
-            )
+            self._set_status(f"「{name}」のターミナルを開きました (コマンド プロンプト)。")
         except OSError as e:
             self._set_status(f"ターミナルを開けませんでした: {e}")
 
@@ -3561,10 +3537,7 @@ class WSLManager(tk.Tk):
                 )
                 return
 
-        self._process_windows = {
-            k: v for k, v in self._process_windows.items()
-            if v.winfo_exists()
-        }
+        self._process_windows = {k: v for k, v in self._process_windows.items() if v.winfo_exists()}
 
         existing = self._process_windows.get(name)
         if existing and existing.winfo_exists():
@@ -3585,9 +3558,7 @@ class WSLManager(tk.Tk):
             return
 
         existing = [d["name"] for d in self._all_distros]
-        version = next(
-            (str(d["version"]) for d in self._all_distros if d["name"] == name), ""
-        )
+        version = next((str(d["version"]) for d in self._all_distros if d["name"] == name), "")
 
         new_name = simpledialog.askstring(
             "複製",
@@ -3625,9 +3596,7 @@ class WSLManager(tk.Tk):
         self._set_status(f"「{name}」を複製中… (1/2 エクスポート)")
         self._run_clone_cmd(name, new_name, install_path, version)
 
-    def _run_clone_cmd(
-        self, name: str, new_name: str, install_path: str, version: str
-    ) -> None:
+    def _run_clone_cmd(self, name: str, new_name: str, install_path: str, version: str) -> None:
         """複製処理（エクスポート→インポート）をバックグラウンドスレッドで実行します。"""
 
         def _run() -> None:
@@ -3687,9 +3656,7 @@ class WSLManager(tk.Tk):
                     self._set_status_safe(msg)
                     return
 
-                self._set_status_safe(
-                    f"「{name}」を「{new_name}」として複製しました。"
-                )
+                self._set_status_safe(f"「{name}」を「{new_name}」として複製しました。")
             finally:
                 try:
                     os.remove(tmp_tar)
@@ -3771,9 +3738,7 @@ class WSLManager(tk.Tk):
                     )
             else:
                 wsl_core.discard_partial_write(partial_path)
-                self._set_status(
-                    stderr_text or f"「{name}」のエクスポートに失敗しました。"
-                )
+                self._set_status(stderr_text or f"「{name}」のエクスポートに失敗しました。")
             self._refresh()
 
         TransferProgressDialog(
@@ -3822,9 +3787,7 @@ class WSLManager(tk.Tk):
         tar_path = os.path.join(snap_dir, basename + ".tar")
         json_path = os.path.join(snap_dir, basename + ".json")
 
-        wsl_version = next(
-            (str(d["version"]) for d in self._all_distros if d["name"] == name), "2"
-        )
+        wsl_version = next((str(d["version"]) for d in self._all_distros if d["name"] == name), "2")
 
         # 元 VHDX のサイズを進捗率の分母 (上限の目安) として使う
         total_bytes: int | None = None
@@ -3846,9 +3809,7 @@ class WSLManager(tk.Tk):
             if cancelled:
                 wsl_core.discard_partial_write(partial_tar)
                 self._log_operation("スナップショット作成", name, "キャンセル")
-                self._set_status(
-                    f"「{name}」のスナップショット作成をキャンセルしました。"
-                )
+                self._set_status(f"「{name}」のスナップショット作成をキャンセルしました。")
             elif returncode == 0:
                 if not wsl_core.finalize_partial_write(partial_tar, tar_path):
                     wsl_core.discard_partial_write(partial_tar)
@@ -3873,9 +3834,7 @@ class WSLManager(tk.Tk):
                         self._set_status(f"「{name}」のスナップショットを作成しました。")
             else:
                 wsl_core.discard_partial_write(partial_tar)
-                self._set_status(
-                    stderr_text or f"「{name}」のスナップショット作成に失敗しました。"
-                )
+                self._set_status(stderr_text or f"「{name}」のスナップショット作成に失敗しました。")
             self._refresh()
 
         TransferProgressDialog(
@@ -3942,9 +3901,7 @@ class WSLManager(tk.Tk):
             self._set_status("インストールをキャンセルしました。")
             return
 
-        if not messagebox.askyesno(
-            "確認", f"「{name}」をインストールしますか？", parent=self
-        ):
+        if not messagebox.askyesno("確認", f"「{name}」をインストールしますか？", parent=self):
             return
 
         self._set_status(f"「{name}」をインストール中…")
@@ -4070,9 +4027,7 @@ class WSLManager(tk.Tk):
         def _on_done(returncode: int, stderr_text: str, cancelled: bool) -> None:
             if cancelled:
                 self._log_operation("インポート", distro_name, "キャンセル")
-                self._set_status(
-                    f"「{distro_name}」のインポートをキャンセルしました。"
-                )
+                self._set_status(f"「{distro_name}」のインポートをキャンセルしました。")
                 if messagebox.askyesno(
                     "確認",
                     (
@@ -4090,9 +4045,7 @@ class WSLManager(tk.Tk):
             elif returncode == 0:
                 self._set_status(f"「{distro_name}」をインポートしました。")
             else:
-                self._set_status(
-                    stderr_text or f"「{distro_name}」のインポートに失敗しました。"
-                )
+                self._set_status(stderr_text or f"「{distro_name}」のインポートに失敗しました。")
             self._refresh()
 
         TransferProgressDialog(
@@ -4279,9 +4232,7 @@ class WSLManager(tk.Tk):
             elif returncode == 0:
                 self._set_status(self._t("gui.msg.convert_success", name=name, version=target))
             else:
-                self._set_status(
-                    stderr_text or self._t("gui.msg.convert_failed", error="")
-                )
+                self._set_status(stderr_text or self._t("gui.msg.convert_failed", error=""))
             self._refresh()
 
         # ``--set-version`` は大きなディストリビューションで数分〜数十分かかるため
@@ -4316,6 +4267,7 @@ class WSLManager(tk.Tk):
 
         def _run() -> None:
             res = wsl_core.run_wsl(mount_args, timeout=60.0, creationflags=CREATE_NO_WINDOW)
+
             def _done() -> None:
                 if res.returncode == 0:
                     self._log_operation("マウント", disk, "成功")
@@ -4333,6 +4285,7 @@ class WSLManager(tk.Tk):
                         "管理者権限が必要な場合があります。",
                         parent=self,
                     )
+
             self._call_soon_safe(_done)
 
         threading.Thread(target=_run, daemon=True).start()
@@ -4344,6 +4297,7 @@ class WSLManager(tk.Tk):
 
         def _run() -> None:
             res = wsl_core.run_wsl(unmount_args, timeout=30.0, creationflags=CREATE_NO_WINDOW)
+
             def _done() -> None:
                 if res.returncode == 0:
                     self._log_operation("アンマウント", target, "成功")
@@ -4363,6 +4317,7 @@ class WSLManager(tk.Tk):
                         "管理者権限が必要な場合があります。",
                         parent=self,
                     )
+
             self._call_soon_safe(_done)
 
         threading.Thread(target=_run, daemon=True).start()
@@ -4549,6 +4504,7 @@ class WSLManager(tk.Tk):
 
 # ── エントリポイント ──────────────────────────────────────────────────────────
 
+
 def main() -> None:
     if sys.platform != "win32":
         # Windows 以外では起動できない旨を伝えて終了
@@ -4556,8 +4512,7 @@ def main() -> None:
         root.withdraw()
         messagebox.showerror(
             "エラー",
-            "WSL Manager は Windows 環境でのみ動作します。\n"
-            "Windows 10/11 上で実行してください。",
+            "WSL Manager は Windows 環境でのみ動作します。\nWindows 10/11 上で実行してください。",
             parent=root,
         )
         root.destroy()
@@ -4566,10 +4521,12 @@ def main() -> None:
     # 高DPI 対応
     try:
         import ctypes
+
         ctypes.windll.shcore.SetProcessDpiAwareness(2)
     except Exception:
         try:
             import ctypes
+
             ctypes.windll.user32.SetProcessDPIAware()
         except Exception:
             pass
@@ -4577,6 +4534,7 @@ def main() -> None:
     # 多重起動防止 (Named Mutex)
     try:
         import ctypes
+
         mutex_name = "Global\\WSLManager_SingleInstance_Mutex"
         ctypes.windll.kernel32.CreateMutexW(None, False, mutex_name)
         if ctypes.windll.kernel32.GetLastError() == 183:  # ERROR_ALREADY_EXISTS

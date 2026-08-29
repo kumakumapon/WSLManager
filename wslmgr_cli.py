@@ -1590,7 +1590,7 @@ def build_parser(language: str | None = None) -> argparse.ArgumentParser:
         "--all-info", "-a", action="store_true", help=t("cli.all_info"),
     )
     p_status.add_argument(
-        "--strict", action="store_true", help="全ディストリで情報取得失敗時にエラー終了します"
+        "--strict", action="store_true", help=t("cli.arg.status_strict")
     )
     p_status.set_defaults(func=cmd_status)
 
@@ -1750,7 +1750,7 @@ def build_parser(language: str | None = None) -> argparse.ArgumentParser:
     portproxy_subparsers = p_portproxy.add_subparsers(dest="portproxy_command")
 
     p_portproxy_list = portproxy_subparsers.add_parser(
-        "list", help="ポートフォワーディングルールの一覧を表示します"
+        "list", help=t("cli.portproxy.list")
     )
     p_portproxy_list.add_argument(
         "--format", choices=["table", "json", "csv"], default="table",
@@ -1759,7 +1759,7 @@ def build_parser(language: str | None = None) -> argparse.ArgumentParser:
     p_portproxy_list.set_defaults(func=cmd_portproxy_list)
 
     p_portproxy_add = portproxy_subparsers.add_parser(
-        "add", help="ポートフォワーディングルールを追加します"
+        "add", help=t("cli.portproxy.add")
     )
     p_portproxy_add.add_argument("listen_port", help=t("cli.arg.portproxy_listen_port"))
     p_portproxy_add.add_argument("connect_port", help=t("cli.arg.portproxy_connect_port"))
@@ -1776,7 +1776,7 @@ def build_parser(language: str | None = None) -> argparse.ArgumentParser:
     p_portproxy_add.set_defaults(func=cmd_portproxy_add)
 
     p_portproxy_delete = portproxy_subparsers.add_parser(
-        "delete", help="ポートフォワーディングルールを削除します"
+        "delete", help=t("cli.portproxy.delete")
     )
     p_portproxy_delete.add_argument("listen_port", help=t("cli.arg.portproxy_listen_port"))
     p_portproxy_delete.add_argument(
@@ -1796,7 +1796,7 @@ def build_parser(language: str | None = None) -> argparse.ArgumentParser:
     snapshot_subparsers = p_snapshot.add_subparsers(dest="snapshot_command")
 
     p_snapshot_create = snapshot_subparsers.add_parser(
-        "create", help="ディストリビューションのスナップショットを作成します"
+        "create", help=t("cli.snapshot.create")
     )
     p_snapshot_create.add_argument("name", help=t("cli.arg.name"))
     p_snapshot_create.add_argument(
@@ -1818,7 +1818,7 @@ def build_parser(language: str | None = None) -> argparse.ArgumentParser:
     p_snapshot_create.set_defaults(func=cmd_snapshot_create)
 
     p_snapshot_list = snapshot_subparsers.add_parser(
-        "list", help="スナップショットの一覧を表示します"
+        "list", help=t("cli.snapshot.list")
     )
     p_snapshot_list.add_argument("--dir", help=t("cli.arg.snapshot_dir"))
     p_snapshot_list.add_argument(
@@ -1828,7 +1828,7 @@ def build_parser(language: str | None = None) -> argparse.ArgumentParser:
     p_snapshot_list.set_defaults(func=cmd_snapshot_list)
 
     p_snapshot_restore = snapshot_subparsers.add_parser(
-        "restore", help="スナップショットを新しいディストリビューションとして復元します"
+        "restore", help=t("cli.snapshot.restore")
     )
     p_snapshot_restore.add_argument("tar_file", help=t("cli.arg.snapshot_tar_file"))
     p_snapshot_restore.add_argument(
@@ -1850,7 +1850,7 @@ def build_parser(language: str | None = None) -> argparse.ArgumentParser:
     p_snapshot_restore.set_defaults(func=cmd_snapshot_restore)
 
     p_snapshot_delete = snapshot_subparsers.add_parser(
-        "delete", help="スナップショットを削除します"
+        "delete", help=t("cli.snapshot.delete")
     )
     p_snapshot_delete.add_argument(
         "tar_file", help=t("cli.arg.snapshot_tar_file")
@@ -1868,7 +1868,7 @@ def build_parser(language: str | None = None) -> argparse.ArgumentParser:
     p_snapshot_delete.set_defaults(func=cmd_snapshot_delete)
 
     p_snapshot_prune = snapshot_subparsers.add_parser(
-        "prune", help="保持数を超えたスナップショットを確認・削除します"
+        "prune", help=t("cli.snapshot.prune")
     )
     p_snapshot_prune.add_argument(
         "--keep", type=int, required=True, help=t("cli.arg.snapshot_keep")
@@ -1885,16 +1885,16 @@ def build_parser(language: str | None = None) -> argparse.ArgumentParser:
     p_snapshot_prune.set_defaults(func=cmd_snapshot_prune)
 
     p_snapshot_schedule = snapshot_subparsers.add_parser(
-        "schedule", help="Windows Task Scheduler に定期スナップショットを登録します"
+        "schedule", help=t("cli.snapshot.schedule")
     )
     p_snapshot_schedule.set_defaults(func=_make_snapshot_help_func(p_snapshot_schedule))
     schedule_subparsers = p_snapshot_schedule.add_subparsers(dest="schedule_command")
     p_schedule_create = schedule_subparsers.add_parser(
-        "create", help="毎日の定期スナップショットを登録します"
+        "create", help=t("cli.snapshot.schedule_create")
     )
     p_schedule_create.add_argument("name", help=t("cli.arg.name"))
-    p_schedule_create.add_argument("--time", default="03:00", help="実行時刻 HH:MM (既定: 03:00)")
-    p_schedule_create.add_argument("--keep", type=int, default=7, help="保持する世代数 (既定: 7)")
+    p_schedule_create.add_argument("--time", default="03:00", help=t("cli.arg.schedule_time"))
+    p_schedule_create.add_argument("--keep", type=int, default=7, help=t("cli.arg.schedule_keep"))
     p_schedule_create.add_argument(
         "--dir", help=t("cli.arg.snapshot_dir")
     )
@@ -1902,11 +1902,11 @@ def build_parser(language: str | None = None) -> argparse.ArgumentParser:
     p_schedule_create.add_argument("--quiet", "-q", action="store_true", help=t("cli.quiet"))
     p_schedule_create.set_defaults(func=cmd_snapshot_schedule_create)
     p_schedule_list = schedule_subparsers.add_parser(
-        "list", help="登録済みの定期スナップショットを表示します"
+        "list", help=t("cli.snapshot.schedule_list")
     )
     p_schedule_list.set_defaults(func=cmd_snapshot_schedule_list)
     p_schedule_delete = schedule_subparsers.add_parser(
-        "delete", help="定期スナップショットを削除します"
+        "delete", help=t("cli.snapshot.schedule_delete")
     )
     p_schedule_delete.add_argument("name", help=t("cli.arg.name"))
     p_schedule_delete.add_argument("--yes", "-y", action="store_true", help=t("cli.arg.yes"))
@@ -1914,7 +1914,7 @@ def build_parser(language: str | None = None) -> argparse.ArgumentParser:
     p_schedule_delete.set_defaults(func=cmd_snapshot_schedule_delete)
 
     p_snapshot_set_dir = snapshot_subparsers.add_parser(
-        "set-dir", help="スナップショットの保存先ディレクトリを設定します"
+        "set-dir", help=t("cli.snapshot.set_dir")
     )
     p_snapshot_set_dir.add_argument("path", help=t("cli.arg.path"))
     p_snapshot_set_dir.add_argument(

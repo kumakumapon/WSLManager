@@ -20,7 +20,6 @@ _MESSAGES: Mapping[str, Mapping[str, str]] = {
     "language.system": {"ja": "システム設定", "en": "System default"},
     "language.ja": {"ja": "日本語", "en": "Japanese"},
     "language.en": {"ja": "English", "en": "English"},
-
     # ── 共通アクション・ボタン・ダイアログ ──
     "gui.common.ok": {"ja": "OK", "en": "OK"},
     "gui.common.cancel": {"ja": "キャンセル", "en": "Cancel"},
@@ -35,14 +34,12 @@ _MESSAGES: Mapping[str, Mapping[str, str]] = {
     "gui.common.refresh": {"ja": "🔄  更新", "en": "🔄  Refresh"},
     "gui.common.name": {"ja": "名前:", "en": "Name:"},
     "gui.common.success": {"ja": "成功", "en": "Success"},
-
     # ── メインメニュー ──
     "gui.menu.file": {"ja": "ファイル", "en": "File"},
     "gui.menu.distribution": {"ja": "ディストリビューション", "en": "Distribution"},
     "gui.menu.tools": {"ja": "ツール", "en": "Tools"},
     "gui.menu.help": {"ja": "ヘルプ", "en": "Help"},
     "gui.menu.language": {"ja": "言語", "en": "Language"},
-
     # ── アクション ──
     "gui.action.import": {"ja": "インポート...", "en": "Import..."},
     "gui.action.export": {"ja": "エクスポート...", "en": "Export..."},
@@ -72,7 +69,6 @@ _MESSAGES: Mapping[str, Mapping[str, str]] = {
     "gui.action.wsl_version": {"ja": "WSL バージョン情報...", "en": "WSL version..."},
     "gui.action.update_wsl": {"ja": "WSL を更新", "en": "Update WSL"},
     "gui.action.about": {"ja": "このアプリについて...", "en": "About..."},
-
     # ── ツールバー ──
     "gui.toolbar.start": {"ja": "▶  起動", "en": "▶  Start"},
     "gui.toolbar.stop": {"ja": "■  停止", "en": "■  Stop"},
@@ -87,7 +83,6 @@ _MESSAGES: Mapping[str, Mapping[str, str]] = {
     "gui.auto_refresh": {"ja": "自動更新", "en": "Auto refresh"},
     "gui.history.show": {"ja": "📈 履歴を表示", "en": "📈 Show history"},
     "gui.history.hide": {"ja": "📈 履歴を隠す", "en": "📈 Hide history"},
-
     # ── リソース履歴パネル ──
     "gui.history.title": {
         "ja": "リソース履歴（直近30分）",
@@ -95,7 +90,6 @@ _MESSAGES: Mapping[str, Mapping[str, str]] = {
     },
     "gui.history.cpu": {"ja": "CPU 使用率", "en": "CPU usage"},
     "gui.history.memory": {"ja": "メモリ使用量", "en": "Memory usage"},
-
     # ── テーブル列ヘッダー ──
     "gui.column.name": {"ja": "ディストリビューション名", "en": "Distribution"},
     "gui.column.state": {"ja": "状態", "en": "State"},
@@ -104,11 +98,9 @@ _MESSAGES: Mapping[str, Mapping[str, str]] = {
     "gui.column.memory": {"ja": "メモリ(MB)", "en": "Memory (MB)"},
     "gui.column.disk": {"ja": "ディスク(GB)", "en": "Disk (GB)"},
     "gui.column.ip": {"ja": "IPアドレス", "en": "IP address"},
-
     # ── 状態 ──
     "gui.state.running": {"ja": "実行中", "en": "Running"},
     "gui.state.stopped": {"ja": "停止中", "en": "Stopped"},
-
     # ── ステータス・メッセージ ──
     "gui.status.ready": {"ja": "準備完了", "en": "Ready"},
     "gui.status.refreshing": {
@@ -135,7 +127,6 @@ _MESSAGES: Mapping[str, Mapping[str, str]] = {
         "ja": "言語設定を保存しました。変更は次回の起動時に反映されます。",
         "en": "Language preference saved. It will be applied next time the app starts.",
     },
-
     # ── 確認ダイアログ・メッセージ ──
     "gui.confirm.stop": {
         "ja": "「{name}」を停止しますか？\n（未保存の作業内容は失われる可能性があります）",
@@ -143,22 +134,22 @@ _MESSAGES: Mapping[str, Mapping[str, str]] = {
     },
     "gui.confirm.shutdown": {
         "ja": "実行中のすべての WSL2 ディストリビューションを停止しますか？\n"
-              "（未保存の作業内容は失われる可能性があります）",
+        "（未保存の作業内容は失われる可能性があります）",
         "en": "Shut down all running WSL2 distributions?\n(Unsaved work may be lost)",
     },
     "gui.confirm.unregister": {
         "ja": "ディストリビューション「{name}」をアンインストール（登録解除）しますか？\n\n"
-              "警告: ディストリビューション内のすべてのデータが完全に削除されます。\n"
-              "この操作は取り消せません。",
+        "警告: ディストリビューション内のすべてのデータが完全に削除されます。\n"
+        "この操作は取り消せません。",
         "en": "Unregister distribution '{name}'?\n\n"
-              "WARNING: All data in this distribution will be permanently deleted.\n"
-              "This operation cannot be undone.",
+        "WARNING: All data in this distribution will be permanently deleted.\n"
+        "This operation cannot be undone.",
     },
     "gui.confirm.convert": {
         "ja": "ディストリビューション「{name}」を WSL{target} に変換しますか？\n"
-              "（変換には数分かかる場合があります）",
+        "（変換には数分かかる場合があります）",
         "en": "Convert distribution '{name}' to WSL{target}?\n"
-              "(This conversion may take several minutes)",
+        "(This conversion may take several minutes)",
     },
     "gui.msg.select_distro": {
         "ja": "ディストリビューションを選択してください。",
@@ -204,7 +195,6 @@ _MESSAGES: Mapping[str, Mapping[str, str]] = {
         "ja": "アンインストールに失敗しました:\n{error}",
         "en": "Failed to unregister:\n{error}",
     },
-
     # ── プロセスウィンドウ ──
     "gui.process.title": {"ja": "プロセス一覧 - {name}", "en": "Process List - {name}"},
     "gui.process.auto_refresh": {"ja": "自動更新 (3秒)", "en": "Auto refresh (3s)"},
@@ -240,7 +230,6 @@ _MESSAGES: Mapping[str, Mapping[str, str]] = {
         "ja": "プロセス一覧の取得に失敗しました。",
         "en": "Failed to get process list.",
     },
-
     # ── インストールダイアログ ──
     "gui.install.title": {
         "ja": "ディストリビューションのインストール",
@@ -255,7 +244,6 @@ _MESSAGES: Mapping[str, Mapping[str, str]] = {
         "en": "(Failed to get list. Please enter the name directly)",
     },
     "gui.install.btn_install": {"ja": "インストール", "en": "Install"},
-
     # ── 設定ダイアログ ──
     "gui.wslconfig.title": {"ja": "WSL 設定 (.wslconfig)", "en": "WSL Settings (.wslconfig)"},
     "gui.wslconfig.restore_defaults": {"ja": "デフォルトに戻す", "en": "Restore Defaults"},
@@ -263,20 +251,16 @@ _MESSAGES: Mapping[str, Mapping[str, str]] = {
         "ja": "ディストリビューション設定 - {name}",
         "en": "Distribution Settings - {name}",
     },
-
     # ── ディスク最適化ダイアログ ──
     "gui.optimize.title": {"ja": "ディスク最適化 - {name}", "en": "Disk Optimization - {name}"},
     "gui.optimize.btn_sparse": {"ja": "スパース化を有効にする", "en": "Enable Sparse Mode"},
     "gui.optimize.btn_compact": {"ja": "ディスクを圧縮する", "en": "Compact Disk"},
-
     # ── 詳細情報ダイアログ ──
     "gui.detail.title": {"ja": "詳細情報 - {name}", "en": "Details - {name}"},
-
     # ── ログビューア ──
     "gui.log.title": {"ja": "操作ログビューア", "en": "Operation Log Viewer"},
     "gui.log.clear": {"ja": "ログ消去", "en": "Clear Log"},
     "gui.log.export": {"ja": "エクスポート...", "en": "Export..."},
-
     # ── バージョン・更新 ──
     "gui.version.title": {"ja": "WSL バージョン情報", "en": "WSL Version Information"},
     "gui.update.title": {"ja": "WSL の更新", "en": "Update WSL"},
@@ -288,16 +272,13 @@ _MESSAGES: Mapping[str, Mapping[str, str]] = {
         "ja": "実行中のディストリビューションがあります:\n{distros}\n更新を続行しますか？",
         "en": "Running distributions detected:\n{distros}\nContinue update?",
     },
-
     # ── マウント/アンマウント ──
     "gui.mount.title": {"ja": "ディスクのマウント", "en": "Mount Disk"},
     "gui.mount.btn_mount": {"ja": "マウント", "en": "Mount"},
     "gui.unmount.title": {"ja": "ディスクのアンマウント", "en": "Unmount Disk"},
     "gui.unmount.btn_unmount": {"ja": "アンマウント", "en": "Unmount"},
-
     # ── スナップショット管理 ──
     "gui.snapshot.title": {"ja": "スナップショット管理", "en": "Snapshot Management"},
-
     # ── 右クリックコンテキストメニュー ──
     "gui.context.terminal": {"ja": "🖥 ターミナルを開く", "en": "🖥 Open Terminal"},
     "gui.context.details": {"ja": "ℹ  詳細情報", "en": "ℹ  Details"},
@@ -316,7 +297,6 @@ _MESSAGES: Mapping[str, Mapping[str, str]] = {
     "gui.context.snapshot": {"ja": "📸 スナップショットを作成", "en": "📸 Create Snapshot"},
     "gui.context.export": {"ja": "📤 エクスポート", "en": "📤 Export"},
     "gui.context.unregister": {"ja": "🗑 アンインストール", "en": "🗑 Unregister"},
-
     # ── CLI メッセージ ──
     "cli.description": {
         "ja": "WSL Manager - コマンドラインインターフェース",
@@ -442,7 +422,6 @@ _MESSAGES: Mapping[str, Mapping[str, str]] = {
     "cli.header.pid": {"ja": "PID", "en": "PID"},
     "cli.header.user": {"ja": "ユーザー", "en": "User"},
     "cli.header.command": {"ja": "コマンド", "en": "Command"},
-
     # ── CLI サブコマンド引数 ──
     "cli.arg.name": {"ja": "ディストリビューション名", "en": "Distribution name"},
     "cli.arg.path": {"ja": "エクスポート先のファイルパス", "en": "Export destination file path"},
@@ -544,7 +523,6 @@ _MESSAGES: Mapping[str, Mapping[str, str]] = {
         "ja": "アンマウントするディスクパス（省略時は全マウントディスク）",
         "en": "Disk path to unmount (all if omitted)",
     },
-
     # ── CLI 実行メッセージ ──
     "cli.cancelled": {"ja": "中止しました。", "en": "Cancelled."},
     "cli.need_yes": {
@@ -598,6 +576,68 @@ _MESSAGES: Mapping[str, Mapping[str, str]] = {
     "cli.convert_failed": {
         "ja": "エラー: 「{name}」の変換に失敗しました: {msg}",
         "en": "Error: Failed to convert '{name}': {msg}",
+    },
+    "gui.process.kill_success": {
+        "ja": "PID {pid} にシグナルを送信しました。",
+        "en": "Sent signal to PID {pid}.",
+    },
+    "cli.arg.status_strict": {
+        "ja": "全ディストリで情報取得失敗時にエラー終了します",
+        "en": "Exit with an error if information cannot be retrieved for any distribution",
+    },
+    "cli.portproxy.list": {
+        "ja": "ポートフォワーディングルールの一覧を表示します",
+        "en": "List port forwarding rules",
+    },
+    "cli.portproxy.add": {
+        "ja": "ポートフォワーディングルールを追加します",
+        "en": "Add a port forwarding rule",
+    },
+    "cli.portproxy.delete": {
+        "ja": "ポートフォワーディングルールを削除します",
+        "en": "Delete a port forwarding rule",
+    },
+    "cli.snapshot.create": {
+        "ja": "ディストリビューションのスナップショットを作成します",
+        "en": "Create a distribution snapshot",
+    },
+    "cli.snapshot.list": {"ja": "スナップショットの一覧を表示します", "en": "List snapshots"},
+    "cli.snapshot.restore": {
+        "ja": "スナップショットを新しいディストリビューションとして復元します",
+        "en": "Restore a snapshot as a new distribution",
+    },
+    "cli.snapshot.delete": {"ja": "スナップショットを削除します", "en": "Delete a snapshot"},
+    "cli.snapshot.prune": {
+        "ja": "保持数を超えたスナップショットを確認・削除します",
+        "en": "Review and delete snapshots exceeding the retention count",
+    },
+    "cli.snapshot.schedule": {
+        "ja": "Windows Task Scheduler に定期スナップショットを登録します",
+        "en": "Manage scheduled snapshots in Windows Task Scheduler",
+    },
+    "cli.snapshot.schedule_create": {
+        "ja": "毎日の定期スナップショットを登録します",
+        "en": "Create a daily scheduled snapshot",
+    },
+    "cli.snapshot.schedule_list": {
+        "ja": "登録済みの定期スナップショットを表示します",
+        "en": "List scheduled snapshots",
+    },
+    "cli.snapshot.schedule_delete": {
+        "ja": "定期スナップショットを削除します",
+        "en": "Delete a scheduled snapshot",
+    },
+    "cli.snapshot.set_dir": {
+        "ja": "スナップショットの保存先ディレクトリを設定します",
+        "en": "Set the snapshot storage directory",
+    },
+    "cli.arg.schedule_time": {
+        "ja": "実行時刻 HH:MM (既定: 03:00)",
+        "en": "Run time in HH:MM format (default: 03:00)",
+    },
+    "cli.arg.schedule_keep": {
+        "ja": "保持する世代数 (既定: 7)",
+        "en": "Number of generations to retain (default: 7)",
     },
 }
 
