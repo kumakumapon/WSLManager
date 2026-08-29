@@ -4448,15 +4448,63 @@ class TestI18n(unittest.TestCase):
     def test_detect_system_language(self):
         self.assertEqual(wsl_core.detect_system_language("ja_JP.UTF-8"), "ja")
         self.assertEqual(wsl_core.detect_system_language("en_US.UTF-8"), "en")
+        self.assertEqual(wsl_core.detect_system_language("fr_FR.UTF-8"), "en")
 
     def test_resolve_language_honours_manual_preference(self):
         self.assertEqual(wsl_core.resolve_language("ja", "en_US"), "ja")
         self.assertEqual(wsl_core.resolve_language("en", "ja_JP"), "en")
         self.assertEqual(wsl_core.resolve_language("auto", "ja_JP"), "ja")
+        self.assertEqual(wsl_core.resolve_language("auto", "en_US"), "en")
+
+    def test_normalize_language(self):
+        self.assertEqual(wsl_core.normalize_language("ja"), "ja")
+        self.assertEqual(wsl_core.normalize_language("en"), "en")
+        self.assertEqual(wsl_core.normalize_language("auto"), "auto")
+        self.assertEqual(wsl_core.normalize_language("invalid"), "auto")
+        self.assertEqual(wsl_core.normalize_language(None), "auto")
 
     def test_normalize_settings_keeps_only_supported_language_values(self):
         self.assertEqual(wsl_core.normalize_settings({"language": "en"})["language"], "en")
         self.assertEqual(wsl_core.normalize_settings({"language": "de"})["language"], "auto")
+
+    def test_messages_completeness(self):
+        """_MESSAGES 内の全キーに ja と en が揃っていることを確認する。"""
+        from wsl_core.i18n import _MESSAGES, SUPPORTED_LANGUAGES
+
+        for key, translations in _MESSAGES.items():
+            for lang in SUPPORTED_LANGUAGES:
+                self.assertIn(
+                    lang,
+                    translations,
+                    f"Key '{key}' is missing translation for language '{lang}'",
+                )
+                self.assertIsInstance(
+                    translations[lang],
+                    str,
+                    f"Translation for key '{key}' in '{lang}' must be a string",
+                )
+                self.assertTrue(
+                    len(translations[lang]) > 0,
+                    f"Translation for key '{key}' in '{lang}' must not be empty",
+                )
+
+    def test_translate_known_keys(self):
+        self.assertEqual(wsl_core.translate("gui.common.ok", "ja"), "OK")
+        self.assertEqual(wsl_core.translate("gui.common.cancel", "ja"), "キャンセル")
+        self.assertEqual(wsl_core.translate("gui.common.cancel", "en"), "Cancel")
+
+    def test_translate_interpolation(self):
+        self.assertEqual(
+            wsl_core.translate("gui.confirm.stop", "ja", name="Ubuntu"),
+            "「Ubuntu」を停止しますか？\n（未保存の作業内容は失われる可能性があります）",
+        )
+        self.assertEqual(
+            wsl_core.translate("gui.confirm.stop", "en", name="Ubuntu"),
+            "Stop 'Ubuntu'?\n(Unsaved work may be lost)",
+        )
+
+    def test_translate_unknown_key_fallback(self):
+        self.assertEqual(wsl_core.translate("unknown.custom.key", "en"), "unknown.custom.key")
 
 
 if __name__ == "__main__":
