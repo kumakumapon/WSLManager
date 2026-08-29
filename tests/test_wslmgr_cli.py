@@ -325,12 +325,23 @@ class TestCmdList(unittest.TestCase):
     def test_csv_format_header(self, mock_run):
         """csv フォーマットの出力にヘッダ行が含まれる。"""
         mock_run.return_value = self._make_completed_process(self.TYPICAL_OUTPUT)
-        args = argparse.Namespace(format="csv")
+        args = argparse.Namespace(format="csv", language="en")
         buf = io.StringIO()
         with patch("sys.stdout", buf):
             wslmgr_cli.cmd_list(args)
         output = buf.getvalue()
         self.assertIn("Name,State,Version,Default", output)
+
+    @patch("wslmgr_cli.subprocess.run")
+    def test_csv_format_header_ja(self, mock_run):
+        """日本語指定時の csv フォーマット出力に日本語ヘッダ行が含まれる。"""
+        mock_run.return_value = self._make_completed_process(self.TYPICAL_OUTPUT)
+        args = argparse.Namespace(format="csv", language="ja")
+        buf = io.StringIO()
+        with patch("sys.stdout", buf):
+            wslmgr_cli.cmd_list(args)
+        output = buf.getvalue()
+        self.assertIn("名前,状態,バージョン,既定", output)
 
     @patch("wslmgr_cli.subprocess.run")
     def test_command_failure_exits_with_error(self, mock_run):
@@ -2615,8 +2626,21 @@ class TestCmdLogClear(unittest.TestCase):
 class TestCliI18n(unittest.TestCase):
     def test_english_parser_help(self):
         parser = wslmgr_cli.build_parser("en")
-        self.assertIn("command-line interface", parser.format_help())
-        self.assertIn("List WSL distributions", parser.format_help())
+        help_text = parser.format_help()
+        self.assertIn("command-line interface", help_text)
+        self.assertIn("List WSL distributions", help_text)
+        self.assertIn("Start distribution", help_text)
+        self.assertIn("Stop distribution", help_text)
+        self.assertIn("Shut down all distributions", help_text)
+
+    def test_japanese_parser_help(self):
+        parser = wslmgr_cli.build_parser("ja")
+        help_text = parser.format_help()
+        self.assertIn("コマンドラインインターフェース", help_text)
+        self.assertIn("WSL ディストリビューションの一覧を表示します", help_text)
+        self.assertIn("ディストリビューションを起動します", help_text)
+        self.assertIn("ディストリビューションを停止します", help_text)
+        self.assertIn("すべてのディストリビューションを停止します", help_text)
 
     @patch("wslmgr_cli._run_wsl_command")
     def test_list_uses_selected_language_for_table_headers(self, mock_run):
@@ -2628,6 +2652,17 @@ class TestCliI18n(unittest.TestCase):
             wslmgr_cli.cmd_list(args)
         self.assertIn("名前", output.getvalue())
         self.assertIn("状態", output.getvalue())
+
+    @patch("wslmgr_cli._run_wsl_command")
+    def test_list_uses_english_language_for_table_headers(self, mock_run):
+        mock_run.return_value = (0, "  NAME      STATE     VERSION\n* Ubuntu    Running   2\n", "")
+        args = argparse.Namespace(
+            format="table", with_ip=False, all_info=False, with_disk=False, language="en"
+        )
+        with patch("sys.stdout", io.StringIO()) as output:
+            wslmgr_cli.cmd_list(args)
+        self.assertIn("Name", output.getvalue())
+        self.assertIn("State", output.getvalue())
 
 
 class TestCmdConfigDistro(unittest.TestCase):

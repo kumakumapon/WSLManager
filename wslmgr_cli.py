@@ -1548,46 +1548,46 @@ def build_parser(language: str | None = None) -> argparse.ArgumentParser:
     p_list.set_defaults(func=cmd_list)
 
     # start
-    p_start = subparsers.add_parser("start", help="ディストリビューションを起動します")
-    p_start.add_argument("name", help="ディストリビューション名")
+    p_start = subparsers.add_parser("start", help=t("cli.start"))
+    p_start.add_argument("name", help=t("cli.arg.name"))
     p_start.add_argument(
-        "--format", choices=["table", "json"], default="table", help="出力フォーマット"
+        "--format", choices=["table", "json"], default="table", help=t("cli.format")
     )
-    p_start.add_argument("--quiet", "-q", action="store_true", help="出力を抑制します")
+    p_start.add_argument("--quiet", "-q", action="store_true", help=t("cli.quiet"))
     p_start.set_defaults(func=cmd_start)
 
     # stop
-    p_stop = subparsers.add_parser("stop", help="ディストリビューションを停止します")
-    p_stop.add_argument("name", help="ディストリビューション名")
+    p_stop = subparsers.add_parser("stop", help=t("cli.stop"))
+    p_stop.add_argument("name", help=t("cli.arg.name"))
     p_stop.add_argument(
-        "--format", choices=["table", "json"], default="table", help="出力フォーマット"
+        "--format", choices=["table", "json"], default="table", help=t("cli.format")
     )
-    p_stop.add_argument("--quiet", "-q", action="store_true", help="出力を抑制します")
+    p_stop.add_argument("--quiet", "-q", action="store_true", help=t("cli.quiet"))
     p_stop.set_defaults(func=cmd_stop)
 
     # shutdown
     p_shutdown = subparsers.add_parser(
-        "shutdown", help="すべてのディストリビューションを停止します"
+        "shutdown", help=t("cli.shutdown")
     )
     p_shutdown.add_argument(
-        "--format", choices=["table", "json"], default="table", help="出力フォーマット"
+        "--format", choices=["table", "json"], default="table", help=t("cli.format")
     )
-    p_shutdown.add_argument("--quiet", "-q", action="store_true", help="出力を抑制します")
+    p_shutdown.add_argument("--quiet", "-q", action="store_true", help=t("cli.quiet"))
     p_shutdown.set_defaults(func=cmd_shutdown)
 
     # status
     p_status = subparsers.add_parser(
-        "status", help="実行中ディストリビューションのリソース使用状況を表示します"
+        "status", help=t("cli.status")
     )
     p_status.add_argument(
         "--format", choices=["table", "json"], default="table",
-        help="出力フォーマット (既定: table)",
+        help=t("cli.format"),
     )
     p_status.add_argument(
-        "--with-disk", action="store_true", help="ディスク使用量も取得します"
+        "--with-disk", action="store_true", help=t("cli.with_disk"),
     )
     p_status.add_argument(
-        "--all-info", "-a", action="store_true", help="すべてのリソース情報を取得します"
+        "--all-info", "-a", action="store_true", help=t("cli.all_info"),
     )
     p_status.add_argument(
         "--strict", action="store_true", help="全ディストリで情報取得失敗時にエラー終了します"
@@ -1595,156 +1595,156 @@ def build_parser(language: str | None = None) -> argparse.ArgumentParser:
     p_status.set_defaults(func=cmd_status)
 
     # export
-    p_export = subparsers.add_parser("export", help="ディストリビューションをエクスポートします")
-    p_export.add_argument("name", help="ディストリビューション名")
-    p_export.add_argument("path", help="エクスポート先のファイルパス")
+    p_export = subparsers.add_parser("export", help=t("cli.export"))
+    p_export.add_argument("name", help=t("cli.arg.name"))
+    p_export.add_argument("path", help=t("cli.arg.path"))
     p_export.add_argument(
-        "--yes", "-y", action="store_true", help="確認プロンプトを表示せずに実行します"
+        "--yes", "-y", action="store_true", help=t("cli.arg.yes")
     )
     p_export.add_argument(
-        "--format", choices=["table", "json"], default="table", help="出力フォーマット"
+        "--format", choices=["table", "json"], default="table", help=t("cli.format")
     )
-    p_export.add_argument("--quiet", "-q", action="store_true", help="出力を抑制します")
+    p_export.add_argument("--quiet", "-q", action="store_true", help=t("cli.quiet"))
     p_export.set_defaults(func=cmd_export)
 
     # import
-    p_import = subparsers.add_parser("import", help="ディストリビューションをインポートします")
-    p_import.add_argument("name", help="ディストリビューション名")
-    p_import.add_argument("install_path", help="インストール先ディレクトリ")
-    p_import.add_argument("image_path", help="インポートするイメージ (tar) のパス")
+    p_import = subparsers.add_parser("import", help=t("cli.import"))
+    p_import.add_argument("name", help=t("cli.arg.name"))
+    p_import.add_argument("install_path", help=t("cli.arg.install_path"))
+    p_import.add_argument("image_path", help=t("cli.arg.image_path"))
     p_import.add_argument(
-        "--yes", "-y", action="store_true", help="確認プロンプトを表示せずに実行します"
+        "--yes", "-y", action="store_true", help=t("cli.arg.yes")
     )
     p_import.add_argument(
-        "--format", choices=["table", "json"], default="table", help="出力フォーマット"
+        "--format", choices=["table", "json"], default="table", help=t("cli.format")
     )
-    p_import.add_argument("--quiet", "-q", action="store_true", help="出力を抑制します")
+    p_import.add_argument("--quiet", "-q", action="store_true", help=t("cli.quiet"))
     p_import.set_defaults(func=cmd_import)
 
     # config
     p_config = subparsers.add_parser(
-        "config", help="現在の .wslconfig または /etc/wsl.conf 設定を表示します"
+        "config", help=t("cli.config")
     )
     p_config.add_argument(
-        "--distro", "-d", help="指定したディストリビューションの /etc/wsl.conf を参照します"
+        "--distro", "-d", help=t("cli.arg.distro_conf")
     )
     p_config.add_argument(
         "--format", choices=["table", "json"], default="table",
-        help="出力フォーマット (既定: table)",
+        help=t("cli.format"),
     )
     p_config.set_defaults(func=cmd_config)
 
     # set-default
     p_set_default = subparsers.add_parser(
-        "set-default", help="ディストリビューションを既定 (デフォルト) に設定します"
+        "set-default", help=t("cli.set_default")
     )
-    p_set_default.add_argument("name", help="ディストリビューション名")
+    p_set_default.add_argument("name", help=t("cli.arg.name"))
     p_set_default.add_argument(
-        "--format", choices=["table", "json"], default="table", help="出力フォーマット"
+        "--format", choices=["table", "json"], default="table", help=t("cli.format")
     )
-    p_set_default.add_argument("--quiet", "-q", action="store_true", help="出力を抑制します")
+    p_set_default.add_argument("--quiet", "-q", action="store_true", help=t("cli.quiet"))
     p_set_default.set_defaults(func=cmd_set_default)
 
     # unregister
     p_unregister = subparsers.add_parser(
-        "unregister", help="ディストリビューションをアンインストール (登録解除) します"
+        "unregister", help=t("cli.unregister")
     )
-    p_unregister.add_argument("name", help="ディストリビューション名")
+    p_unregister.add_argument("name", help=t("cli.arg.name"))
     p_unregister.add_argument(
-        "--yes", "-y", action="store_true", help="確認プロンプトを表示せずに実行します"
+        "--yes", "-y", action="store_true", help=t("cli.arg.yes")
     )
     p_unregister.add_argument(
-        "--format", choices=["table", "json"], default="table", help="出力フォーマット"
+        "--format", choices=["table", "json"], default="table", help=t("cli.format")
     )
-    p_unregister.add_argument("--quiet", "-q", action="store_true", help="出力を抑制します")
+    p_unregister.add_argument("--quiet", "-q", action="store_true", help=t("cli.quiet"))
     p_unregister.set_defaults(func=cmd_unregister)
 
     # install
-    p_install = subparsers.add_parser("install", help="ディストリビューションをインストールします")
-    p_install.add_argument("name", help="ディストリビューション名")
+    p_install = subparsers.add_parser("install", help=t("cli.install"))
+    p_install.add_argument("name", help=t("cli.arg.name"))
     p_install.add_argument(
-        "--format", choices=["table", "json"], default="table", help="出力フォーマット"
+        "--format", choices=["table", "json"], default="table", help=t("cli.format")
     )
-    p_install.add_argument("--quiet", "-q", action="store_true", help="出力を抑制します")
+    p_install.add_argument("--quiet", "-q", action="store_true", help=t("cli.quiet"))
     p_install.set_defaults(func=cmd_install)
 
     # optimize
     p_optimize = subparsers.add_parser(
-        "optimize", help="ディストリビューションの仮想ディスクを最適化します"
+        "optimize", help=t("cli.optimize")
     )
-    p_optimize.add_argument("name", help="ディストリビューション名")
+    p_optimize.add_argument("name", help=t("cli.arg.name"))
     optimize_group = p_optimize.add_mutually_exclusive_group(required=True)
     optimize_group.add_argument(
-        "--sparse", action="store_true", help="仮想ディスクのスパース化を有効にします"
+        "--sparse", action="store_true", help=t("cli.arg.optimize_sparse")
     )
     optimize_group.add_argument(
-        "--compact", action="store_true", help="仮想ディスクを圧縮します"
+        "--compact", action="store_true", help=t("cli.arg.optimize_compact")
     )
     p_optimize.add_argument(
-        "--yes", "-y", action="store_true", help="確認プロンプトを表示せずに実行します"
+        "--yes", "-y", action="store_true", help=t("cli.arg.yes")
     )
     p_optimize.add_argument(
-        "--format", choices=["table", "json"], default="table", help="出力フォーマット"
+        "--format", choices=["table", "json"], default="table", help=t("cli.format")
     )
-    p_optimize.add_argument("--quiet", "-q", action="store_true", help="出力を抑制します")
+    p_optimize.add_argument("--quiet", "-q", action="store_true", help=t("cli.quiet"))
     p_optimize.set_defaults(func=cmd_optimize)
 
     # set-version
     p_set_version = subparsers.add_parser(
-        "set-version", help="ディストリビューションを WSL1 / WSL2 間で変換します"
+        "set-version", help=t("cli.set_version")
     )
-    p_set_version.add_argument("name", help="ディストリビューション名")
+    p_set_version.add_argument("name", help=t("cli.arg.name"))
     p_set_version.add_argument(
-        "version", choices=["1", "2"], help="変換先の WSL バージョン (1 または 2)"
-    )
-    p_set_version.add_argument(
-        "--yes", "-y", action="store_true", help="確認プロンプトを表示せずに実行します"
+        "version", choices=["1", "2"], help=t("cli.arg.version_choice")
     )
     p_set_version.add_argument(
-        "--format", choices=["table", "json"], default="table", help="出力フォーマット"
+        "--yes", "-y", action="store_true", help=t("cli.arg.yes")
     )
-    p_set_version.add_argument("--quiet", "-q", action="store_true", help="出力を抑制します")
+    p_set_version.add_argument(
+        "--format", choices=["table", "json"], default="table", help=t("cli.format")
+    )
+    p_set_version.add_argument("--quiet", "-q", action="store_true", help=t("cli.quiet"))
     p_set_version.set_defaults(func=cmd_set_version)
 
     # processes
     p_processes = subparsers.add_parser(
-        "processes", help="ディストリビューション内で実行中のプロセス一覧を表示します"
+        "processes", help=t("cli.processes")
     )
-    p_processes.add_argument("name", help="ディストリビューション名")
+    p_processes.add_argument("name", help=t("cli.arg.name"))
     p_processes.add_argument(
         "--format", choices=["table", "json", "csv"], default="table",
-        help="出力フォーマット (既定: table)",
+        help=t("cli.format"),
     )
     p_processes.set_defaults(func=cmd_processes)
 
     # log
-    p_log = subparsers.add_parser("log", help="保存されている操作ログを表示・消去します")
+    p_log = subparsers.add_parser("log", help=t("cli.log"))
     p_log_subparsers = p_log.add_subparsers(dest="log_command")
 
     # log show (default)
     p_log.add_argument(
-        "--tail", type=int, default=50, help="表示する末尾のエントリ数 (既定: 50)"
+        "--tail", type=int, default=50, help=t("cli.arg.log_tail")
     )
     p_log.add_argument(
         "--format", choices=["table", "json"], default="table",
-        help="出力フォーマット (既定: table)",
+        help=t("cli.format"),
     )
-    p_log.add_argument("--quiet", "-q", action="store_true", help="出力を抑制します")
+    p_log.add_argument("--quiet", "-q", action="store_true", help=t("cli.quiet"))
     p_log.set_defaults(func=cmd_log)
 
-    p_log_clear = p_log_subparsers.add_parser("clear", help="操作ログをすべて消去します")
+    p_log_clear = p_log_subparsers.add_parser("clear", help=t("cli.arg.log_clear"))
     p_log_clear.add_argument(
-        "--yes", "-y", action="store_true", help="確認プロンプトを表示せずに実行します"
+        "--yes", "-y", action="store_true", help=t("cli.arg.yes")
     )
     p_log_clear.add_argument(
-        "--format", choices=["table", "json"], default="table", help="出力フォーマット"
+        "--format", choices=["table", "json"], default="table", help=t("cli.format")
     )
-    p_log_clear.add_argument("--quiet", "-q", action="store_true", help="出力を抑制します")
+    p_log_clear.add_argument("--quiet", "-q", action="store_true", help=t("cli.quiet"))
     p_log_clear.set_defaults(func=cmd_log_clear)
 
     # portproxy
     p_portproxy = subparsers.add_parser(
-        "portproxy", help="ポートフォワーディングルールを管理します"
+        "portproxy", help=t("cli.portproxy")
     )
     p_portproxy.set_defaults(func=_make_portproxy_help_func(p_portproxy))
     portproxy_subparsers = p_portproxy.add_subparsers(dest="portproxy_command")
@@ -1754,43 +1754,43 @@ def build_parser(language: str | None = None) -> argparse.ArgumentParser:
     )
     p_portproxy_list.add_argument(
         "--format", choices=["table", "json", "csv"], default="table",
-        help="出力フォーマット (既定: table)",
+        help=t("cli.format"),
     )
     p_portproxy_list.set_defaults(func=cmd_portproxy_list)
 
     p_portproxy_add = portproxy_subparsers.add_parser(
         "add", help="ポートフォワーディングルールを追加します"
     )
-    p_portproxy_add.add_argument("listen_port", help="リッスンするポート番号")
-    p_portproxy_add.add_argument("connect_port", help="接続先のポート番号")
+    p_portproxy_add.add_argument("listen_port", help=t("cli.arg.portproxy_listen_port"))
+    p_portproxy_add.add_argument("connect_port", help=t("cli.arg.portproxy_connect_port"))
     p_portproxy_add.add_argument(
-        "--connect-address", required=True, help="接続先の IP アドレス"
+        "--connect-address", required=True, help=t("cli.arg.portproxy_connect_address")
     )
     p_portproxy_add.add_argument(
-        "--listen-address", default="0.0.0.0", help="リッスンする IP アドレス (既定: 0.0.0.0)"
+        "--listen-address", default="0.0.0.0", help=t("cli.arg.portproxy_listen_address")
     )
     p_portproxy_add.add_argument(
-        "--format", choices=["table", "json"], default="table", help="出力フォーマット"
+        "--format", choices=["table", "json"], default="table", help=t("cli.format")
     )
-    p_portproxy_add.add_argument("--quiet", "-q", action="store_true", help="出力を抑制します")
+    p_portproxy_add.add_argument("--quiet", "-q", action="store_true", help=t("cli.quiet"))
     p_portproxy_add.set_defaults(func=cmd_portproxy_add)
 
     p_portproxy_delete = portproxy_subparsers.add_parser(
         "delete", help="ポートフォワーディングルールを削除します"
     )
-    p_portproxy_delete.add_argument("listen_port", help="リッスンするポート番号")
+    p_portproxy_delete.add_argument("listen_port", help=t("cli.arg.portproxy_listen_port"))
     p_portproxy_delete.add_argument(
-        "--listen-address", default="0.0.0.0", help="リッスンする IP アドレス (既定: 0.0.0.0)"
+        "--listen-address", default="0.0.0.0", help=t("cli.arg.portproxy_listen_address")
     )
     p_portproxy_delete.add_argument(
-        "--format", choices=["table", "json"], default="table", help="出力フォーマット"
+        "--format", choices=["table", "json"], default="table", help=t("cli.format")
     )
-    p_portproxy_delete.add_argument("--quiet", "-q", action="store_true", help="出力を抑制します")
+    p_portproxy_delete.add_argument("--quiet", "-q", action="store_true", help=t("cli.quiet"))
     p_portproxy_delete.set_defaults(func=cmd_portproxy_delete)
 
     # snapshot
     p_snapshot = subparsers.add_parser(
-        "snapshot", help="ディストリビューションのスナップショットを管理します"
+        "snapshot", help=t("cli.snapshot")
     )
     p_snapshot.set_defaults(func=_make_snapshot_help_func(p_snapshot))
     snapshot_subparsers = p_snapshot.add_subparsers(dest="snapshot_command")
@@ -1798,88 +1798,90 @@ def build_parser(language: str | None = None) -> argparse.ArgumentParser:
     p_snapshot_create = snapshot_subparsers.add_parser(
         "create", help="ディストリビューションのスナップショットを作成します"
     )
-    p_snapshot_create.add_argument("name", help="ディストリビューション名")
+    p_snapshot_create.add_argument("name", help=t("cli.arg.name"))
     p_snapshot_create.add_argument(
-        "--comment", default="", help="スナップショットのコメント (任意)"
+        "--comment", default="", help=t("cli.arg.snapshot_comment")
     )
     p_snapshot_create.add_argument(
-        "--keep", type=int, help="作成後にディストリビューションごとに保持する世代数"
+        "--keep", type=int, help=t("cli.arg.snapshot_keep")
     )
     p_snapshot_create.add_argument(
-        "--yes", "-y", action="store_true", help="世代整理の確認プロンプトを表示せずに実行します"
+        "--yes", "-y", action="store_true", help=t("cli.arg.yes")
     )
     p_snapshot_create.add_argument(
-        "--dir", help="スナップショット保存先ディレクトリ (既定: 設定値)"
+        "--dir", help=t("cli.arg.snapshot_dir")
     )
     p_snapshot_create.add_argument(
-        "--format", choices=["table", "json"], default="table", help="出力フォーマット"
+        "--format", choices=["table", "json"], default="table", help=t("cli.format")
     )
-    p_snapshot_create.add_argument("--quiet", "-q", action="store_true", help="出力を抑制します")
+    p_snapshot_create.add_argument("--quiet", "-q", action="store_true", help=t("cli.quiet"))
     p_snapshot_create.set_defaults(func=cmd_snapshot_create)
 
     p_snapshot_list = snapshot_subparsers.add_parser(
         "list", help="スナップショットの一覧を表示します"
     )
-    p_snapshot_list.add_argument("--dir", help="スナップショット保存先ディレクトリ (既定: 設定値)")
+    p_snapshot_list.add_argument("--dir", help=t("cli.arg.snapshot_dir"))
     p_snapshot_list.add_argument(
         "--format", choices=["table", "json", "csv"], default="table",
-        help="出力フォーマット (既定: table)",
+        help=t("cli.format"),
     )
     p_snapshot_list.set_defaults(func=cmd_snapshot_list)
 
     p_snapshot_restore = snapshot_subparsers.add_parser(
         "restore", help="スナップショットを新しいディストリビューションとして復元します"
     )
-    p_snapshot_restore.add_argument("tar_file", help="復元するスナップショットの tar ファイル名")
+    p_snapshot_restore.add_argument("tar_file", help=t("cli.arg.snapshot_tar_file"))
     p_snapshot_restore.add_argument(
-        "--install-path", required=True, help="復元先のインストールディレクトリ"
+        "--install-path", required=True, help=t("cli.arg.install_path")
     )
     p_snapshot_restore.add_argument(
-        "--name", help="復元先のディストリビューション名 (既定: 自動生成)"
+        "--name", help=t("cli.arg.snapshot_restore_name")
     )
     p_snapshot_restore.add_argument(
-        "--dir", help="スナップショット保存先ディレクトリ (既定: 設定値)"
+        "--dir", help=t("cli.arg.snapshot_dir")
     )
     p_snapshot_restore.add_argument(
-        "--yes", "-y", action="store_true", help="確認プロンプトを表示せずに実行します"
+        "--yes", "-y", action="store_true", help=t("cli.arg.yes")
     )
     p_snapshot_restore.add_argument(
-        "--format", choices=["table", "json"], default="table", help="出力フォーマット"
+        "--format", choices=["table", "json"], default="table", help=t("cli.format")
     )
-    p_snapshot_restore.add_argument("--quiet", "-q", action="store_true", help="出力を抑制します")
+    p_snapshot_restore.add_argument("--quiet", "-q", action="store_true", help=t("cli.quiet"))
     p_snapshot_restore.set_defaults(func=cmd_snapshot_restore)
 
     p_snapshot_delete = snapshot_subparsers.add_parser(
         "delete", help="スナップショットを削除します"
     )
     p_snapshot_delete.add_argument(
-        "tar_file", help="削除するスナップショットの tar ファイル名"
+        "tar_file", help=t("cli.arg.snapshot_tar_file")
     )
     p_snapshot_delete.add_argument(
-        "--dir", help="スナップショット保存先ディレクトリ (既定: 設定値)"
+        "--dir", help=t("cli.arg.snapshot_dir")
     )
     p_snapshot_delete.add_argument(
-        "--yes", "-y", action="store_true", help="確認プロンプトを表示せずに実行します"
+        "--yes", "-y", action="store_true", help=t("cli.arg.yes")
     )
     p_snapshot_delete.add_argument(
-        "--format", choices=["table", "json"], default="table", help="出力フォーマット"
+        "--format", choices=["table", "json"], default="table", help=t("cli.format")
     )
-    p_snapshot_delete.add_argument("--quiet", "-q", action="store_true", help="出力を抑制します")
+    p_snapshot_delete.add_argument("--quiet", "-q", action="store_true", help=t("cli.quiet"))
     p_snapshot_delete.set_defaults(func=cmd_snapshot_delete)
 
     p_snapshot_prune = snapshot_subparsers.add_parser(
         "prune", help="保持数を超えたスナップショットを確認・削除します"
     )
-    p_snapshot_prune.add_argument("--keep", type=int, required=True, help="保持する世代数 (1 以上)")
-    p_snapshot_prune.add_argument("--name", help="対象ディストリビューション名 (省略時: 全て)")
-    p_snapshot_prune.add_argument("--dir", help="スナップショット保存先ディレクトリ (既定: 設定値)")
     p_snapshot_prune.add_argument(
-        "--yes", "-y", action="store_true", help="確認済みとして実際に削除します (既定: dry-run)"
+        "--keep", type=int, required=True, help=t("cli.arg.snapshot_keep")
+    )
+    p_snapshot_prune.add_argument("--name", help=t("cli.arg.name"))
+    p_snapshot_prune.add_argument("--dir", help=t("cli.arg.snapshot_dir"))
+    p_snapshot_prune.add_argument(
+        "--yes", "-y", action="store_true", help=t("cli.arg.yes")
     )
     p_snapshot_prune.add_argument(
-        "--format", choices=["table", "json"], default="table", help="出力フォーマット"
+        "--format", choices=["table", "json"], default="table", help=t("cli.format")
     )
-    p_snapshot_prune.add_argument("--quiet", "-q", action="store_true", help="出力を抑制します")
+    p_snapshot_prune.add_argument("--quiet", "-q", action="store_true", help=t("cli.quiet"))
     p_snapshot_prune.set_defaults(func=cmd_snapshot_prune)
 
     p_snapshot_schedule = snapshot_subparsers.add_parser(
@@ -1890,14 +1892,14 @@ def build_parser(language: str | None = None) -> argparse.ArgumentParser:
     p_schedule_create = schedule_subparsers.add_parser(
         "create", help="毎日の定期スナップショットを登録します"
     )
-    p_schedule_create.add_argument("name", help="対象ディストリビューション名")
+    p_schedule_create.add_argument("name", help=t("cli.arg.name"))
     p_schedule_create.add_argument("--time", default="03:00", help="実行時刻 HH:MM (既定: 03:00)")
     p_schedule_create.add_argument("--keep", type=int, default=7, help="保持する世代数 (既定: 7)")
     p_schedule_create.add_argument(
-        "--dir", help="スナップショット保存先ディレクトリ (既定: 設定値)"
+        "--dir", help=t("cli.arg.snapshot_dir")
     )
-    p_schedule_create.add_argument("--yes", "-y", action="store_true", help="登録確認を省略します")
-    p_schedule_create.add_argument("--quiet", "-q", action="store_true", help="出力を抑制します")
+    p_schedule_create.add_argument("--yes", "-y", action="store_true", help=t("cli.arg.yes"))
+    p_schedule_create.add_argument("--quiet", "-q", action="store_true", help=t("cli.quiet"))
     p_schedule_create.set_defaults(func=cmd_snapshot_schedule_create)
     p_schedule_list = schedule_subparsers.add_parser(
         "list", help="登録済みの定期スナップショットを表示します"
@@ -1906,70 +1908,70 @@ def build_parser(language: str | None = None) -> argparse.ArgumentParser:
     p_schedule_delete = schedule_subparsers.add_parser(
         "delete", help="定期スナップショットを削除します"
     )
-    p_schedule_delete.add_argument("name", help="対象ディストリビューション名")
-    p_schedule_delete.add_argument("--yes", "-y", action="store_true", help="削除確認を省略します")
-    p_schedule_delete.add_argument("--quiet", "-q", action="store_true", help="出力を抑制します")
+    p_schedule_delete.add_argument("name", help=t("cli.arg.name"))
+    p_schedule_delete.add_argument("--yes", "-y", action="store_true", help=t("cli.arg.yes"))
+    p_schedule_delete.add_argument("--quiet", "-q", action="store_true", help=t("cli.quiet"))
     p_schedule_delete.set_defaults(func=cmd_snapshot_schedule_delete)
 
     p_snapshot_set_dir = snapshot_subparsers.add_parser(
         "set-dir", help="スナップショットの保存先ディレクトリを設定します"
     )
-    p_snapshot_set_dir.add_argument("path", help="保存先ディレクトリのパス")
+    p_snapshot_set_dir.add_argument("path", help=t("cli.arg.path"))
     p_snapshot_set_dir.add_argument(
-        "--format", choices=["table", "json"], default="table", help="出力フォーマット"
+        "--format", choices=["table", "json"], default="table", help=t("cli.format")
     )
-    p_snapshot_set_dir.add_argument("--quiet", "-q", action="store_true", help="出力を抑制します")
+    p_snapshot_set_dir.add_argument("--quiet", "-q", action="store_true", help=t("cli.quiet"))
     p_snapshot_set_dir.set_defaults(func=cmd_snapshot_set_dir)
 
     # clone
     p_clone = subparsers.add_parser(
-        "clone", help="ディストリビューションを複製します（エクスポート→インポートを自動実行）"
+        "clone", help=t("cli.clone")
     )
-    p_clone.add_argument("name", help="複製元のディストリビューション名")
-    p_clone.add_argument("new_name", help="複製先の新しいディストリビューション名")
-    p_clone.add_argument("--install-path", required=True, help="複製先のインストールディレクトリ")
+    p_clone.add_argument("name", help=t("cli.arg.name"))
+    p_clone.add_argument("new_name", help=t("cli.arg.clone_new_name"))
+    p_clone.add_argument("--install-path", required=True, help=t("cli.arg.install_path"))
     p_clone.add_argument(
-        "--yes", "-y", action="store_true", help="確認プロンプトを表示せずに実行します"
+        "--yes", "-y", action="store_true", help=t("cli.arg.yes")
     )
     p_clone.add_argument(
-        "--format", choices=["table", "json"], default="table", help="出力フォーマット"
+        "--format", choices=["table", "json"], default="table", help=t("cli.format")
     )
-    p_clone.add_argument("--quiet", "-q", action="store_true", help="出力を抑制します")
+    p_clone.add_argument("--quiet", "-q", action="store_true", help=t("cli.quiet"))
     p_clone.set_defaults(func=cmd_clone)
 
     # mount
-    p_mount = subparsers.add_parser("mount", help="物理ディスクまたは VHD を WSL2 にマウントします")
+    p_mount = subparsers.add_parser("mount", help=t("cli.mount"))
     p_mount.add_argument(
-        "disk", help="マウントするディスク（物理ドライブパスまたは VHDX ファイルパス）"
+        "disk", help=t("cli.arg.mount_disk")
     )
     p_mount.add_argument(
         "--bare", action="store_true",
-        help="ディスクを WSL にアタッチするのみでファイルシステムのマウントを行いません",
+        help=t("cli.arg.mount_bare"),
     )
     p_mount.add_argument(
-        "--vhd", action="store_true", help="指定したディスクが VHD/VHDX であることを明示します"
+        "--vhd", action="store_true", help=t("cli.arg.mount_vhd")
     )
-    p_mount.add_argument("--type", "-t", help="ファイルシステムの種類 (例: ext4)")
-    p_mount.add_argument("--partition", "-p", type=int, help="マウントするパーティション番号")
-    p_mount.add_argument("--name", help="カスタムマウント名")
+    p_mount.add_argument("--type", "-t", help=t("cli.arg.mount_type"))
+    p_mount.add_argument("--partition", "-p", type=int, help=t("cli.arg.mount_partition"))
+    p_mount.add_argument("--name", help=t("cli.arg.mount_name"))
     p_mount.add_argument(
-        "--format", choices=["table", "json"], default="table", help="出力フォーマット"
+        "--format", choices=["table", "json"], default="table", help=t("cli.format")
     )
-    p_mount.add_argument("--quiet", "-q", action="store_true", help="出力を抑制します")
+    p_mount.add_argument("--quiet", "-q", action="store_true", help=t("cli.quiet"))
     p_mount.set_defaults(func=cmd_mount)
 
     # unmount
     p_unmount = subparsers.add_parser(
-        "unmount", help="WSL2 にマウントされているディスクをアンマウントします"
+        "unmount", help=t("cli.unmount")
     )
     p_unmount.add_argument(
         "disk", nargs="?", default=None,
-        help="アンマウントするディスクパス（省略時は全マウントディスク）",
+        help=t("cli.arg.unmount_disk"),
     )
     p_unmount.add_argument(
-        "--format", choices=["table", "json"], default="table", help="出力フォーマット"
+        "--format", choices=["table", "json"], default="table", help=t("cli.format")
     )
-    p_unmount.add_argument("--quiet", "-q", action="store_true", help="出力を抑制します")
+    p_unmount.add_argument("--quiet", "-q", action="store_true", help=t("cli.quiet"))
     p_unmount.set_defaults(func=cmd_unmount)
 
     return parser

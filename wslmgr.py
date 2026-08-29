@@ -183,8 +183,9 @@ class ProcessWindow(tk.Toplevel):
 
     def __init__(self, parent: tk.Tk, distro_name: str) -> None:
         super().__init__(parent)
+        self._language = getattr(parent, "_language", wsl_core.LANGUAGE_AUTO)
         self._distro_name = distro_name
-        self.title(f"プロセス一覧 - {distro_name}")
+        self.title(self._t("gui.process.title", name=distro_name))
         self.geometry("750x480")
         self.minsize(500, 350)
         self._refresh_job: str | None = None
@@ -195,6 +196,9 @@ class ProcessWindow(tk.Toplevel):
         self._filter_var.trace_add("write", lambda *_: self._render_processes())
         self._do_refresh()
         self.protocol("WM_DELETE_WINDOW", self._on_close)
+
+    def _t(self, key: str, **values: object) -> str:
+        return wsl_core.translate(key, self._language, **values)
 
     @staticmethod
     def _fetch_processes(distro_name: str) -> tuple[list[dict], str | None]:
@@ -230,22 +234,28 @@ class ProcessWindow(tk.Toplevel):
         toolbar = ttk.Frame(main_frame)
         toolbar.pack(fill=tk.X, pady=(0, 8))
 
-        ttk.Button(toolbar, text="🔄  更新", command=self._do_refresh, width=8).pack(
-            side=tk.LEFT, padx=2
-        )
+        ttk.Button(
+            toolbar,
+            text=self._t("gui.common.refresh"),
+            command=self._do_refresh,
+            width=8,
+        ).pack(side=tk.LEFT, padx=2)
         ttk.Checkbutton(
             toolbar,
-            text="自動更新 (3秒)",
+            text=self._t("gui.process.auto_refresh"),
             variable=self._auto_refresh_var,
             command=self._toggle_auto_refresh,
         ).pack(side=tk.LEFT, padx=8)
 
-        ttk.Label(toolbar, text="🔍 フィルタ:").pack(side=tk.LEFT, padx=(8, 2))
+        ttk.Label(toolbar, text=self._t("gui.common.filter")).pack(side=tk.LEFT, padx=(8, 2))
         ttk.Entry(toolbar, textvariable=self._filter_var, width=16).pack(
             side=tk.LEFT, padx=2
         )
         ttk.Button(
-            toolbar, text="✕", width=2, command=lambda: self._filter_var.set("")
+            toolbar,
+            text=self._t("gui.common.filter_clear"),
+            width=2,
+            command=lambda: self._filter_var.set(""),
         ).pack(side=tk.LEFT, padx=2)
 
         self._count_var = tk.StringVar(value="")
@@ -258,11 +268,11 @@ class ProcessWindow(tk.Toplevel):
         self._tree = ttk.Treeview(
             tree_frame, columns=cols, show="headings", selectmode="browse"
         )
-        self._tree.heading("pid", text="PID")
-        self._tree.heading("user", text="ユーザー")
-        self._tree.heading("cpu", text="CPU(%)")
-        self._tree.heading("memory", text="メモリ(MB)")
-        self._tree.heading("command", text="コマンド")
+        self._tree.heading("pid", text=self._t("gui.process.col_pid"))
+        self._tree.heading("user", text=self._t("gui.process.col_user"))
+        self._tree.heading("cpu", text=self._t("gui.process.col_cpu"))
+        self._tree.heading("memory", text=self._t("gui.process.col_memory"))
+        self._tree.heading("command", text=self._t("gui.process.col_command"))
 
         self._tree.column("pid", width=70, minwidth=60, anchor=tk.CENTER)
         self._tree.column("user", width=120, minwidth=80)
@@ -281,7 +291,7 @@ class ProcessWindow(tk.Toplevel):
         # 右クリックコンテキストメニュー(プロセス終了)
         self._tree.bind("<Button-3>", self._show_process_context_menu)
 
-        self._status_var = tk.StringVar(value="読み込み中…")
+        self._status_var = tk.StringVar(value=self._t("gui.process.loading"))
         ttk.Label(
             main_frame,
             textvariable=self._status_var,
@@ -294,7 +304,7 @@ class ProcessWindow(tk.Toplevel):
         if self._refresh_job:
             self.after_cancel(self._refresh_job)
             self._refresh_job = None
-        self._status_var.set("更新中…")
+        self._status_var.set(self._t("gui.process.refreshing"))
         distro = self._distro_name
 
         def _run() -> None:
@@ -307,11 +317,11 @@ class ProcessWindow(tk.Toplevel):
         if err:
             for item in self._tree.get_children():
                 self._tree.delete(item)
-            self._status_var.set(f"エラー: {err}")
+            self._status_var.set(self._t("gui.process.error", error=err))
         else:
             self._all_processes = processes
             self._render_processes()
-            self._status_var.set("更新完了")
+            self._status_var.set(self._t("gui.process.refreshed"))
 
         if self._auto_refresh_var.get():
             self._refresh_job = self.after(self.REFRESH_INTERVAL, self._do_refresh)
@@ -339,9 +349,11 @@ class ProcessWindow(tk.Toplevel):
 
         total = len(self._all_processes)
         if filter_text and displayed != total:
-            self._count_var.set(f"プロセス数: {displayed} / {total}")
+            self._count_var.set(
+                self._t("gui.process.count_filtered", displayed=displayed, total=total)
+            )
         else:
-            self._count_var.set(f"プロセス数: {total}")
+            self._count_var.set(self._t("gui.process.count", count=total))
 
         self._sorter.apply()
 
@@ -355,11 +367,11 @@ class ProcessWindow(tk.Toplevel):
 
         menu = tk.Menu(self, tearoff=0)
         menu.add_command(
-            label="プロセスを終了 (SIGTERM)",
+            label=self._t("gui.process.kill_term"),
             command=lambda: self._kill_process(row, "TERM"),
         )
         menu.add_command(
-            label="強制終了 (SIGKILL)",
+            label=self._t("gui.process.kill_kill"),
             command=lambda: self._kill_process(row, "KILL"),
         )
         try:
@@ -381,14 +393,11 @@ class ProcessWindow(tk.Toplevel):
         command = str(values[4])
 
         if signal == "KILL":
-            confirm_msg = (
-                f"PID {pid} ({command}) にシグナルを送信しますか？\n"
-                "(SIGKILL: 強制終了します)"
-            )
+            confirm_msg = self._t("gui.process.kill_confirm_kill", pid=pid, command=command)
         else:
-            confirm_msg = f"PID {pid} ({command}) にシグナルを送信しますか？"
+            confirm_msg = self._t("gui.process.kill_confirm_term", pid=pid, command=command)
 
-        if not messagebox.askyesno("確認", confirm_msg, parent=self):
+        if not messagebox.askyesno(self._t("gui.common.confirm"), confirm_msg, parent=self):
             return
 
         distro = self._distro_name
@@ -405,7 +414,7 @@ class ProcessWindow(tk.Toplevel):
                 def _on_timeout() -> None:
                     try:
                         if self.winfo_exists():
-                            self._status_var.set("シグナル送信がタイムアウトしました。")
+                            self._status_var.set(self._t("gui.process.timeout"))
                     except tk.TclError:
                         pass
                 self.after(0, _on_timeout)
@@ -415,7 +424,7 @@ class ProcessWindow(tk.Toplevel):
                 def _on_oserror() -> None:
                     try:
                         if self.winfo_exists():
-                            self._status_var.set(f"シグナル送信に失敗しました: {err_msg}")
+                            self._status_var.set(self._t("gui.process.error", error=err_msg))
                     except tk.TclError:
                         pass
                 self.after(0, _on_oserror)
@@ -427,7 +436,7 @@ class ProcessWindow(tk.Toplevel):
                 def _on_fail() -> None:
                     try:
                         if self.winfo_exists():
-                            self._status_var.set(f"シグナル送信に失敗しました: {err_msg}")
+                            self._status_var.set(self._t("gui.process.error", error=err_msg))
                     except tk.TclError:
                         pass
                 self.after(0, _on_fail)
@@ -435,7 +444,7 @@ class ProcessWindow(tk.Toplevel):
                 def _on_success() -> None:
                     try:
                         if self.winfo_exists():
-                            self._status_var.set(f"PID {pid} にシグナルを送信しました。")
+                            self._status_var.set(f"PID {pid} OK")
                             self._do_refresh()
                     except tk.TclError:
                         pass
@@ -467,7 +476,8 @@ class InstallDialog(tk.Toplevel):
 
     def __init__(self, parent: tk.Tk, candidates: list[str]) -> None:
         super().__init__(parent)
-        self.title("ディストリビューションのインストール")
+        self._language = getattr(parent, "_language", wsl_core.LANGUAGE_AUTO)
+        self.title(self._t("gui.install.title"))
         self.resizable(False, False)
         self.result: str | None = None
         self._candidates = candidates
@@ -476,12 +486,15 @@ class InstallDialog(tk.Toplevel):
         self.grab_set()
         self.protocol("WM_DELETE_WINDOW", self._on_cancel)
 
+    def _t(self, key: str, **values: object) -> str:
+        return wsl_core.translate(key, self._language, **values)
+
     def _build_ui(self) -> None:
         frame = ttk.Frame(self, padding=12)
         frame.pack(fill=tk.BOTH, expand=True)
 
         ttk.Label(
-            frame, text="インストールするディストリビューションを選択または入力してください:"
+            frame, text=self._t("gui.install.label")
         ).pack(anchor=tk.W, pady=(0, 6))
 
         if self._candidates:
@@ -508,14 +521,14 @@ class InstallDialog(tk.Toplevel):
         else:
             ttk.Label(
                 frame,
-                text="（一覧を取得できませんでした。名前を直接入力してください）",
+                text=self._t("gui.install.empty_list"),
                 foreground="#888888",
             ).pack(anchor=tk.W, pady=(0, 8))
             self._listbox = None  # type: ignore[assignment]
 
         entry_frame = ttk.Frame(frame)
         entry_frame.pack(fill=tk.X, pady=(0, 10))
-        ttk.Label(entry_frame, text="名前:").pack(side=tk.LEFT, padx=(0, 6))
+        ttk.Label(entry_frame, text=self._t("gui.common.name")).pack(side=tk.LEFT, padx=(0, 6))
         self._entry_var = tk.StringVar()
         ttk.Entry(entry_frame, textvariable=self._entry_var, width=36).pack(
             side=tk.LEFT, fill=tk.X, expand=True
@@ -523,12 +536,18 @@ class InstallDialog(tk.Toplevel):
 
         btn_frame = ttk.Frame(frame)
         btn_frame.pack(fill=tk.X)
-        ttk.Button(btn_frame, text="インストール", command=self._on_install, width=12).pack(
-            side=tk.RIGHT, padx=(4, 0)
-        )
-        ttk.Button(btn_frame, text="キャンセル", command=self._on_cancel, width=10).pack(
-            side=tk.RIGHT
-        )
+        ttk.Button(
+            btn_frame,
+            text=self._t("gui.install.btn_install"),
+            command=self._on_install,
+            width=12,
+        ).pack(side=tk.RIGHT, padx=(4, 0))
+        ttk.Button(
+            btn_frame,
+            text=self._t("gui.common.cancel"),
+            command=self._on_cancel,
+            width=10,
+        ).pack(side=tk.RIGHT)
 
     def _on_listbox_select(self, _event: tk.Event) -> None:  # type: ignore[type-arg]
         """Listbox の選択を Entry へ反映します。"""
@@ -542,7 +561,7 @@ class InstallDialog(tk.Toplevel):
         value = self._entry_var.get().strip()
         valid, reason = wsl_core.validate_distro_name(value)
         if not valid:
-            messagebox.showwarning("警告", reason, parent=self)
+            messagebox.showwarning(self._t("gui.common.warning"), reason, parent=self)
             return
         self.result = value
         self.destroy()
@@ -3383,47 +3402,68 @@ class WSLManager(tk.Tk):
         name = self._selected_name()
         if not name:
             messagebox.showwarning(
-                "警告", "ディストリビューションを選択してください。", parent=self
+                self._t("gui.common.warning"), self._t("gui.msg.select_distro"), parent=self
             )
             return
         if not messagebox.askyesno(
-            "確認", f"「{name}」を停止しますか？", parent=self
+            self._t("gui.common.confirm"), self._t("gui.confirm.stop", name=name), parent=self
         ):
             return
         self._log_operation("停止", name, "実行")
-        self._set_status(f"「{name}」を停止中…")
-        self._run_wsl_cmd(
-            ["--terminate", name],
-            f"「{name}」を停止しました。",
-            f"「{name}」の停止に失敗しました。",
+        status_msg = (
+            f"「{name}」を停止中…" if self._language == "ja" else f"Stopping '{name}'..."
         )
+        self._set_status(status_msg)
+        ok_msg = (
+            f"「{name}」を停止しました。" if self._language == "ja" else f"Stopped '{name}'."
+        )
+        err_msg = (
+            f"「{name}」の停止に失敗しました。"
+            if self._language == "ja"
+            else f"Failed to stop '{name}'."
+        )
+        self._run_wsl_cmd(["--terminate", name], ok_msg, err_msg)
 
     def _shutdown_all(self) -> None:
         if not messagebox.askyesno(
-            "確認", "すべての WSL ディストリビューションを停止しますか？", parent=self
+            self._t("gui.common.confirm"), self._t("gui.confirm.shutdown"), parent=self
         ):
             return
         self._log_operation("全停止", "全ディストリビューション", "実行")
-        self._set_status("WSL を全停止中…")
-        self._run_wsl_cmd(
-            ["--shutdown"],
-            "WSL を全停止しました。",
-            "WSL の全停止に失敗しました。",
+        status_msg = (
+            "WSL を全停止中…" if self._language == "ja" else "Shutting down all distributions..."
         )
+        self._set_status(status_msg)
+        ok_msg = (
+            "WSL を全停止しました。"
+            if self._language == "ja"
+            else "Shut down all distributions."
+        )
+        err_msg = (
+            "WSL の全停止に失敗しました。"
+            if self._language == "ja"
+            else "Failed to shut down all distributions."
+        )
+        self._run_wsl_cmd(["--shutdown"], ok_msg, err_msg)
 
     def _set_default(self) -> None:
         name = self._selected_name()
         if not name:
             messagebox.showwarning(
-                "警告", "ディストリビューションを選択してください。", parent=self
+                self._t("gui.common.warning"), self._t("gui.msg.select_distro"), parent=self
             )
             return
         self._log_operation("デフォルト設定", name, "実行")
-        self._set_status(f"「{name}」をデフォルトに設定中…")
+        status_msg = (
+            f"「{name}」をデフォルトに設定中…"
+            if self._language == "ja"
+            else f"Setting '{name}' as default..."
+        )
+        self._set_status(status_msg)
         self._run_wsl_cmd(
             ["--set-default", name],
-            f"「{name}」をデフォルトに設定しました。",
-            f"「{name}」のデフォルト設定に失敗しました。",
+            self._t("gui.msg.set_default_success", name=name),
+            self._t("gui.msg.set_default_failed", error=""),
         )
 
     def _open_terminal(self) -> None:
@@ -3435,7 +3475,7 @@ class WSLManager(tk.Tk):
         name = self._selected_name()
         if not name:
             messagebox.showwarning(
-                "警告", "ディストリビューションを選択してください。", parent=self
+                self._t("gui.common.warning"), self._t("gui.msg.select_distro"), parent=self
             )
             return
         # wsl --list の出力から得た名前はこのアプリの作成時バリデーションを
@@ -3444,7 +3484,7 @@ class WSLManager(tk.Tk):
         valid, reason = wsl_core.validate_distro_name(name)
         if not valid:
             messagebox.showerror(
-                "エラー",
+                self._t("gui.common.error"),
                 f"「{name}」はターミナル起動時に使用できない名前です: {reason}",
                 parent=self,
             )
@@ -3504,17 +3544,19 @@ class WSLManager(tk.Tk):
         name = self._selected_name()
         if not name:
             messagebox.showwarning(
-                "警告", "ディストリビューションを選択してください。", parent=self
+                self._t("gui.common.warning"), self._t("gui.msg.select_distro"), parent=self
             )
             return
 
         sel = self._tree.selection()
         if sel:
-            state_jp = self._tree.item(sel[0])["values"][2]
-            if state_jp != "実行中":
+            state_val = self._tree.item(sel[0])["values"][2]
+            if state_val not in ("実行中", "Running"):
                 messagebox.showwarning(
-                    "警告",
-                    f"「{name}」は停止中です。起動してからプロセスを確認してください。",
+                    self._t("gui.common.warning"),
+                    f"「{name}」は停止中です。起動してからプロセスを確認してください。"
+                    if self._language == "ja"
+                    else f"'{name}' is stopped. Please start it before checking processes.",
                     parent=self,
                 )
                 return
@@ -3917,25 +3959,24 @@ class WSLManager(tk.Tk):
         name = self._selected_name()
         if not name:
             messagebox.showwarning(
-                "警告", "ディストリビューションを選択してください。", parent=self
+                self._t("gui.common.warning"), self._t("gui.msg.select_distro"), parent=self
             )
             return
 
         if not messagebox.askyesno(
-            "削除確認",
-            (
-                f"「{name}」をアンインストール（登録解除）します。\n"
-                "この操作は取り消せません。続行しますか？"
-            ),
+            self._t("gui.common.confirm"),
+            self._t("gui.confirm.unregister", name=name),
             parent=self,
         ):
             return
 
         confirm_name = simpledialog.askstring(
-            "最終確認",
+            self._t("gui.common.confirm"),
             (
                 "誤操作防止のため、削除するディストリビューション名を\n"
                 f"正確に入力してください: {name}"
+                if self._language == "ja"
+                else f"To prevent mistakes, please re-enter the exact distribution name:\n{name}"
             ),
             parent=self,
         )
@@ -3944,18 +3985,25 @@ class WSLManager(tk.Tk):
 
         if confirm_name.strip() != name:
             messagebox.showwarning(
-                "警告",
-                "入力された名前が一致しないため、アンインストールを中止しました。",
+                self._t("gui.common.warning"),
+                "入力された名前が一致しないため、アンインストールを中止しました。"
+                if self._language == "ja"
+                else "Uninstallation cancelled because the entered name did not match.",
                 parent=self,
             )
             return
 
         self._log_operation("アンインストール", name, "実行")
-        self._set_status(f"「{name}」をアンインストール中…")
+        status_msg = (
+            f"「{name}」をアンインストール中…"
+            if self._language == "ja"
+            else f"Unregistering '{name}'..."
+        )
+        self._set_status(status_msg)
         self._run_wsl_cmd(
             ["--unregister", name],
-            f"「{name}」をアンインストールしました。",
-            f"「{name}」のアンインストールに失敗しました。",
+            self._t("gui.msg.unregister_success", name=name),
+            self._t("gui.msg.unregister_failed", error=""),
         )
 
     def _import_distro_image(self) -> None:
@@ -4094,22 +4142,22 @@ class WSLManager(tk.Tk):
         self._tree.focus(row)
 
         menu = tk.Menu(self, tearoff=0)
-        menu.add_command(label="🖥 ターミナルを開く", command=self._open_terminal)
-        menu.add_command(label="ℹ  詳細情報", command=self._show_detail)
-        menu.add_command(label="📋 プロセス一覧", command=self._show_processes)
-        menu.add_command(label="📂 エクスプローラーで開く", command=self._open_in_explorer)
-        menu.add_command(label="📋 IPアドレスをコピー", command=self._copy_ip_address)
+        menu.add_command(label=self._t("gui.context.terminal"), command=self._open_terminal)
+        menu.add_command(label=self._t("gui.context.details"), command=self._show_detail)
+        menu.add_command(label=self._t("gui.context.processes"), command=self._show_processes)
+        menu.add_command(label=self._t("gui.context.explorer"), command=self._open_in_explorer)
+        menu.add_command(label=self._t("gui.context.copy_ip"), command=self._copy_ip_address)
         menu.add_separator()
-        menu.add_command(label="■ 停止", command=self._stop_distro)
-        menu.add_command(label="★ デフォルトに設定", command=self._set_default)
-        menu.add_command(label="🔁 WSL1/WSL2 に変換", command=self._convert_version)
-        menu.add_command(label="🗜 ディスク最適化", command=self._open_disk_optimize)
-        menu.add_command(label="⚙ ディストロ設定 (wsl.conf)", command=self._open_distro_conf)
+        menu.add_command(label=self._t("gui.context.stop"), command=self._stop_distro)
+        menu.add_command(label=self._t("gui.context.set_default"), command=self._set_default)
+        menu.add_command(label=self._t("gui.context.convert"), command=self._convert_version)
+        menu.add_command(label=self._t("gui.context.optimize"), command=self._open_disk_optimize)
+        menu.add_command(label=self._t("gui.context.distro_conf"), command=self._open_distro_conf)
         menu.add_separator()
-        menu.add_command(label="📑 複製", command=self._clone_distro)
-        menu.add_command(label="📸 スナップショットを作成", command=self._create_snapshot)
-        menu.add_command(label="📤 エクスポート", command=self._export_distro_image)
-        menu.add_command(label="🗑 アンインストール", command=self._uninstall_distro)
+        menu.add_command(label=self._t("gui.context.clone"), command=self._clone_distro)
+        menu.add_command(label=self._t("gui.context.snapshot"), command=self._create_snapshot)
+        menu.add_command(label=self._t("gui.context.export"), command=self._export_distro_image)
+        menu.add_command(label=self._t("gui.context.unregister"), command=self._uninstall_distro)
         try:
             menu.tk_popup(event.x_root, event.y_root)
         finally:
@@ -4174,7 +4222,7 @@ class WSLManager(tk.Tk):
         name = self._selected_name()
         if not name:
             messagebox.showwarning(
-                "警告", "ディストリビューションを選択してください。", parent=self
+                self._t("gui.common.warning"), self._t("gui.msg.select_distro"), parent=self
             )
             return
 
@@ -4196,34 +4244,43 @@ class WSLManager(tk.Tk):
             target = "2"
 
         if current == "?":
-            confirm_msg = (
-                f"「{name}」を WSL{target} に変換しますか？\n"
-                "ディスクサイズによっては数分かかることがあります。"
-            )
+            confirm_msg = self._t("gui.confirm.convert", name=name, target=target)
         else:
-            confirm_msg = (
-                f"「{name}」を WSL{current} から WSL{target} に変換しますか？\n"
-                "ディスクサイズによっては数分かかることがあります。"
-            )
+            if self._language == "ja":
+                confirm_msg = (
+                    f"「{name}」を WSL{current} から WSL{target} に変換しますか？\n"
+                    "（変換には数分かかる場合があります）"
+                )
+            else:
+                confirm_msg = (
+                    f"Convert '{name}' from WSL{current} to WSL{target}?\n"
+                    "(This conversion may take several minutes)"
+                )
 
-        if not messagebox.askyesno("確認", confirm_msg, parent=self):
+        if not messagebox.askyesno(self._t("gui.common.confirm"), confirm_msg, parent=self):
             return
 
         self._log_operation("バージョン変換", name, f"WSL{target}")
-        self._set_status(f"「{name}」を WSL{target} に変換中…")
+        status_msg = (
+            f"「{name}」を WSL{target} に変換中…"
+            if self._language == "ja"
+            else f"Converting '{name}' to WSL{target}..."
+        )
+        self._set_status(status_msg)
 
         def _on_done(returncode: int, stderr_text: str, cancelled: bool) -> None:
             if cancelled:
                 self._log_operation("バージョン変換", name, "キャンセル")
                 self._set_status(
-                    f"「{name}」の WSL バージョン変換を中断しました"
-                    "（状態が不完全な可能性があります）。"
+                    f"「{name}」の WSL バージョン変換を中断しました。"
+                    if self._language == "ja"
+                    else f"Cancelled WSL version conversion for '{name}'."
                 )
             elif returncode == 0:
-                self._set_status(f"「{name}」を WSL{target} に変換しました。")
+                self._set_status(self._t("gui.msg.convert_success", name=name, version=target))
             else:
                 self._set_status(
-                    stderr_text or f"「{name}」の WSL バージョン変換に失敗しました。"
+                    stderr_text or self._t("gui.msg.convert_failed", error="")
                 )
             self._refresh()
 
