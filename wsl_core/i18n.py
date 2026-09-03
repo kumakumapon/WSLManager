@@ -279,6 +279,109 @@ _MESSAGES: Mapping[str, Mapping[str, str]] = {
     "gui.unmount.btn_unmount": {"ja": "アンマウント", "en": "Unmount"},
     # ── スナップショット管理 ──
     "gui.snapshot.title": {"ja": "スナップショット管理", "en": "Snapshot Management"},
+    "gui.snapshot.dir_label": {"ja": "保存先: {dir}", "en": "Location: {dir}"},
+    "gui.snapshot.btn_change_dir": {"ja": "保存先変更…", "en": "Change Location…"},
+    "gui.snapshot.btn_refresh": {"ja": "更新", "en": "Refresh"},
+    "gui.snapshot.btn_open_folder": {"ja": "フォルダを開く", "en": "Open Folder"},
+    "gui.snapshot.btn_delete": {"ja": "削除", "en": "Delete"},
+    "gui.snapshot.btn_restore": {"ja": "復元...", "en": "Restore..."},
+    "gui.snapshot.col_name": {"ja": "ディストリビューション", "en": "Distribution"},
+    "gui.snapshot.col_created": {"ja": "作成日時", "en": "Created"},
+    "gui.snapshot.col_size": {"ja": "サイズ", "en": "Size"},
+    "gui.snapshot.col_comment": {"ja": "コメント", "en": "Comment"},
+    "gui.snapshot.tar_missing": {"ja": "(tar なし)", "en": "(tar missing)"},
+    "gui.snapshot.total": {
+        "ja": "合計: {size} ({count} 件)",
+        "en": "Total: {size} ({count} items)",
+    },
+    "gui.snapshot.choose_dir_title": {
+        "ja": "スナップショット保存先フォルダの選択",
+        "en": "Select Snapshot Storage Folder",
+    },
+    "gui.snapshot.change_dir_title": {
+        "ja": "スナップショット保存先フォルダを選択",
+        "en": "Select Snapshot Storage Folder",
+    },
+    "gui.snapshot.select_prompt": {
+        "ja": "スナップショットを選択してください。",
+        "en": "Please select a snapshot.",
+    },
+    "gui.snapshot.tar_not_found": {
+        "ja": "tar ファイルが見つかりません。復元できません。",
+        "en": "The tar file was not found. Cannot restore.",
+    },
+    "gui.snapshot.restore_dialog_title": {"ja": "復元", "en": "Restore"},
+    "gui.snapshot.restore_name_prompt": {
+        "ja": "復元先のディストリビューション名を入力してください。",
+        "en": "Enter the distribution name to restore as.",
+    },
+    "gui.snapshot.duplicate_name": {
+        "ja": "同名のディストリビューションが既に存在します。",
+        "en": "A distribution with the same name already exists.",
+    },
+    "gui.snapshot.choose_install_dir": {
+        "ja": "インストール先フォルダを選択",
+        "en": "Select Install Destination Folder",
+    },
+    "gui.snapshot.confirm_restore": {
+        "ja": "次の内容で復元します。\n\n"
+        "名前: {name}\n"
+        "スナップショット: {tar}\n"
+        "保存先: {install_path}\n"
+        "バージョン: WSL{version}",
+        "en": "Restore with the following settings.\n\n"
+        "Name: {name}\n"
+        "Snapshot: {tar}\n"
+        "Location: {install_path}\n"
+        "Version: WSL{version}",
+    },
+    "gui.snapshot.restoring": {"ja": "「{name}」へ復元中…", "en": "Restoring to '{name}'..."},
+    "gui.snapshot.restore_title": {"ja": "スナップショット復元", "en": "Snapshot Restore"},
+    "gui.snapshot.restore_success": {
+        "ja": "「{name}」に復元しました。",
+        "en": "Restored to '{name}'.",
+    },
+    "gui.snapshot.restore_failed": {
+        "ja": "「{name}」への復元に失敗しました。",
+        "en": "Failed to restore to '{name}'.",
+    },
+    "gui.snapshot.restore_cancelled": {
+        "ja": "「{name}」への復元をキャンセルしました。",
+        "en": "Restore to '{name}' was cancelled.",
+    },
+    "gui.snapshot.confirm_cleanup_after_cancel": {
+        "ja": "復元を中断したため、不完全な登録が残っている\n"
+        "可能性があります。「{name}」の登録を解除しますか？",
+        "en": "The restore was interrupted, so an incomplete\n"
+        "registration may remain. Unregister '{name}'?",
+    },
+    "gui.snapshot.unregister_after_cancel_success": {
+        "ja": "「{name}」の登録を解除しました。",
+        "en": "Unregistered '{name}'.",
+    },
+    "gui.snapshot.unregister_after_cancel_failed": {
+        "ja": "「{name}」の登録解除に失敗しました。",
+        "en": "Failed to unregister '{name}'.",
+    },
+    "gui.snapshot.delete_confirm_title": {"ja": "削除確認", "en": "Confirm Delete"},
+    "gui.snapshot.confirm_delete": {
+        "ja": "次のスナップショットを削除します。この操作は取り消せません。\n\n"
+        "ディストリビューション: {distro}\n"
+        "作成日時: {created}\n"
+        "ファイル: {file}",
+        "en": "The following snapshot will be deleted. This cannot be undone.\n\n"
+        "Distribution: {distro}\n"
+        "Created: {created}\n"
+        "File: {file}",
+    },
+    "gui.snapshot.delete_failed": {
+        "ja": "削除に失敗しました:\n{errors}",
+        "en": "Failed to delete:\n{errors}",
+    },
+    "gui.snapshot.windows_only": {
+        "ja": "この機能は Windows でのみ利用できます。",
+        "en": "This feature is only available on Windows.",
+    },
     # ── 右クリックコンテキストメニュー ──
     "gui.context.terminal": {"ja": "🖥 ターミナルを開く", "en": "🖥 Open Terminal"},
     "gui.context.details": {"ja": "ℹ  詳細情報", "en": "ℹ  Details"},

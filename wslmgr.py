@@ -2164,12 +2164,9 @@ class SnapshotManagerDialog(tk.Toplevel):
     def __init__(self, parent: WSLManager) -> None:
         super().__init__(parent)
         self._parent = parent
+        self._language = getattr(parent, "_language", wsl_core.LANGUAGE_AUTO)
         self._snapshots: list[dict] = []
-        self.title(
-            wsl_core.translate(
-                "gui.snapshot.title", getattr(parent, "_language", wsl_core.LANGUAGE_AUTO)
-            )
-        )
+        self.title(self._t("gui.snapshot.title"))
         self.geometry("720x420")
         self.minsize(600, 320)
         self.resizable(True, True)
@@ -2178,6 +2175,9 @@ class SnapshotManagerDialog(tk.Toplevel):
         self.protocol("WM_DELETE_WINDOW", self.destroy)
         self._reload()
 
+    def _t(self, key: str, **values: object) -> str:
+        return wsl_core.translate(key, self._language, **values)
+
     def _build_ui(self) -> None:
         main = ttk.Frame(self, padding=10)
         main.pack(fill=tk.BOTH, expand=True)
@@ -2185,24 +2185,25 @@ class SnapshotManagerDialog(tk.Toplevel):
         top_frame = ttk.Frame(main)
         top_frame.pack(fill=tk.X, pady=(0, 6))
 
-        self._dir_var = tk.StringVar(value="保存先: -")
+        self._dir_var = tk.StringVar(value=self._t("gui.snapshot.dir_label", dir="-"))
         ttk.Label(top_frame, textvariable=self._dir_var).pack(side=tk.LEFT, fill=tk.X, expand=True)
-        ttk.Button(top_frame, text="保存先変更…", command=self._change_dir, width=12).pack(
-            side=tk.RIGHT
-        )
+        ttk.Button(
+            top_frame, text=self._t("gui.snapshot.btn_change_dir"), command=self._change_dir,
+            width=12,
+        ).pack(side=tk.RIGHT)
 
         tree_frame = ttk.Frame(main)
         tree_frame.pack(fill=tk.BOTH, expand=True)
 
         cols = ("name", "created_at", "size", "comment")
         self._tree = ttk.Treeview(tree_frame, columns=cols, show="headings", selectmode="browse")
-        for cid, text, w in [
-            ("name", "ディストリビューション", 160),
-            ("created_at", "作成日時", 140),
-            ("size", "サイズ", 90),
-            ("comment", "コメント", 220),
+        for cid, key, w in [
+            ("name", "gui.snapshot.col_name", 160),
+            ("created_at", "gui.snapshot.col_created", 140),
+            ("size", "gui.snapshot.col_size", 90),
+            ("comment", "gui.snapshot.col_comment", 220),
         ]:
-            self._tree.heading(cid, text=text)
+            self._tree.heading(cid, text=self._t(key))
             self._tree.column(cid, width=w, minwidth=60, anchor=tk.W)
         vsb = ttk.Scrollbar(tree_frame, orient=tk.VERTICAL, command=self._tree.yview)
         self._tree.configure(yscrollcommand=vsb.set)
@@ -2211,34 +2212,40 @@ class SnapshotManagerDialog(tk.Toplevel):
 
         bottom = ttk.Frame(main)
         bottom.pack(fill=tk.X, pady=(8, 0))
-        self._total_var = tk.StringVar(value="合計: 0 B (0 件)")
+        self._total_var = tk.StringVar(
+            value=self._t("gui.snapshot.total", size=wsl_core.format_bytes(0), count=0)
+        )
         ttk.Label(bottom, textvariable=self._total_var).pack(side=tk.LEFT)
 
-        ttk.Button(bottom, text="閉じる", command=self.destroy, width=10).pack(
-            side=tk.RIGHT, padx=(4, 0)
-        )
-        ttk.Button(bottom, text="更新", command=self._reload, width=10).pack(
-            side=tk.RIGHT, padx=(4, 0)
-        )
-        ttk.Button(bottom, text="フォルダを開く", command=self._open_folder, width=13).pack(
-            side=tk.RIGHT, padx=(4, 0)
-        )
-        ttk.Button(bottom, text="保存先変更...", command=self._change_snapshot_dir, width=13).pack(
-            side=tk.RIGHT, padx=(4, 0)
-        )
-        ttk.Button(bottom, text="削除", command=self._delete_snapshot, width=10).pack(
-            side=tk.RIGHT, padx=(4, 0)
-        )
-        ttk.Button(bottom, text="復元...", command=self._restore_snapshot, width=10).pack(
-            side=tk.RIGHT, padx=(4, 0)
-        )
+        ttk.Button(
+            bottom, text=self._t("gui.common.close"), command=self.destroy, width=10
+        ).pack(side=tk.RIGHT, padx=(4, 0))
+        ttk.Button(
+            bottom, text=self._t("gui.snapshot.btn_refresh"), command=self._reload, width=10
+        ).pack(side=tk.RIGHT, padx=(4, 0))
+        ttk.Button(
+            bottom, text=self._t("gui.snapshot.btn_open_folder"), command=self._open_folder,
+            width=13,
+        ).pack(side=tk.RIGHT, padx=(4, 0))
+        ttk.Button(
+            bottom, text=self._t("gui.snapshot.btn_change_dir"),
+            command=self._change_snapshot_dir, width=13,
+        ).pack(side=tk.RIGHT, padx=(4, 0))
+        ttk.Button(
+            bottom, text=self._t("gui.snapshot.btn_delete"), command=self._delete_snapshot,
+            width=10,
+        ).pack(side=tk.RIGHT, padx=(4, 0))
+        ttk.Button(
+            bottom, text=self._t("gui.snapshot.btn_restore"), command=self._restore_snapshot,
+            width=10,
+        ).pack(side=tk.RIGHT, padx=(4, 0))
 
     def _change_dir(self) -> None:
         """スナップショット保存先ディレクトリを変更します。"""
         current = self._parent._snapshot_dir()
         new_dir = filedialog.askdirectory(
             parent=self,
-            title="スナップショット保存先フォルダの選択",
+            title=self._t("gui.snapshot.choose_dir_title"),
             initialdir=current,
         )
         if not new_dir:
@@ -2250,7 +2257,7 @@ class SnapshotManagerDialog(tk.Toplevel):
     def _reload(self) -> None:
         """スナップショット一覧を保存先ディレクトリから再読込してツリーに反映します。"""
         snap_dir = self._parent._snapshot_dir()
-        self._dir_var.set(f"保存先: {snap_dir}")
+        self._dir_var.set(self._t("gui.snapshot.dir_label", dir=snap_dir))
         self._snapshots = wsl_core.load_snapshots(snap_dir)
 
         for item in self._tree.get_children():
@@ -2261,7 +2268,7 @@ class SnapshotManagerDialog(tk.Toplevel):
             if snap.get("tar_exists", True):
                 size_text = wsl_core.format_bytes(snap.get("size_bytes", 0))
             else:
-                size_text = "(tar なし)"
+                size_text = self._t("gui.snapshot.tar_missing")
             self._tree.insert(
                 "",
                 tk.END,
@@ -2275,7 +2282,13 @@ class SnapshotManagerDialog(tk.Toplevel):
             )
 
         total = wsl_core.total_snapshots_size(self._snapshots)
-        self._total_var.set(f"合計: {wsl_core.format_bytes(total)} ({len(self._snapshots)} 件)")
+        self._total_var.set(
+            self._t(
+                "gui.snapshot.total",
+                size=wsl_core.format_bytes(total),
+                count=len(self._snapshots),
+            )
+        )
 
     def _selected_snapshot(self) -> dict | None:
         sel = self._tree.selection()
@@ -2290,11 +2303,13 @@ class SnapshotManagerDialog(tk.Toplevel):
         """選択したスナップショットを新しいディストリビューションとして復元します。"""
         snap = self._selected_snapshot()
         if snap is None:
-            messagebox.showwarning("警告", "スナップショットを選択してください。", parent=self)
+            messagebox.showwarning(
+                self._t("gui.common.warning"), self._t("gui.snapshot.select_prompt"), parent=self
+            )
             return
         if not snap.get("tar_exists", True):
             messagebox.showwarning(
-                "警告", "tar ファイルが見つかりません。復元できません。", parent=self
+                self._t("gui.common.warning"), self._t("gui.snapshot.tar_not_found"), parent=self
             )
             return
 
@@ -2303,8 +2318,8 @@ class SnapshotManagerDialog(tk.Toplevel):
 
         existing = [d["name"] for d in self._parent._all_distros]
         new_name = simpledialog.askstring(
-            "復元",
-            "復元先のディストリビューション名を入力してください。",
+            self._t("gui.snapshot.restore_dialog_title"),
+            self._t("gui.snapshot.restore_name_prompt"),
             initialvalue=wsl_core.default_clone_name(distro_name, existing),
             parent=self,
         )
@@ -2313,29 +2328,33 @@ class SnapshotManagerDialog(tk.Toplevel):
         new_name = new_name.strip()
         valid, reason = wsl_core.validate_distro_name(new_name)
         if not valid:
-            messagebox.showwarning("警告", reason, parent=self)
+            messagebox.showwarning(self._t("gui.common.warning"), reason, parent=self)
             return
         existing_casefold = {n.casefold() for n in existing}
         if new_name.casefold() in existing_casefold:
             messagebox.showwarning(
-                "警告", "同名のディストリビューションが既に存在します。", parent=self
+                self._t("gui.common.warning"),
+                self._t("gui.snapshot.duplicate_name"),
+                parent=self,
             )
             return
 
-        install_path = filedialog.askdirectory(title="インストール先フォルダを選択", parent=self)
+        install_path = filedialog.askdirectory(
+            title=self._t("gui.snapshot.choose_install_dir"), parent=self
+        )
         if not install_path:
             return
 
         version = snap.get("wsl_version") or "2"
 
         if not messagebox.askyesno(
-            "確認",
-            (
-                "次の内容で復元します。\n\n"
-                f"名前: {new_name}\n"
-                f"スナップショット: {os.path.basename(tar_path)}\n"
-                f"保存先: {install_path}\n"
-                f"バージョン: WSL{version}"
+            self._t("gui.common.confirm"),
+            self._t(
+                "gui.snapshot.confirm_restore",
+                name=new_name,
+                tar=os.path.basename(tar_path),
+                install_path=install_path,
+                version=version,
             ),
             parent=self,
         ):
@@ -2353,38 +2372,41 @@ class SnapshotManagerDialog(tk.Toplevel):
 
         parent = self._parent
         parent._log_operation("スナップショット復元", new_name, tar_path)
-        parent._set_status(f"「{new_name}」へ復元中…")
+        parent._set_status(self._t("gui.snapshot.restoring", name=new_name))
 
         def _on_done(returncode: int, stderr_text: str, cancelled: bool) -> None:
             if cancelled:
                 parent._log_operation("スナップショット復元", new_name, "キャンセル")
-                parent._set_status(f"「{new_name}」への復元をキャンセルしました。")
+                parent._set_status(self._t("gui.snapshot.restore_cancelled", name=new_name))
                 if messagebox.askyesno(
-                    "確認",
-                    (
-                        "復元を中断したため、不完全な登録が残っている\n"
-                        f"可能性があります。「{new_name}」の登録を解除しますか？"
-                    ),
+                    self._t("gui.common.confirm"),
+                    self._t("gui.snapshot.confirm_cleanup_after_cancel", name=new_name),
                     parent=parent,
                 ):
                     parent._run_wsl_cmd(
                         ["--unregister", new_name],
-                        f"「{new_name}」の登録を解除しました。",
-                        f"「{new_name}」の登録解除に失敗しました。",
+                        self._t(
+                            "gui.snapshot.unregister_after_cancel_success", name=new_name
+                        ),
+                        self._t(
+                            "gui.snapshot.unregister_after_cancel_failed", name=new_name
+                        ),
                     )
                     return
             elif returncode == 0:
-                parent._set_status(f"「{new_name}」に復元しました。")
+                parent._set_status(self._t("gui.snapshot.restore_success", name=new_name))
             else:
-                parent._set_status(stderr_text or f"「{new_name}」への復元に失敗しました。")
+                parent._set_status(
+                    stderr_text or self._t("gui.snapshot.restore_failed", name=new_name)
+                )
             parent._refresh()
 
         # 親をメインウィンドウにする。管理ダイアログを親にすると、復元中に
         # 管理ダイアログを閉じた場合に進捗ダイアログごと破棄されてしまう。
         TransferProgressDialog(
             parent,
-            "スナップショット復元",
-            f"「{new_name}」へ復元中…",
+            self._t("gui.snapshot.restore_title"),
+            self._t("gui.snapshot.restoring", name=new_name),
             ["--import", new_name, install_path, tar_path, "--version", version],
             watch_path,
             total_bytes,
@@ -2395,7 +2417,9 @@ class SnapshotManagerDialog(tk.Toplevel):
         """選択したスナップショットの tar / JSON ファイルを削除します。"""
         snap = self._selected_snapshot()
         if snap is None:
-            messagebox.showwarning("警告", "スナップショットを選択してください。", parent=self)
+            messagebox.showwarning(
+                self._t("gui.common.warning"), self._t("gui.snapshot.select_prompt"), parent=self
+            )
             return
 
         distro_name = snap.get("distro_name", "")
@@ -2403,12 +2427,12 @@ class SnapshotManagerDialog(tk.Toplevel):
         tar_file = snap.get("tar_file", "")
 
         if not messagebox.askyesno(
-            "削除確認",
-            (
-                "次のスナップショットを削除します。この操作は取り消せません。\n\n"
-                f"ディストリビューション: {distro_name}\n"
-                f"作成日時: {created}\n"
-                f"ファイル: {tar_file}"
+            self._t("gui.snapshot.delete_confirm_title"),
+            self._t(
+                "gui.snapshot.confirm_delete",
+                distro=distro_name,
+                created=created,
+                file=tar_file,
             ),
             parent=self,
         ):
@@ -2429,7 +2453,11 @@ class SnapshotManagerDialog(tk.Toplevel):
                 errors.append(str(e))
 
         if errors:
-            messagebox.showerror("エラー", "削除に失敗しました:\n" + "\n".join(errors), parent=self)
+            messagebox.showerror(
+                self._t("gui.common.error"),
+                self._t("gui.snapshot.delete_failed", errors="\n".join(errors)),
+                parent=self,
+            )
 
         self._parent._log_operation("スナップショット削除", distro_name, tar_file)
         self._reload()
@@ -2440,22 +2468,24 @@ class SnapshotManagerDialog(tk.Toplevel):
         try:
             os.makedirs(snap_dir, exist_ok=True)
         except OSError as e:
-            messagebox.showerror("エラー", str(e), parent=self)
+            messagebox.showerror(self._t("gui.common.error"), str(e), parent=self)
             return
 
         if not hasattr(os, "startfile"):
-            messagebox.showinfo("情報", "この機能は Windows でのみ利用できます。", parent=self)
+            messagebox.showinfo(
+                self._t("gui.common.info"), self._t("gui.snapshot.windows_only"), parent=self
+            )
             return
         try:
             os.startfile(snap_dir)  # type: ignore[attr-defined]
         except OSError as e:
-            messagebox.showerror("エラー", str(e), parent=self)
+            messagebox.showerror(self._t("gui.common.error"), str(e), parent=self)
 
     def _change_snapshot_dir(self) -> None:
         """#17: スナップショットの保存先ディレクトリを変更します。"""
         current_dir = self._parent._snapshot_dir()
         new_dir = filedialog.askdirectory(
-            title="スナップショット保存先フォルダを選択",
+            title=self._t("gui.snapshot.change_dir_title"),
             initialdir=current_dir if os.path.isdir(current_dir) else None,
             parent=self,
         )
