@@ -2459,9 +2459,6 @@ class SnapshotManagerDialog(tk.Toplevel):
 class WSLManager(tk.Tk):
     """WSL2 ディストリビューション管理メインウィンドウ。"""
 
-    # 状態の日本語表示マッピング
-    STATE_JP: ClassVar[dict[str, str]] = {"Running": "実行中", "Stopped": "停止中"}
-
     # リソース使用量(CPU/メモリ)取得のタイムアウト秒数。
     # VM 初期化直後や、ログインシェルの起動が重い/プロセス数が多い
     # ディストリビューションでは 2 秒では応答が返らないことがあるため、
@@ -2518,6 +2515,20 @@ class WSLManager(tk.Tk):
     def _t(self, key: str, **values: object) -> str:
         """Translate text used by the main application shell."""
         return wsl_core.translate(key, self._language, **values)
+
+    def _state_display(self, state: str) -> str:
+        """ディストリビューションの状態文字列をローカライズして返します。
+
+        ``wsl --list`` が返す既知の状態 (Running/Stopped) のみを翻訳し、
+        未知の状態文字列は常に元の値へフォールバックします
+        (動的なキー合成は行わないため、未知キーがそのまま UI に
+        表示される事故を避けられます)。
+        """
+        labels = {
+            "Running": self._t("gui.state.running"),
+            "Stopped": self._t("gui.state.stopped"),
+        }
+        return labels.get(state, state)
 
     def _setup_theme(self) -> None:
         """利用可能な ttk テーマを検出し、デフォルトテーマを設定します。"""
@@ -2779,7 +2790,7 @@ class WSLManager(tk.Tk):
         self._tree.heading("name", text=self._t("gui.column.name"))
         self._tree.heading("state", text=self._t("gui.column.state"))
         self._tree.heading("version", text=self._t("gui.column.version"))
-        self._tree.heading("cpu", text="CPU(%)")
+        self._tree.heading("cpu", text=self._t("gui.column.cpu"))
         self._tree.heading("memory", text=self._t("gui.column.memory"))
         self._tree.heading("disk", text=self._t("gui.column.disk"))
         self._tree.heading("ip", text=self._t("gui.column.ip"))
@@ -2835,16 +2846,20 @@ class WSLManager(tk.Tk):
 
     def _build_resource_history_panel(self, parent: ttk.Frame) -> None:
         """CPU とメモリの最近30分の推移を表示する、折りたたみ可能なパネル。"""
-        self._history_frame = ttk.Labelframe(parent, text="リソース履歴（直近30分）")
+        self._history_frame = ttk.Labelframe(parent, text=self._t("gui.history.title"))
         self._cpu_history_canvas = tk.Canvas(
             self._history_frame, height=130, highlightthickness=0, background="white"
         )
         self._memory_history_canvas = tk.Canvas(
             self._history_frame, height=130, highlightthickness=0, background="white"
         )
-        ttk.Label(self._history_frame, text="CPU 使用率").pack(anchor=tk.W, padx=6, pady=(4, 0))
+        ttk.Label(self._history_frame, text=self._t("gui.history.cpu")).pack(
+            anchor=tk.W, padx=6, pady=(4, 0)
+        )
         self._cpu_history_canvas.pack(fill=tk.X, padx=6)
-        ttk.Label(self._history_frame, text="メモリ使用量").pack(anchor=tk.W, padx=6, pady=(2, 0))
+        ttk.Label(self._history_frame, text=self._t("gui.history.memory")).pack(
+            anchor=tk.W, padx=6, pady=(2, 0)
+        )
         self._memory_history_canvas.pack(fill=tk.X, padx=6, pady=(0, 4))
         for canvas, metric in (
             (self._cpu_history_canvas, "cpu"),
@@ -2861,13 +2876,13 @@ class WSLManager(tk.Tk):
         self._resource_history_visible = not self._resource_history_visible
         if self._resource_history_visible:
             self._history_frame.pack(fill=tk.X, pady=(6, 0), before=self._statusbar)
-            self._history_toggle.configure(text="📈 履歴を隠す")
+            self._history_toggle.configure(text=self._t("gui.history.hide"))
             self._draw_resource_history()
         else:
             self._clear_history_tooltip(self._cpu_history_canvas)
             self._clear_history_tooltip(self._memory_history_canvas)
             self._history_frame.pack_forget()
-            self._history_toggle.configure(text="📈 履歴を表示")
+            self._history_toggle.configure(text=self._t("gui.history.show"))
 
     def _draw_resource_history(self) -> None:
         if not self._resource_history_visible:
@@ -3199,9 +3214,7 @@ class WSLManager(tk.Tk):
             if filter_text and filter_text not in d["name"].casefold():
                 continue
             default_mark = "★" if d["default"] else ""
-            state_jp = (
-                self.STATE_JP.get(d["state"], d["state"]) if self._language == "ja" else d["state"]
-            )
+            state_display = self._state_display(d["state"])
             version_str = f"WSL{d['version']}" if d["version"] else ""
             tag = "running" if d["state"] == "Running" else "stopped"
             iid = self._tree.insert(
@@ -3210,7 +3223,7 @@ class WSLManager(tk.Tk):
                 values=(
                     default_mark,
                     d["name"],
-                    state_jp,
+                    state_display,
                     version_str,
                     d["cpu"],
                     d["memory"],
