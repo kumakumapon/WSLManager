@@ -9,6 +9,7 @@ import argparse
 import io
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -2663,6 +2664,34 @@ class TestCliI18n(unittest.TestCase):
             wslmgr_cli.cmd_list(args)
         self.assertIn("Name", output.getvalue())
         self.assertIn("State", output.getvalue())
+
+    def _iter_parsers(self, parser):
+        """parser 自身と、再帰的に辿った全サブパーサーを yield する。"""
+        yield parser
+        for action in parser._actions:
+            if isinstance(action, argparse._SubParsersAction):
+                for sub_parser in action.choices.values():
+                    yield from self._iter_parsers(sub_parser)
+
+    def test_english_help_has_no_japanese_characters(self):
+        """言語を en にした場合、全ての(サブ)パーサーのヘルプに日本語文字を含まない。"""
+        parser = wslmgr_cli.build_parser("en")
+        japanese_pattern = re.compile(r"[぀-ヿ一-鿿]")
+        checked = 0
+        for sub_parser in self._iter_parsers(parser):
+            help_text = sub_parser.format_help()
+            checked += 1
+            match = japanese_pattern.search(help_text)
+            self.assertIsNone(
+                match,
+                msg=(
+                    f"{sub_parser.prog!r} の英語ヘルプに日本語文字が含まれています: "
+                    f"{help_text!r}"
+                ),
+            )
+        # 現状 35 個の (サブ) パーサーが存在することを確認し、
+        # 取りこぼし (例: 再帰探索が途中で止まる) がないことを担保する。
+        self.assertGreaterEqual(checked, 35)
 
 
 class TestCmdConfigDistro(unittest.TestCase):
