@@ -3510,7 +3510,7 @@ class WSLManager(tk.Tk):
         name = self._selected_name()
         if not name:
             messagebox.showwarning(
-                "警告", "ディストリビューションを選択してください。", parent=self
+                self._t("gui.common.warning"), self._t("gui.msg.select_distro"), parent=self
             )
             return
         DistroDetailDialog(self, name)
@@ -3553,7 +3553,7 @@ class WSLManager(tk.Tk):
         name = self._selected_name()
         if not name:
             messagebox.showwarning(
-                "警告", "ディストリビューションを選択してください。", parent=self
+                self._t("gui.common.warning"), self._t("gui.msg.select_distro"), parent=self
             )
             return
 
@@ -3671,7 +3671,7 @@ class WSLManager(tk.Tk):
         name = self._selected_name()
         if not name:
             messagebox.showwarning(
-                "警告", "ディストリビューションを選択してください。", parent=self
+                self._t("gui.common.warning"), self._t("gui.msg.select_distro"), parent=self
             )
             return
 
@@ -3762,7 +3762,7 @@ class WSLManager(tk.Tk):
         name = self._selected_name()
         if not name:
             messagebox.showwarning(
-                "警告", "ディストリビューションを選択してください。", parent=self
+                self._t("gui.common.warning"), self._t("gui.msg.select_distro"), parent=self
             )
             return
 
@@ -4077,7 +4077,7 @@ class WSLManager(tk.Tk):
         name = self._selected_name()
         if not name:
             messagebox.showwarning(
-                "警告", "ディストリビューションを選択してください。", parent=self
+                self._t("gui.common.warning"), self._t("gui.msg.select_distro"), parent=self
             )
             return
         dialog = DistroConfDialog(self, name)
@@ -4121,7 +4121,7 @@ class WSLManager(tk.Tk):
         name = self._selected_name()
         if not name:
             messagebox.showwarning(
-                "警告", "ディストリビューションを選択してください。", parent=self
+                self._t("gui.common.warning"), self._t("gui.msg.select_distro"), parent=self
             )
             return
         vhdx = _get_distro_vhdx_path(name)
@@ -4142,7 +4142,7 @@ class WSLManager(tk.Tk):
         name = self._selected_name()
         if not name:
             messagebox.showwarning(
-                "警告", "ディストリビューションを選択してください。", parent=self
+                self._t("gui.common.warning"), self._t("gui.msg.select_distro"), parent=self
             )
             return
         try:
