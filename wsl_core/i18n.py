@@ -254,7 +254,7 @@ _MESSAGES: Mapping[str, Mapping[str, str]] = {
     # ── ディスク最適化ダイアログ ──
     "gui.optimize.title": {"ja": "ディスク最適化 - {name}", "en": "Disk Optimization - {name}"},
     "gui.optimize.btn_sparse": {"ja": "スパース化を有効にする", "en": "Enable Sparse Mode"},
-    "gui.optimize.btn_compact": {"ja": "ディスクを圧縮する", "en": "Compact Disk"},
+    "gui.optimize.btn_compact": {"ja": "今すぐ圧縮する", "en": "Compact Now"},
     # ── 詳細情報ダイアログ ──
     "gui.detail.title": {"ja": "詳細情報 - {name}", "en": "Details - {name}"},
     # ── ログビューア ──

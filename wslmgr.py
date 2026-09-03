@@ -1136,22 +1136,20 @@ class DiskOptimizeDialog(tk.Toplevel):
 
     def __init__(self, parent: tk.Tk, distro_name: str, vhdx_path: str) -> None:
         super().__init__(parent)
+        self._language = getattr(parent, "_language", wsl_core.LANGUAGE_AUTO)
         self._distro = distro_name
         self._vhdx = vhdx_path
         self._busy = False
-        self.title(
-            wsl_core.translate(
-                "gui.optimize.title",
-                getattr(parent, "_language", wsl_core.LANGUAGE_AUTO),
-                name=distro_name,
-            )
-        )
+        self.title(self._t("gui.optimize.title", name=distro_name))
         self.resizable(False, False)
         self._build_ui()
         self._update_size()
         self.transient(parent)
         self.grab_set()
         self.protocol("WM_DELETE_WINDOW", self._on_close)
+
+    def _t(self, key: str, **values: object) -> str:
+        return wsl_core.translate(key, self._language, **values)
 
     def _current_size_gb(self) -> float | None:
         """現在の vhdx ファイルサイズ (GB) を返します。取得不可なら None。"""
@@ -1194,7 +1192,9 @@ class DiskOptimizeDialog(tk.Toplevel):
             wraplength=440,
             justify=tk.LEFT,
         ).pack(anchor=tk.W, pady=(0, 4))
-        self._sparse_btn = ttk.Button(frame, text="スパース化を有効にする", command=self._do_sparse)
+        self._sparse_btn = ttk.Button(
+            frame, text=self._t("gui.optimize.btn_sparse"), command=self._do_sparse
+        )
         self._sparse_btn.pack(anchor=tk.W, pady=(0, 10))
 
         ttk.Separator(frame, orient=tk.HORIZONTAL).pack(fill=tk.X, pady=(0, 10))
@@ -1211,7 +1211,9 @@ class DiskOptimizeDialog(tk.Toplevel):
             wraplength=440,
             justify=tk.LEFT,
         ).pack(anchor=tk.W, pady=(0, 4))
-        self._compact_btn = ttk.Button(frame, text="今すぐ圧縮する", command=self._do_compact)
+        self._compact_btn = ttk.Button(
+            frame, text=self._t("gui.optimize.btn_compact"), command=self._do_compact
+        )
         self._compact_btn.pack(anchor=tk.W, pady=(0, 10))
 
         ttk.Separator(frame, orient=tk.HORIZONTAL).pack(fill=tk.X, pady=(0, 8))
@@ -1227,7 +1229,9 @@ class DiskOptimizeDialog(tk.Toplevel):
 
         btn_row = ttk.Frame(frame)
         btn_row.pack(fill=tk.X, pady=(8, 0))
-        ttk.Button(btn_row, text="閉じる", command=self._on_close, width=10).pack(side=tk.RIGHT)
+        ttk.Button(
+            btn_row, text=self._t("gui.common.close"), command=self._on_close, width=10
+        ).pack(side=tk.RIGHT)
 
     def _set_busy(self, busy: bool) -> None:
         self._busy = busy
@@ -1599,18 +1603,18 @@ class LogViewerDialog(tk.Toplevel):
         clear_callback: callable,
     ) -> None:
         super().__init__(parent)
+        self._language = getattr(parent, "_language", wsl_core.LANGUAGE_AUTO)
         self._log_entries = log_entries
         self._clear_callback = clear_callback
-        self.title(
-            wsl_core.translate(
-                "gui.log.title", getattr(parent, "_language", wsl_core.LANGUAGE_AUTO)
-            )
-        )
+        self.title(self._t("gui.log.title"))
         self.geometry("600x400")
         self.resizable(True, True)
         self._build_ui()
         self.transient(parent)
         self.protocol("WM_DELETE_WINDOW", self.destroy)
+
+    def _t(self, key: str, **values: object) -> str:
+        return wsl_core.translate(key, self._language, **values)
 
     def _build_ui(self) -> None:
         main = ttk.Frame(self, padding=10)
@@ -1634,10 +1638,12 @@ class LogViewerDialog(tk.Toplevel):
 
         btn_frame = ttk.Frame(main)
         btn_frame.pack(fill=tk.X, pady=(8, 0))
-        ttk.Button(btn_frame, text="閉じる", command=self.destroy, width=10).pack(
-            side=tk.RIGHT, padx=(4, 0)
-        )
-        ttk.Button(btn_frame, text="クリア", command=self._on_clear, width=10).pack(side=tk.RIGHT)
+        ttk.Button(
+            btn_frame, text=self._t("gui.common.close"), command=self.destroy, width=10
+        ).pack(side=tk.RIGHT, padx=(4, 0))
+        ttk.Button(
+            btn_frame, text=self._t("gui.log.clear"), command=self._on_clear, width=10
+        ).pack(side=tk.RIGHT)
 
     def _refresh_text(self) -> None:
         """ログエントリをテキストウィジェットに反映します。"""
@@ -1978,15 +1984,15 @@ class WslMountDialog(tk.Toplevel):
     def __init__(self, parent: WSLManager) -> None:
         super().__init__(parent)
         self._parent = parent
-        self.title(
-            wsl_core.translate(
-                "gui.mount.title", getattr(parent, "_language", wsl_core.LANGUAGE_AUTO)
-            )
-        )
+        self._language = getattr(parent, "_language", wsl_core.LANGUAGE_AUTO)
+        self.title(self._t("gui.mount.title"))
         self.resizable(False, False)
         self._build_ui()
         self.transient(parent)
         self.grab_set()
+
+    def _t(self, key: str, **values: object) -> str:
+        return wsl_core.translate(key, self._language, **values)
 
     def _build_ui(self) -> None:
         frame = ttk.Frame(self, padding=14)
@@ -2054,10 +2060,12 @@ class WslMountDialog(tk.Toplevel):
 
         btn_frame = ttk.Frame(frame)
         btn_frame.grid(row=7, column=0, columnspan=3, sticky=tk.E, pady=(12, 0))
-        ttk.Button(btn_frame, text="マウント", command=self._on_mount, width=10).pack(
-            side=tk.RIGHT, padx=(4, 0)
-        )
-        ttk.Button(btn_frame, text="キャンセル", command=self.destroy, width=10).pack(side=tk.RIGHT)
+        ttk.Button(
+            btn_frame, text=self._t("gui.mount.btn_mount"), command=self._on_mount, width=10
+        ).pack(side=tk.RIGHT, padx=(4, 0))
+        ttk.Button(
+            btn_frame, text=self._t("gui.common.cancel"), command=self.destroy, width=10
+        ).pack(side=tk.RIGHT)
 
     def _browse_vhd(self) -> None:
         path = filedialog.askopenfilename(
@@ -2099,15 +2107,15 @@ class WslUnmountDialog(tk.Toplevel):
     def __init__(self, parent: WSLManager) -> None:
         super().__init__(parent)
         self._parent = parent
-        self.title(
-            wsl_core.translate(
-                "gui.unmount.title", getattr(parent, "_language", wsl_core.LANGUAGE_AUTO)
-            )
-        )
+        self._language = getattr(parent, "_language", wsl_core.LANGUAGE_AUTO)
+        self.title(self._t("gui.unmount.title"))
         self.resizable(False, False)
         self._build_ui()
         self.transient(parent)
         self.grab_set()
+
+    def _t(self, key: str, **values: object) -> str:
+        return wsl_core.translate(key, self._language, **values)
 
     def _build_ui(self) -> None:
         frame = ttk.Frame(self, padding=14)
@@ -2132,10 +2140,12 @@ class WslUnmountDialog(tk.Toplevel):
 
         btn_frame = ttk.Frame(frame)
         btn_frame.pack(fill=tk.X)
-        ttk.Button(btn_frame, text="アンマウント", command=self._on_unmount, width=12).pack(
-            side=tk.RIGHT, padx=(4, 0)
-        )
-        ttk.Button(btn_frame, text="キャンセル", command=self.destroy, width=10).pack(side=tk.RIGHT)
+        ttk.Button(
+            btn_frame, text=self._t("gui.unmount.btn_unmount"), command=self._on_unmount, width=12
+        ).pack(side=tk.RIGHT, padx=(4, 0))
+        ttk.Button(
+            btn_frame, text=self._t("gui.common.cancel"), command=self.destroy, width=10
+        ).pack(side=tk.RIGHT)
 
     def _on_unmount(self) -> None:
         disk = self._disk_var.get().strip() or None
