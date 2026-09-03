@@ -257,12 +257,21 @@ _MESSAGES: Mapping[str, Mapping[str, str]] = {
     "gui.optimize.btn_compact": {"ja": "今すぐ圧縮する", "en": "Compact Now"},
     # ── 詳細情報ダイアログ ──
     "gui.detail.title": {"ja": "詳細情報 - {name}", "en": "Details - {name}"},
+    "gui.detail.section_os": {"ja": "OS 情報", "en": "OS Info"},
+    "gui.detail.section_network": {"ja": "ネットワーク", "en": "Network"},
+    "gui.detail.section_disk": {"ja": "ディスク使用量", "en": "Disk Usage"},
+    "gui.detail.loading": {"ja": "取得中…", "en": "Loading..."},
+    "gui.detail.status_loading": {"ja": "情報を取得中…", "en": "Fetching information..."},
+    "gui.detail.status_done": {"ja": "取得完了", "en": "Done"},
+    "gui.detail.status_error": {"ja": "エラー: {error}", "en": "Error: {error}"},
+    "gui.detail.btn_refresh": {"ja": "更新", "en": "Refresh"},
     # ── ログビューア ──
     "gui.log.title": {"ja": "操作ログビューア", "en": "Operation Log Viewer"},
     "gui.log.clear": {"ja": "ログ消去", "en": "Clear Log"},
     "gui.log.export": {"ja": "エクスポート...", "en": "Export..."},
     # ── バージョン・更新 ──
     "gui.version.title": {"ja": "WSL バージョン情報", "en": "WSL Version Information"},
+    "gui.version.btn_check_update": {"ja": "更新を確認", "en": "Check for Updates"},
     "gui.update.title": {"ja": "WSL の更新", "en": "Update WSL"},
     "gui.update.confirm": {
         "ja": "WSL を最新バージョンに更新しますか？",

@@ -605,11 +605,8 @@ class WslConfigDialog(tk.Toplevel):
 
     def __init__(self, parent: tk.Tk) -> None:
         super().__init__(parent)
-        self.title(
-            wsl_core.translate(
-                "gui.wslconfig.title", getattr(parent, "_language", wsl_core.LANGUAGE_AUTO)
-            )
-        )
+        self._language = getattr(parent, "_language", wsl_core.LANGUAGE_AUTO)
+        self.title(self._t("gui.wslconfig.title"))
         self.resizable(True, False)
         self.result: bool | None = None
         self._path = os.path.expanduser("~/.wslconfig")
@@ -629,6 +626,9 @@ class WslConfigDialog(tk.Toplevel):
         self.transient(parent)
         self.grab_set()
         self.protocol("WM_DELETE_WINDOW", self._on_cancel)
+
+    def _t(self, key: str, **values: object) -> str:
+        return wsl_core.translate(key, self._language, **values)
 
     def _load_config(self) -> None:
         """設定ファイルを読み込み self._sections を初期化します。
@@ -711,9 +711,9 @@ class WslConfigDialog(tk.Toplevel):
         # ボタン行
         btn_frame = ttk.Frame(frame)
         btn_frame.pack(fill=tk.X)
-        ttk.Button(btn_frame, text="保存", command=self._on_save, width=10).pack(
-            side=tk.RIGHT, padx=(4, 0)
-        )
+        ttk.Button(
+            btn_frame, text=self._t("gui.common.save"), command=self._on_save, width=10
+        ).pack(side=tk.RIGHT, padx=(4, 0))
         ttk.Button(btn_frame, text="キャンセル", command=self._on_cancel, width=10).pack(
             side=tk.RIGHT
         )
@@ -795,17 +795,12 @@ class DistroConfDialog(tk.Toplevel):
     def __init__(self, parent: tk.Tk, distro_name: str) -> None:
         super().__init__(parent)
         self._app = parent
+        self._language = getattr(parent, "_language", wsl_core.LANGUAGE_AUTO)
         self._distro = distro_name
         self._busy = False
         self._sections: dict[str, dict[str, str]] = {}
         self.result: bool | None = None
-        self.title(
-            wsl_core.translate(
-                "gui.distroconf.title",
-                getattr(parent, "_language", wsl_core.LANGUAGE_AUTO),
-                name=distro_name,
-            )
-        )
+        self.title(self._t("gui.distroconf.title", name=distro_name))
         self.resizable(True, False)
         self._build_ui()
         self._set_form_enabled(False)
@@ -813,6 +808,9 @@ class DistroConfDialog(tk.Toplevel):
         self.protocol("WM_DELETE_WINDOW", self._on_cancel)
         self.grab_set()
         self._load_config()
+
+    def _t(self, key: str, **values: object) -> str:
+        return wsl_core.translate(key, self._language, **values)
 
     def _build_ui(self) -> None:
         frame = ttk.Frame(self, padding=14)
@@ -899,7 +897,9 @@ class DistroConfDialog(tk.Toplevel):
 
         btn_frame = ttk.Frame(frame)
         btn_frame.pack(fill=tk.X)
-        self._save_btn = ttk.Button(btn_frame, text="保存", command=self._on_save, width=10)
+        self._save_btn = ttk.Button(
+            btn_frame, text=self._t("gui.common.save"), command=self._on_save, width=10
+        )
         self._save_btn.pack(side=tk.RIGHT, padx=(4, 0))
         ttk.Button(btn_frame, text="キャンセル", command=self._on_cancel, width=10).pack(
             side=tk.RIGHT
@@ -1381,20 +1381,18 @@ class DistroDetailDialog(tk.Toplevel):
 
     def __init__(self, parent: tk.Tk, distro_name: str) -> None:
         super().__init__(parent)
+        self._language = getattr(parent, "_language", wsl_core.LANGUAGE_AUTO)
         self._distro = distro_name
-        self.title(
-            wsl_core.translate(
-                "gui.detail.title",
-                getattr(parent, "_language", wsl_core.LANGUAGE_AUTO),
-                name=distro_name,
-            )
-        )
+        self.title(self._t("gui.detail.title", name=distro_name))
         self.geometry("560x520")
         self.minsize(450, 400)
         self._build_ui()
         self.transient(parent)
         self.protocol("WM_DELETE_WINDOW", self.destroy)
         self._fetch_all()
+
+    def _t(self, key: str, **values: object) -> str:
+        return wsl_core.translate(key, self._language, **values)
 
     def _build_ui(self) -> None:
         main = ttk.Frame(self, padding=12)
@@ -1403,28 +1401,28 @@ class DistroDetailDialog(tk.Toplevel):
         ttk.Label(main, text=self._distro, font=("", 13, "bold")).pack(anchor=tk.W, pady=(0, 8))
 
         # OS 情報セクション
-        self._os_frame = self._section(main, "OS 情報")
+        self._os_frame = self._section(main, self._t("gui.detail.section_os"))
         self._os_labels: dict[str, tk.StringVar] = {}
         for key, label in [
             ("PRETTY_NAME", "OS"),
             ("VERSION_ID", "バージョン"),
             ("ID", "ID"),
         ]:
-            var = tk.StringVar(value="取得中…")
+            var = tk.StringVar(value=self._t("gui.detail.loading"))
             self._os_labels[key] = var
             self._info_row(self._os_frame, label, var)
 
-        self._uptime_var = tk.StringVar(value="取得中…")
+        self._uptime_var = tk.StringVar(value=self._t("gui.detail.loading"))
         self._info_row(self._os_frame, "稼働時間", self._uptime_var)
 
         # ネットワークセクション
-        net_frame = self._section(main, "ネットワーク")
-        self._ip_var = tk.StringVar(value="取得中…")
+        net_frame = self._section(main, self._t("gui.detail.section_network"))
+        self._ip_var = tk.StringVar(value=self._t("gui.detail.loading"))
         self._info_row(net_frame, "IPアドレス", self._ip_var)
 
         # ディスクセクション
-        disk_frame = self._section(main, "ディスク使用量")
-        self._vhdx_var = tk.StringVar(value="取得中…")
+        disk_frame = self._section(main, self._t("gui.detail.section_disk"))
+        self._vhdx_var = tk.StringVar(value=self._t("gui.detail.loading"))
         self._info_row(disk_frame, "仮想ディスク", self._vhdx_var)
 
         # df テーブル
@@ -1460,7 +1458,7 @@ class DistroDetailDialog(tk.Toplevel):
         vsb.pack(side=tk.RIGHT, fill=tk.Y)
 
         # ステータス
-        self._status_var = tk.StringVar(value="情報を取得中…")
+        self._status_var = tk.StringVar(value=self._t("gui.detail.status_loading"))
         ttk.Label(
             main,
             textvariable=self._status_var,
@@ -1471,10 +1469,12 @@ class DistroDetailDialog(tk.Toplevel):
 
         btn_frame = ttk.Frame(main)
         btn_frame.pack(fill=tk.X, pady=(6, 0))
-        ttk.Button(btn_frame, text="更新", command=self._fetch_all, width=8).pack(
-            side=tk.RIGHT, padx=(4, 0)
-        )
-        ttk.Button(btn_frame, text="閉じる", command=self.destroy, width=8).pack(side=tk.RIGHT)
+        ttk.Button(
+            btn_frame, text=self._t("gui.detail.btn_refresh"), command=self._fetch_all, width=8
+        ).pack(side=tk.RIGHT, padx=(4, 0))
+        ttk.Button(
+            btn_frame, text=self._t("gui.common.close"), command=self.destroy, width=8
+        ).pack(side=tk.RIGHT)
 
     @staticmethod
     def _section(parent: ttk.Frame, title: str) -> ttk.Frame:
@@ -1492,7 +1492,7 @@ class DistroDetailDialog(tk.Toplevel):
         ttk.Label(row, textvariable=var, anchor=tk.W).pack(side=tk.LEFT, fill=tk.X, expand=True)
 
     def _fetch_all(self) -> None:
-        self._status_var.set("情報を取得中…")
+        self._status_var.set(self._t("gui.detail.status_loading"))
         distro = self._distro
 
         def _run() -> dict:
@@ -1579,12 +1579,12 @@ class DistroDetailDialog(tk.Toplevel):
                 ),
             )
 
-        self._status_var.set("取得完了")
+        self._status_var.set(self._t("gui.detail.status_done"))
 
     def _on_error(self, msg: str) -> None:
         try:
             if self.winfo_exists():
-                self._status_var.set(f"エラー: {msg}")
+                self._status_var.set(self._t("gui.detail.status_error", error=msg))
         except tk.TclError:
             pass
 
@@ -1750,16 +1750,16 @@ class WslVersionDialog(tk.Toplevel):
         on_check_update: callable,
     ) -> None:
         super().__init__(parent)
+        self._language = getattr(parent, "_language", wsl_core.LANGUAGE_AUTO)
         self._on_check_update = on_check_update
-        self.title(
-            wsl_core.translate(
-                "gui.version.title", getattr(parent, "_language", wsl_core.LANGUAGE_AUTO)
-            )
-        )
+        self.title(self._t("gui.version.title"))
         self.resizable(False, False)
         self._build_ui(lines)
         self.transient(parent)
         self.protocol("WM_DELETE_WINDOW", self.destroy)
+
+    def _t(self, key: str, **values: object) -> str:
+        return wsl_core.translate(key, self._language, **values)
 
     def _build_ui(self, lines: list[str]) -> None:
         frame = ttk.Frame(self, padding=14)
@@ -1770,9 +1770,14 @@ class WslVersionDialog(tk.Toplevel):
 
         btn_frame = ttk.Frame(frame)
         btn_frame.pack(fill=tk.X, pady=(12, 0))
-        ttk.Button(btn_frame, text="閉じる", command=self.destroy, width=10).pack(side=tk.RIGHT)
         ttk.Button(
-            btn_frame, text="更新を確認", command=self._on_check_update_click, width=12
+            btn_frame, text=self._t("gui.common.close"), command=self.destroy, width=10
+        ).pack(side=tk.RIGHT)
+        ttk.Button(
+            btn_frame,
+            text=self._t("gui.version.btn_check_update"),
+            command=self._on_check_update_click,
+            width=12,
         ).pack(side=tk.RIGHT, padx=(0, 4))
 
     def _on_check_update_click(self) -> None:
