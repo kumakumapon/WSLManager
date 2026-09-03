@@ -3454,14 +3454,9 @@ class WSLManager(tk.Tk):
         ):
             return
         self._log_operation("停止", name, "実行")
-        status_msg = f"「{name}」を停止中…" if self._language == "ja" else f"Stopping '{name}'..."
-        self._set_status(status_msg)
-        ok_msg = f"「{name}」を停止しました。" if self._language == "ja" else f"Stopped '{name}'."
-        err_msg = (
-            f"「{name}」の停止に失敗しました。"
-            if self._language == "ja"
-            else f"Failed to stop '{name}'."
-        )
+        self._set_status(self._t("gui.status.stopping", name=name))
+        ok_msg = self._t("gui.status.stop_success", name=name)
+        err_msg = self._t("gui.status.stop_failed", name=name)
         self._run_wsl_cmd(["--terminate", name], ok_msg, err_msg)
 
     def _shutdown_all(self) -> None:
@@ -3470,18 +3465,9 @@ class WSLManager(tk.Tk):
         ):
             return
         self._log_operation("全停止", "全ディストリビューション", "実行")
-        status_msg = (
-            "WSL を全停止中…" if self._language == "ja" else "Shutting down all distributions..."
-        )
-        self._set_status(status_msg)
-        ok_msg = (
-            "WSL を全停止しました。" if self._language == "ja" else "Shut down all distributions."
-        )
-        err_msg = (
-            "WSL の全停止に失敗しました。"
-            if self._language == "ja"
-            else "Failed to shut down all distributions."
-        )
+        self._set_status(self._t("gui.status.shutting_down"))
+        ok_msg = self._t("gui.status.shutdown_success")
+        err_msg = self._t("gui.status.shutdown_failed")
         self._run_wsl_cmd(["--shutdown"], ok_msg, err_msg)
 
     def _set_default(self) -> None:
@@ -3492,16 +3478,11 @@ class WSLManager(tk.Tk):
             )
             return
         self._log_operation("デフォルト設定", name, "実行")
-        status_msg = (
-            f"「{name}」をデフォルトに設定中…"
-            if self._language == "ja"
-            else f"Setting '{name}' as default..."
-        )
-        self._set_status(status_msg)
+        self._set_status(self._t("gui.status.setting_default", name=name))
         self._run_wsl_cmd(
             ["--set-default", name],
             self._t("gui.msg.set_default_success", name=name),
-            self._t("gui.msg.set_default_failed", error=""),
+            self._t("gui.msg.set_default_failed"),
         )
 
     def _open_terminal(self) -> None:
@@ -3588,9 +3569,7 @@ class WSLManager(tk.Tk):
             if state_val not in ("実行中", "Running"):
                 messagebox.showwarning(
                     self._t("gui.common.warning"),
-                    f"「{name}」は停止中です。起動してからプロセスを確認してください。"
-                    if self._language == "ja"
-                    else f"'{name}' is stopped. Please start it before checking processes.",
+                    self._t("gui.msg.distro_stopped_for_processes", name=name),
                     parent=self,
                 )
                 return
@@ -3987,12 +3966,7 @@ class WSLManager(tk.Tk):
 
         confirm_name = simpledialog.askstring(
             self._t("gui.common.confirm"),
-            (
-                "誤操作防止のため、削除するディストリビューション名を\n"
-                f"正確に入力してください: {name}"
-                if self._language == "ja"
-                else f"To prevent mistakes, please re-enter the exact distribution name:\n{name}"
-            ),
+            self._t("gui.confirm.reenter_name", name=name),
             parent=self,
         )
         if confirm_name is None:
@@ -4001,24 +3975,17 @@ class WSLManager(tk.Tk):
         if confirm_name.strip() != name:
             messagebox.showwarning(
                 self._t("gui.common.warning"),
-                "入力された名前が一致しないため、アンインストールを中止しました。"
-                if self._language == "ja"
-                else "Uninstallation cancelled because the entered name did not match.",
+                self._t("gui.msg.name_mismatch"),
                 parent=self,
             )
             return
 
         self._log_operation("アンインストール", name, "実行")
-        status_msg = (
-            f"「{name}」をアンインストール中…"
-            if self._language == "ja"
-            else f"Unregistering '{name}'..."
-        )
-        self._set_status(status_msg)
+        self._set_status(self._t("gui.status.uninstalling", name=name))
         self._run_wsl_cmd(
             ["--unregister", name],
             self._t("gui.msg.unregister_success", name=name),
-            self._t("gui.msg.unregister_failed", error=""),
+            self._t("gui.msg.unregister_failed"),
         )
 
     def _import_distro_image(self) -> None:
@@ -4257,40 +4224,24 @@ class WSLManager(tk.Tk):
         if current == "?":
             confirm_msg = self._t("gui.confirm.convert", name=name, target=target)
         else:
-            if self._language == "ja":
-                confirm_msg = (
-                    f"「{name}」を WSL{current} から WSL{target} に変換しますか？\n"
-                    "（変換には数分かかる場合があります）"
-                )
-            else:
-                confirm_msg = (
-                    f"Convert '{name}' from WSL{current} to WSL{target}?\n"
-                    "(This conversion may take several minutes)"
-                )
+            confirm_msg = self._t(
+                "gui.confirm.convert_known", name=name, current=current, target=target
+            )
 
         if not messagebox.askyesno(self._t("gui.common.confirm"), confirm_msg, parent=self):
             return
 
         self._log_operation("バージョン変換", name, f"WSL{target}")
-        status_msg = (
-            f"「{name}」を WSL{target} に変換中…"
-            if self._language == "ja"
-            else f"Converting '{name}' to WSL{target}..."
-        )
-        self._set_status(status_msg)
+        self._set_status(self._t("gui.status.converting", name=name, target=target))
 
         def _on_done(returncode: int, stderr_text: str, cancelled: bool) -> None:
             if cancelled:
                 self._log_operation("バージョン変換", name, "キャンセル")
-                self._set_status(
-                    f"「{name}」の WSL バージョン変換を中断しました。"
-                    if self._language == "ja"
-                    else f"Cancelled WSL version conversion for '{name}'."
-                )
+                self._set_status(self._t("gui.status.convert_cancelled", name=name))
             elif returncode == 0:
                 self._set_status(self._t("gui.msg.convert_success", name=name, version=target))
             else:
-                self._set_status(stderr_text or self._t("gui.msg.convert_failed", error=""))
+                self._set_status(stderr_text or self._t("gui.msg.convert_failed"))
             self._refresh()
 
         # ``--set-version`` は大きなディストリビューションで数分〜数十分かかるため

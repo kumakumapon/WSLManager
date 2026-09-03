@@ -123,6 +123,40 @@ _MESSAGES: Mapping[str, Mapping[str, str]] = {
         "ja": "テーマ「{theme}」の適用に失敗しました。",
         "en": "Failed to apply theme '{theme}'.",
     },
+    "gui.status.stopping": {"ja": "「{name}」を停止中…", "en": "Stopping '{name}'..."},
+    "gui.status.stop_success": {"ja": "「{name}」を停止しました。", "en": "Stopped '{name}'."},
+    "gui.status.stop_failed": {
+        "ja": "「{name}」の停止に失敗しました。",
+        "en": "Failed to stop '{name}'.",
+    },
+    "gui.status.shutting_down": {
+        "ja": "WSL を全停止中…",
+        "en": "Shutting down all distributions...",
+    },
+    "gui.status.shutdown_success": {
+        "ja": "WSL を全停止しました。",
+        "en": "Shut down all distributions.",
+    },
+    "gui.status.shutdown_failed": {
+        "ja": "WSL の全停止に失敗しました。",
+        "en": "Failed to shut down all distributions.",
+    },
+    "gui.status.setting_default": {
+        "ja": "「{name}」をデフォルトに設定中…",
+        "en": "Setting '{name}' as default...",
+    },
+    "gui.status.uninstalling": {
+        "ja": "「{name}」をアンインストール中…",
+        "en": "Unregistering '{name}'...",
+    },
+    "gui.status.converting": {
+        "ja": "「{name}」を WSL{target} に変換中…",
+        "en": "Converting '{name}' to WSL{target}...",
+    },
+    "gui.status.convert_cancelled": {
+        "ja": "「{name}」の WSL バージョン変換を中断しました。",
+        "en": "Cancelled WSL version conversion for '{name}'.",
+    },
     "gui.language_changed": {
         "ja": "言語設定を保存しました。変更は次回の起動時に反映されます。",
         "en": "Language preference saved. It will be applied next time the app starts.",
@@ -151,9 +185,28 @@ _MESSAGES: Mapping[str, Mapping[str, str]] = {
         "en": "Convert distribution '{name}' to WSL{target}?\n"
         "(This conversion may take several minutes)",
     },
+    "gui.confirm.convert_known": {
+        "ja": "「{name}」を WSL{current} から WSL{target} に変換しますか？\n"
+        "（変換には数分かかる場合があります）",
+        "en": "Convert '{name}' from WSL{current} to WSL{target}?\n"
+        "(This conversion may take several minutes)",
+    },
+    "gui.confirm.reenter_name": {
+        "ja": "誤操作防止のため、削除するディストリビューション名を\n"
+        "正確に入力してください: {name}",
+        "en": "To prevent mistakes, please re-enter the exact distribution name:\n{name}",
+    },
     "gui.msg.select_distro": {
         "ja": "ディストリビューションを選択してください。",
         "en": "Please select a distribution.",
+    },
+    "gui.msg.name_mismatch": {
+        "ja": "入力された名前が一致しないため、アンインストールを中止しました。",
+        "en": "Uninstallation cancelled because the entered name did not match.",
+    },
+    "gui.msg.distro_stopped_for_processes": {
+        "ja": "「{name}」は停止中です。起動してからプロセスを確認してください。",
+        "en": "'{name}' is stopped. Please start it before checking processes.",
     },
     "gui.msg.already_version": {
         "ja": "「{name}」は既に WSL{version} です。",
@@ -176,24 +229,24 @@ _MESSAGES: Mapping[str, Mapping[str, str]] = {
         "en": "Set '{name}' as the default distribution.",
     },
     "gui.msg.set_default_failed": {
-        "ja": "デフォルト設定に失敗しました:\n{error}",
-        "en": "Failed to set default:\n{error}",
+        "ja": "デフォルト設定に失敗しました。",
+        "en": "Failed to set default.",
     },
     "gui.msg.convert_success": {
         "ja": "「{name}」を WSL{version} に変換しました。",
         "en": "Converted '{name}' to WSL{version}.",
     },
     "gui.msg.convert_failed": {
-        "ja": "変換に失敗しました:\n{error}",
-        "en": "Conversion failed:\n{error}",
+        "ja": "変換に失敗しました。",
+        "en": "Conversion failed.",
     },
     "gui.msg.unregister_success": {
         "ja": "「{name}」をアンインストールしました。",
         "en": "Unregistered '{name}'.",
     },
     "gui.msg.unregister_failed": {
-        "ja": "アンインストールに失敗しました:\n{error}",
-        "en": "Failed to unregister:\n{error}",
+        "ja": "アンインストールに失敗しました。",
+        "en": "Failed to unregister.",
     },
     # ── プロセスウィンドウ ──
     "gui.process.title": {"ja": "プロセス一覧 - {name}", "en": "Process List - {name}"},
