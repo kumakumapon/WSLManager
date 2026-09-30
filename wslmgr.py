@@ -2552,7 +2552,13 @@ class ContainerManagerDialog(tk.Toplevel):
         if not selection:
             return
         values = self._tree.item(selection[0], "values")
-        name = str(values[1] or values[0])
+        name = next(
+            (str(value) for value in (values[0], values[1]) if value and str(value) != "-"),
+            "",
+        )
+        if not name:
+            self._status.set("Container ID or name is missing; cannot inspect this row.")
+            return
 
         def _run() -> None:
             result = wsl_core.run_command(
