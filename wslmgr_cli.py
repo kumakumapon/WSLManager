@@ -59,6 +59,7 @@ def _t(args: argparse.Namespace, key: str, **values: object) -> str:
 # subprocess ヘルパー
 # ---------------------------------------------------------------------------
 
+
 def _run_wsl_command(args: list[str], timeout: float = 10.0) -> tuple[int, str, str]:
     """WSL コマンドを実行して (returncode, stdout, stderr) を返します。
 
@@ -66,6 +67,12 @@ def _run_wsl_command(args: list[str], timeout: float = 10.0) -> tuple[int, str, 
     (returncode, stdout, stderr) のタプル形式で返します。
     """
     res = wsl_core.run_wsl(args, timeout=timeout, creationflags=CREATE_NO_WINDOW)
+    return res.returncode, res.stdout, res.stderr
+
+
+def _run_wslc_command(args: list[str], timeout: float = 15.0) -> tuple[int, str, str]:
+    """Run a read-only WSL Containers command (``wslc.exe``)."""
+    res = wsl_core.run_command(["wslc", *args], timeout=timeout, creationflags=CREATE_NO_WINDOW)
     return res.returncode, res.stdout, res.stderr
 
 
@@ -98,6 +105,7 @@ def _run_netsh_portproxy(args: list[str], timeout: float = 15.0) -> tuple[int, s
 # フォーマットヘルパー
 # ---------------------------------------------------------------------------
 
+
 def _format_table(headers: list[str], rows: list[list[str]], min_width: int = 8) -> str:
     """データを整列されたテキストテーブルとしてフォーマットします。
 
@@ -121,8 +129,7 @@ def _format_table(headers: list[str], rows: list[list[str]], min_width: int = 8)
     lines.append("  ".join("-" * w for w in widths))
     for row in str_rows:
         line = "  ".join(
-            (row[i] if i < len(row) else "").ljust(widths[i])
-            for i in range(len(widths))
+            (row[i] if i < len(row) else "").ljust(widths[i]) for i in range(len(widths))
         )
         lines.append(line)
 
@@ -139,10 +146,129 @@ def _format_csv(headers: list[str], rows: list[list[str]]) -> str:
     return buf.getvalue().rstrip("\n")
 
 
+def _print_structured(
+    args: argparse.Namespace, payload: object, headers: list[str], rows: list[list[str]]
+) -> None:
+    """Print a command result consistently in table, CSV, or JSON format."""
+    output_format = getattr(args, "format", "table")
+    if output_format == "json":
+        print(json.dumps(payload, ensure_ascii=False, indent=2))
+    elif output_format == "csv":
+        print(_format_csv(headers, rows))
+    else:
+        print(_format_table(headers, rows))
+
+
+# ---------------------------------------------------------------------------
+# WSL 3 / WSL Containers diagnostics (read-only)
+# ---------------------------------------------------------------------------
+
+
+def _get_wslc_diagnostic() -> dict[str, object]:
+    """Collect WSL version and WSLc availability without changing machine state."""
+    rc, stdout, stderr = _run_wsl_command(["--version"], timeout=10.0)
+    version_info = wsl_core.parse_wsl_version(stdout) if rc == 0 else {}
+    capability = wsl_core.wslc_capability(str(version_info.get("wsl", "")))
+    result: dict[str, object] = {
+        "wsl": version_info,
+        "wslc": capability,
+        "wsl_command_error": stderr.strip() if rc != 0 else "",
+    }
+    if capability["available"]:
+        wslc_rc, wslc_out, wslc_err = _run_wslc_command(["system", "info", "--format", "json"])
+        result["wslc_command_available"] = wslc_rc == 0
+        result["wslc_command_error"] = wslc_err.strip() if wslc_rc != 0 else ""
+        result["wslc_system"] = wsl_core.parse_wslc_json(wslc_out) if wslc_rc == 0 else []
+    else:
+        result["wslc_command_available"] = False
+    return result
+
+
+def cmd_doctor(args: argparse.Namespace) -> None:
+    """Show WSL 3.0.1 / WSL Containers capability diagnostics."""
+    diagnostic = _get_wslc_diagnostic()
+    version_info = diagnostic["wsl"]
+    capability = diagnostic["wslc"]
+    assert isinstance(version_info, dict) and isinstance(capability, dict)
+    rows = [
+        ["WSL", str(version_info.get("wsl", "-"))],
+        ["Kernel", str(version_info.get("kernel", "-"))],
+        ["WSLg", str(version_info.get("wslg", "-"))],
+        ["WSL Containers", "available" if capability["available"] else "update required"],
+        ["Minimum version", str(capability["minimum_version"])],
+        [
+            "wslc command",
+            "available" if diagnostic.get("wslc_command_available") else "not detected",
+        ],
+    ]
+    _print_structured(args, diagnostic, ["Component", "Status"], rows)
+    if diagnostic.get("wsl_command_error"):
+        print(str(diagnostic["wsl_command_error"]), file=sys.stderr)
+        sys.exit(ExitCode.WSL_ERROR)
+
+
+def _require_wslc() -> None:
+    diagnostic = _get_wslc_diagnostic()
+    capability = diagnostic["wslc"]
+    assert isinstance(capability, dict)
+    if not capability["available"] or not diagnostic.get("wslc_command_available"):
+        message = str(
+            capability.get("reason") or "WSL Containers is not available. Run wsl --update."
+        )
+        print(f"Error: {message}", file=sys.stderr)
+        sys.exit(ExitCode.WSL_ERROR)
+
+
+def cmd_container_system_info(args: argparse.Namespace) -> None:
+    """Display read-only WSL Containers environment information."""
+    _require_wslc()
+    rc, stdout, stderr = _run_wslc_command(["system", "info", "--format", "json"])
+    if rc != 0:
+        print(f"Error: {stderr.strip() or 'wslc system info failed'}", file=sys.stderr)
+        sys.exit(ExitCode.WSL_ERROR)
+    records = wsl_core.parse_wslc_json(stdout)
+    _print_structured(
+        args,
+        records,
+        ["Key", "Value"],
+        [[key, str(value)] for record in records for key, value in record.items()],
+    )
+
+
+def cmd_container_list(args: argparse.Namespace) -> None:
+    """List WSL Containers without changing their state."""
+    _require_wslc()
+    rc, stdout, stderr = _run_wslc_command(["container", "list", "--format", "json"])
+    if rc != 0:
+        print(f"Error: {stderr.strip() or 'wslc container list failed'}", file=sys.stderr)
+        sys.exit(ExitCode.WSL_ERROR)
+    rows = [wsl_core.container_summary(record) for record in wsl_core.parse_wslc_json(stdout)]
+    headers = ["ID", "Name", "Image", "Status", "Health", "Created"]
+    table_rows = [
+        [row[key] for key in ("id", "name", "image", "status", "health", "created")] for row in rows
+    ]
+    _print_structured(args, rows, headers, table_rows)
+
+
+def cmd_container_inspect(args: argparse.Namespace) -> None:
+    """Show one container's read-only inspection record."""
+    _require_wslc()
+    rc, stdout, stderr = _run_wslc_command(["container", "inspect", args.name])
+    if rc != 0:
+        print(f"Error: {stderr.strip() or 'wslc container inspect failed'}", file=sys.stderr)
+        sys.exit(ExitCode.WSL_ERROR)
+    records = wsl_core.parse_wslc_json(stdout)
+    if getattr(args, "format", "table") == "json":
+        print(json.dumps(records, ensure_ascii=False, indent=2))
+    else:
+        print(stdout.strip())
+
+
 # ---------------------------------------------------------------------------
 # ---------------------------------------------------------------------------
 # list サブコマンド
 # ---------------------------------------------------------------------------
+
 
 def cmd_list(args: argparse.Namespace) -> None:
     """``wsl --list --verbose`` の結果を表示します。"""
@@ -209,6 +335,7 @@ def cmd_list(args: argparse.Namespace) -> None:
 # start サブコマンド
 # ---------------------------------------------------------------------------
 
+
 def cmd_start(args: argparse.Namespace) -> None:
     """指定したディストリビューションを起動します。"""
     name = args.name
@@ -229,6 +356,7 @@ def cmd_start(args: argparse.Namespace) -> None:
 # stop サブコマンド
 # ---------------------------------------------------------------------------
 
+
 def cmd_stop(args: argparse.Namespace) -> None:
     """指定したディストリビューションを停止します。"""
     name = args.name
@@ -246,6 +374,7 @@ def cmd_stop(args: argparse.Namespace) -> None:
 # ---------------------------------------------------------------------------
 # shutdown サブコマンド
 # ---------------------------------------------------------------------------
+
 
 def cmd_shutdown(args: argparse.Namespace) -> None:
     """すべてのディストリビューションを停止します。"""
@@ -303,9 +432,7 @@ def cmd_status(args: argparse.Namespace) -> None:
             if rc_d == 0:
                 disks = wsl_core.parse_disk_usage(out_d)
                 disk_str = (
-                    f"{disks[0].get('used', '-')}/{disks[0].get('size', '-')}"
-                    if disks
-                    else "-"
+                    f"{disks[0].get('used', '-')}/{disks[0].get('size', '-')}" if disks else "-"
                 )
                 entry["disk"] = disk_str
             else:
@@ -340,21 +467,18 @@ def cmd_status(args: argparse.Namespace) -> None:
 # export サブコマンド
 # ---------------------------------------------------------------------------
 
+
 def cmd_export(args: argparse.Namespace) -> None:
     """指定したディストリビューションをエクスポートします。"""
     name = args.name
     path = args.path
 
     if os.path.exists(path):
-        _confirm_or_exit(
-            f"「{path}」は既に存在します。上書きします。続行しますか?", args.yes
-        )
+        _confirm_or_exit(f"「{path}」は既に存在します。上書きします。続行しますか?", args.yes)
 
     if not getattr(args, "quiet", False):
         print(f"「{name}」を「{path}」にエクスポート中…")
-    returncode, _stdout, stderr = _run_wsl_command(
-        ["--export", name, path], timeout=600.0
-    )
+    returncode, _stdout, stderr = _run_wsl_command(["--export", name, path], timeout=600.0)
     if returncode == 0:
         _log_cli_operation("エクスポート", name, path)
         _print_action_result(
@@ -373,6 +497,7 @@ def cmd_export(args: argparse.Namespace) -> None:
 # ---------------------------------------------------------------------------
 # import サブコマンド
 # ---------------------------------------------------------------------------
+
 
 def cmd_import(args: argparse.Namespace) -> None:
     """ディストリビューションをインポートします。"""
@@ -415,6 +540,7 @@ def cmd_import(args: argparse.Namespace) -> None:
 # ---------------------------------------------------------------------------
 # config サブコマンド
 # ---------------------------------------------------------------------------
+
 
 def cmd_config(args: argparse.Namespace) -> None:
     """現在の .wslconfig またはディストリビューションの wsl.conf 設定を表示します。"""
@@ -468,6 +594,7 @@ def cmd_config(args: argparse.Namespace) -> None:
 # ---------------------------------------------------------------------------
 # 破壊的操作・レジストリ参照ヘルパー
 # ---------------------------------------------------------------------------
+
 
 def _log_cli_operation(operation: str, target: str, result: str) -> None:
     """CLI から実行した状態変更操作を GUI と同じ operations.jsonl に記録します。
@@ -576,6 +703,7 @@ def _get_distro_vhdx_path(name: str) -> str | None:
 # set-default サブコマンド
 # ---------------------------------------------------------------------------
 
+
 def cmd_set_default(args: argparse.Namespace) -> None:
     """指定したディストリビューションを既定 (デフォルト) に設定します。"""
     name = args.name
@@ -593,6 +721,7 @@ def cmd_set_default(args: argparse.Namespace) -> None:
 # ---------------------------------------------------------------------------
 # unregister サブコマンド
 # ---------------------------------------------------------------------------
+
 
 def cmd_unregister(args: argparse.Namespace) -> None:
     """指定したディストリビューションをアンインストール (登録解除) します。"""
@@ -616,6 +745,7 @@ def cmd_unregister(args: argparse.Namespace) -> None:
 # install サブコマンド
 # ---------------------------------------------------------------------------
 
+
 def cmd_install(args: argparse.Namespace) -> None:
     """指定したディストリビューションをインストールします。"""
     name = args.name
@@ -637,6 +767,7 @@ def cmd_install(args: argparse.Namespace) -> None:
 # ---------------------------------------------------------------------------
 # optimize サブコマンド
 # ---------------------------------------------------------------------------
+
 
 def cmd_optimize(args: argparse.Namespace) -> None:
     """指定したディストリビューションの仮想ディスクを最適化します（スパース化 / 圧縮）。"""
@@ -716,6 +847,7 @@ def cmd_optimize(args: argparse.Namespace) -> None:
 # set-version サブコマンド
 # ---------------------------------------------------------------------------
 
+
 def cmd_set_version(args: argparse.Namespace) -> None:
     """指定したディストリビューションを WSL1 / WSL2 間で変換します。"""
     name = args.name
@@ -725,9 +857,7 @@ def cmd_set_version(args: argparse.Namespace) -> None:
         "変換には時間がかかることがあります。続行しますか?",
         args.yes,
     )
-    returncode, _stdout, stderr = _run_wsl_command(
-        ["--set-version", name, version], timeout=1800.0
-    )
+    returncode, _stdout, stderr = _run_wsl_command(["--set-version", name, version], timeout=1800.0)
     if returncode == 0:
         _log_cli_operation("バージョン変換", name, f"WSL{version}")
         _print_action_result(
@@ -748,8 +878,7 @@ def cmd_set_version(args: argparse.Namespace) -> None:
 # ---------------------------------------------------------------------------
 
 _PROCESS_LIST_CMD = (
-    "ps -eo pid,user,pcpu,rss,comm --sort=-pcpu 2>/dev/null || "
-    "ps -eo pid,user,pcpu,rss,comm"
+    "ps -eo pid,user,pcpu,rss,comm --sort=-pcpu 2>/dev/null || ps -eo pid,user,pcpu,rss,comm"
 )
 
 
@@ -782,6 +911,7 @@ def cmd_processes(args: argparse.Namespace) -> None:
 # ---------------------------------------------------------------------------
 # log サブコマンド
 # ---------------------------------------------------------------------------
+
 
 def cmd_log(args: argparse.Namespace) -> None:
     """保存されている操作ログを表示します。"""
@@ -830,6 +960,7 @@ def cmd_log_clear(args: argparse.Namespace) -> None:
 # portproxy サブコマンド
 # ---------------------------------------------------------------------------
 
+
 def cmd_portproxy_list(args: argparse.Namespace) -> None:
     """ポートフォワーディングルールの一覧を表示します。"""
     returncode, stdout, stderr = _run_netsh_portproxy(["show", "all"])
@@ -874,7 +1005,8 @@ def cmd_portproxy_add(args: argparse.Namespace) -> None:
 
     returncode, _stdout, stderr = _run_netsh_portproxy(
         [
-            "add", "v4tov4",
+            "add",
+            "v4tov4",
             f"listenport={listen_port}",
             f"listenaddress={listen_address}",
             f"connectport={connect_port}",
@@ -940,15 +1072,18 @@ def cmd_portproxy_delete(args: argparse.Namespace) -> None:
 
 def _make_portproxy_help_func(parser: argparse.ArgumentParser):
     """``wslmgr portproxy`` (サブサブコマンドなし) 実行時にヘルプを表示する関数を返します。"""
+
     def _cmd_portproxy_help(_args: argparse.Namespace) -> None:
         parser.print_help()
         sys.exit(ExitCode.SUCCESS)
+
     return _cmd_portproxy_help
 
 
 # ---------------------------------------------------------------------------
 # snapshot サブコマンド
 # ---------------------------------------------------------------------------
+
 
 def _resolve_snapshot_dir(args: argparse.Namespace) -> str:
     """スナップショット保存先ディレクトリを解決します。"""
@@ -1305,10 +1440,21 @@ def cmd_snapshot_schedule_create(args: argparse.Namespace) -> None:
         print(f"  タスク名: {task_name}")
         print(f"  保存先: {snap_dir}")
     _confirm_or_exit("既存の同名タスクがあれば置き換えます。よろしいですか?", args.yes)
-    rc, _out, err = _run_schtasks([
-        "schtasks", "/create", "/tn", task_name, "/tr", _build_scheduled_snapshot_command(args),
-        "/sc", "DAILY", "/st", args.time, "/f",
-    ])
+    rc, _out, err = _run_schtasks(
+        [
+            "schtasks",
+            "/create",
+            "/tn",
+            task_name,
+            "/tr",
+            _build_scheduled_snapshot_command(args),
+            "/sc",
+            "DAILY",
+            "/st",
+            args.time,
+            "/f",
+        ]
+    )
     if rc != 0:
         print(f"エラー: タスクの登録に失敗しました: {err.strip()}", file=sys.stderr)
         sys.exit(ExitCode.GENERAL_ERROR)
@@ -1366,15 +1512,18 @@ def cmd_snapshot_set_dir(args: argparse.Namespace) -> None:
 
 def _make_snapshot_help_func(parser: argparse.ArgumentParser):
     """``wslmgr snapshot`` (サブサブコマンドなし) 実行時にヘルプを表示する関数を返します。"""
+
     def _cmd_snapshot_help(_args: argparse.Namespace) -> None:
         parser.print_help()
         sys.exit(ExitCode.SUCCESS)
+
     return _cmd_snapshot_help
 
 
 # ---------------------------------------------------------------------------
 # clone サブコマンド
 # ---------------------------------------------------------------------------
+
 
 def cmd_clone(args: argparse.Namespace) -> None:
     """指定したディストリビューションを複製します（エクスポート→インポートを自動実行）。"""
@@ -1458,6 +1607,7 @@ def cmd_clone(args: argparse.Namespace) -> None:
 # mount / unmount サブコマンド
 # ---------------------------------------------------------------------------
 
+
 def cmd_mount(args: argparse.Namespace) -> None:
     """物理ディスクまたは VHD を WSL2 にマウントします。"""
     mount_args = wsl_core.build_wsl_mount_args(
@@ -1504,11 +1654,14 @@ def cmd_unmount(args: argparse.Namespace) -> None:
 # エントリーポイント
 # ---------------------------------------------------------------------------
 
+
 def build_parser(language: str | None = None) -> argparse.ArgumentParser:
     """argparse のパーサーとサブコマンドを構築して返します。"""
     active_language = wsl_core.resolve_language(language)
+
     def t(key: str) -> str:
         return wsl_core.translate(key, active_language)
+
     parser = argparse.ArgumentParser(
         prog="wslmgr",
         description=t("cli.description"),
@@ -1516,11 +1669,10 @@ def build_parser(language: str | None = None) -> argparse.ArgumentParser:
     parser.add_argument(
         "--version", action="version", version=f"WSL Manager {wsl_core.__version__}"
     )
+    parser.add_argument("--quiet", "-q", action="store_true", help=t("cli.quiet"))
     parser.add_argument(
-        "--quiet", "-q", action="store_true", help=t("cli.quiet")
-    )
-    parser.add_argument(
-        "--language", choices=(wsl_core.LANGUAGE_AUTO, *wsl_core.SUPPORTED_LANGUAGES),
+        "--language",
+        choices=(wsl_core.LANGUAGE_AUTO, *wsl_core.SUPPORTED_LANGUAGES),
         default=language if language is not None else wsl_core.LANGUAGE_AUTO,
         help=t("cli.language"),
     )
@@ -1530,22 +1682,58 @@ def build_parser(language: str | None = None) -> argparse.ArgumentParser:
     # list
     p_list = subparsers.add_parser("list", help=t("cli.list"))
     p_list.add_argument(
-        "--format", choices=["table", "json", "csv"], default="table",
+        "--format",
+        choices=["table", "json", "csv"],
+        default="table",
         help=t("cli.format"),
     )
     p_list.add_argument(
-        "--with-ip", action="store_true",
+        "--with-ip",
+        action="store_true",
         help=t("cli.with_ip"),
     )
     p_list.add_argument(
-        "--with-disk", action="store_true",
+        "--with-disk",
+        action="store_true",
         help=t("cli.with_disk"),
     )
     p_list.add_argument(
-        "--all-info", "-a", action="store_true",
+        "--all-info",
+        "-a",
+        action="store_true",
         help=t("cli.all_info"),
     )
     p_list.set_defaults(func=cmd_list)
+
+    # doctor (WSL 3 / WSL Containers capability report)
+    p_doctor = subparsers.add_parser("doctor", help="Diagnose WSL and WSL Containers availability")
+    p_doctor.add_argument(
+        "--format", choices=["table", "json", "csv"], default="table", help=t("cli.format")
+    )
+    p_doctor.set_defaults(func=cmd_doctor)
+
+    # Container support is deliberately read-only in this PR.
+    p_container = subparsers.add_parser("container", help="Inspect WSL Containers (read-only)")
+    p_container.set_defaults(func=_make_snapshot_help_func(p_container))
+    container_subparsers = p_container.add_subparsers(dest="container_command")
+    p_container_info = container_subparsers.add_parser(
+        "system-info", help="Show WSL Containers system information"
+    )
+    p_container_info.add_argument(
+        "--format", choices=["table", "json", "csv"], default="table", help=t("cli.format")
+    )
+    p_container_info.set_defaults(func=cmd_container_system_info)
+    p_container_list = container_subparsers.add_parser("list", help="List WSL Containers")
+    p_container_list.add_argument(
+        "--format", choices=["table", "json", "csv"], default="table", help=t("cli.format")
+    )
+    p_container_list.set_defaults(func=cmd_container_list)
+    p_container_inspect = container_subparsers.add_parser("inspect", help="Inspect a WSL Container")
+    p_container_inspect.add_argument("name", help="Container name or ID")
+    p_container_inspect.add_argument(
+        "--format", choices=["table", "json"], default="table", help=t("cli.format")
+    )
+    p_container_inspect.set_defaults(func=cmd_container_inspect)
 
     # start
     p_start = subparsers.add_parser("start", help=t("cli.start"))
@@ -1566,9 +1754,7 @@ def build_parser(language: str | None = None) -> argparse.ArgumentParser:
     p_stop.set_defaults(func=cmd_stop)
 
     # shutdown
-    p_shutdown = subparsers.add_parser(
-        "shutdown", help=t("cli.shutdown")
-    )
+    p_shutdown = subparsers.add_parser("shutdown", help=t("cli.shutdown"))
     p_shutdown.add_argument(
         "--format", choices=["table", "json"], default="table", help=t("cli.format")
     )
@@ -1576,31 +1762,32 @@ def build_parser(language: str | None = None) -> argparse.ArgumentParser:
     p_shutdown.set_defaults(func=cmd_shutdown)
 
     # status
-    p_status = subparsers.add_parser(
-        "status", help=t("cli.status")
-    )
+    p_status = subparsers.add_parser("status", help=t("cli.status"))
     p_status.add_argument(
-        "--format", choices=["table", "json"], default="table",
+        "--format",
+        choices=["table", "json"],
+        default="table",
         help=t("cli.format"),
     )
     p_status.add_argument(
-        "--with-disk", action="store_true", help=t("cli.with_disk"),
+        "--with-disk",
+        action="store_true",
+        help=t("cli.with_disk"),
     )
     p_status.add_argument(
-        "--all-info", "-a", action="store_true", help=t("cli.all_info"),
+        "--all-info",
+        "-a",
+        action="store_true",
+        help=t("cli.all_info"),
     )
-    p_status.add_argument(
-        "--strict", action="store_true", help=t("cli.arg.status_strict")
-    )
+    p_status.add_argument("--strict", action="store_true", help=t("cli.arg.status_strict"))
     p_status.set_defaults(func=cmd_status)
 
     # export
     p_export = subparsers.add_parser("export", help=t("cli.export"))
     p_export.add_argument("name", help=t("cli.arg.name"))
     p_export.add_argument("path", help=t("cli.arg.path"))
-    p_export.add_argument(
-        "--yes", "-y", action="store_true", help=t("cli.arg.yes")
-    )
+    p_export.add_argument("--yes", "-y", action="store_true", help=t("cli.arg.yes"))
     p_export.add_argument(
         "--format", choices=["table", "json"], default="table", help=t("cli.format")
     )
@@ -1612,9 +1799,7 @@ def build_parser(language: str | None = None) -> argparse.ArgumentParser:
     p_import.add_argument("name", help=t("cli.arg.name"))
     p_import.add_argument("install_path", help=t("cli.arg.install_path"))
     p_import.add_argument("image_path", help=t("cli.arg.image_path"))
-    p_import.add_argument(
-        "--yes", "-y", action="store_true", help=t("cli.arg.yes")
-    )
+    p_import.add_argument("--yes", "-y", action="store_true", help=t("cli.arg.yes"))
     p_import.add_argument(
         "--format", choices=["table", "json"], default="table", help=t("cli.format")
     )
@@ -1622,22 +1807,18 @@ def build_parser(language: str | None = None) -> argparse.ArgumentParser:
     p_import.set_defaults(func=cmd_import)
 
     # config
-    p_config = subparsers.add_parser(
-        "config", help=t("cli.config")
-    )
+    p_config = subparsers.add_parser("config", help=t("cli.config"))
+    p_config.add_argument("--distro", "-d", help=t("cli.arg.distro_conf"))
     p_config.add_argument(
-        "--distro", "-d", help=t("cli.arg.distro_conf")
-    )
-    p_config.add_argument(
-        "--format", choices=["table", "json"], default="table",
+        "--format",
+        choices=["table", "json"],
+        default="table",
         help=t("cli.format"),
     )
     p_config.set_defaults(func=cmd_config)
 
     # set-default
-    p_set_default = subparsers.add_parser(
-        "set-default", help=t("cli.set_default")
-    )
+    p_set_default = subparsers.add_parser("set-default", help=t("cli.set_default"))
     p_set_default.add_argument("name", help=t("cli.arg.name"))
     p_set_default.add_argument(
         "--format", choices=["table", "json"], default="table", help=t("cli.format")
@@ -1646,13 +1827,9 @@ def build_parser(language: str | None = None) -> argparse.ArgumentParser:
     p_set_default.set_defaults(func=cmd_set_default)
 
     # unregister
-    p_unregister = subparsers.add_parser(
-        "unregister", help=t("cli.unregister")
-    )
+    p_unregister = subparsers.add_parser("unregister", help=t("cli.unregister"))
     p_unregister.add_argument("name", help=t("cli.arg.name"))
-    p_unregister.add_argument(
-        "--yes", "-y", action="store_true", help=t("cli.arg.yes")
-    )
+    p_unregister.add_argument("--yes", "-y", action="store_true", help=t("cli.arg.yes"))
     p_unregister.add_argument(
         "--format", choices=["table", "json"], default="table", help=t("cli.format")
     )
@@ -1669,20 +1846,14 @@ def build_parser(language: str | None = None) -> argparse.ArgumentParser:
     p_install.set_defaults(func=cmd_install)
 
     # optimize
-    p_optimize = subparsers.add_parser(
-        "optimize", help=t("cli.optimize")
-    )
+    p_optimize = subparsers.add_parser("optimize", help=t("cli.optimize"))
     p_optimize.add_argument("name", help=t("cli.arg.name"))
     optimize_group = p_optimize.add_mutually_exclusive_group(required=True)
-    optimize_group.add_argument(
-        "--sparse", action="store_true", help=t("cli.arg.optimize_sparse")
-    )
+    optimize_group.add_argument("--sparse", action="store_true", help=t("cli.arg.optimize_sparse"))
     optimize_group.add_argument(
         "--compact", action="store_true", help=t("cli.arg.optimize_compact")
     )
-    p_optimize.add_argument(
-        "--yes", "-y", action="store_true", help=t("cli.arg.yes")
-    )
+    p_optimize.add_argument("--yes", "-y", action="store_true", help=t("cli.arg.yes"))
     p_optimize.add_argument(
         "--format", choices=["table", "json"], default="table", help=t("cli.format")
     )
@@ -1690,16 +1861,10 @@ def build_parser(language: str | None = None) -> argparse.ArgumentParser:
     p_optimize.set_defaults(func=cmd_optimize)
 
     # set-version
-    p_set_version = subparsers.add_parser(
-        "set-version", help=t("cli.set_version")
-    )
+    p_set_version = subparsers.add_parser("set-version", help=t("cli.set_version"))
     p_set_version.add_argument("name", help=t("cli.arg.name"))
-    p_set_version.add_argument(
-        "version", choices=["1", "2"], help=t("cli.arg.version_choice")
-    )
-    p_set_version.add_argument(
-        "--yes", "-y", action="store_true", help=t("cli.arg.yes")
-    )
+    p_set_version.add_argument("version", choices=["1", "2"], help=t("cli.arg.version_choice"))
+    p_set_version.add_argument("--yes", "-y", action="store_true", help=t("cli.arg.yes"))
     p_set_version.add_argument(
         "--format", choices=["table", "json"], default="table", help=t("cli.format")
     )
@@ -1707,12 +1872,12 @@ def build_parser(language: str | None = None) -> argparse.ArgumentParser:
     p_set_version.set_defaults(func=cmd_set_version)
 
     # processes
-    p_processes = subparsers.add_parser(
-        "processes", help=t("cli.processes")
-    )
+    p_processes = subparsers.add_parser("processes", help=t("cli.processes"))
     p_processes.add_argument("name", help=t("cli.arg.name"))
     p_processes.add_argument(
-        "--format", choices=["table", "json", "csv"], default="table",
+        "--format",
+        choices=["table", "json", "csv"],
+        default="table",
         help=t("cli.format"),
     )
     p_processes.set_defaults(func=cmd_processes)
@@ -1722,20 +1887,18 @@ def build_parser(language: str | None = None) -> argparse.ArgumentParser:
     p_log_subparsers = p_log.add_subparsers(dest="log_command")
 
     # log show (default)
+    p_log.add_argument("--tail", type=int, default=50, help=t("cli.arg.log_tail"))
     p_log.add_argument(
-        "--tail", type=int, default=50, help=t("cli.arg.log_tail")
-    )
-    p_log.add_argument(
-        "--format", choices=["table", "json"], default="table",
+        "--format",
+        choices=["table", "json"],
+        default="table",
         help=t("cli.format"),
     )
     p_log.add_argument("--quiet", "-q", action="store_true", help=t("cli.quiet"))
     p_log.set_defaults(func=cmd_log)
 
     p_log_clear = p_log_subparsers.add_parser("clear", help=t("cli.arg.log_clear"))
-    p_log_clear.add_argument(
-        "--yes", "-y", action="store_true", help=t("cli.arg.yes")
-    )
+    p_log_clear.add_argument("--yes", "-y", action="store_true", help=t("cli.arg.yes"))
     p_log_clear.add_argument(
         "--format", choices=["table", "json"], default="table", help=t("cli.format")
     )
@@ -1743,24 +1906,20 @@ def build_parser(language: str | None = None) -> argparse.ArgumentParser:
     p_log_clear.set_defaults(func=cmd_log_clear)
 
     # portproxy
-    p_portproxy = subparsers.add_parser(
-        "portproxy", help=t("cli.portproxy")
-    )
+    p_portproxy = subparsers.add_parser("portproxy", help=t("cli.portproxy"))
     p_portproxy.set_defaults(func=_make_portproxy_help_func(p_portproxy))
     portproxy_subparsers = p_portproxy.add_subparsers(dest="portproxy_command")
 
-    p_portproxy_list = portproxy_subparsers.add_parser(
-        "list", help=t("cli.portproxy.list")
-    )
+    p_portproxy_list = portproxy_subparsers.add_parser("list", help=t("cli.portproxy.list"))
     p_portproxy_list.add_argument(
-        "--format", choices=["table", "json", "csv"], default="table",
+        "--format",
+        choices=["table", "json", "csv"],
+        default="table",
         help=t("cli.format"),
     )
     p_portproxy_list.set_defaults(func=cmd_portproxy_list)
 
-    p_portproxy_add = portproxy_subparsers.add_parser(
-        "add", help=t("cli.portproxy.add")
-    )
+    p_portproxy_add = portproxy_subparsers.add_parser("add", help=t("cli.portproxy.add"))
     p_portproxy_add.add_argument("listen_port", help=t("cli.arg.portproxy_listen_port"))
     p_portproxy_add.add_argument("connect_port", help=t("cli.arg.portproxy_connect_port"))
     p_portproxy_add.add_argument(
@@ -1775,9 +1934,7 @@ def build_parser(language: str | None = None) -> argparse.ArgumentParser:
     p_portproxy_add.add_argument("--quiet", "-q", action="store_true", help=t("cli.quiet"))
     p_portproxy_add.set_defaults(func=cmd_portproxy_add)
 
-    p_portproxy_delete = portproxy_subparsers.add_parser(
-        "delete", help=t("cli.portproxy.delete")
-    )
+    p_portproxy_delete = portproxy_subparsers.add_parser("delete", help=t("cli.portproxy.delete"))
     p_portproxy_delete.add_argument("listen_port", help=t("cli.arg.portproxy_listen_port"))
     p_portproxy_delete.add_argument(
         "--listen-address", default="0.0.0.0", help=t("cli.arg.portproxy_listen_address")
@@ -1789,95 +1946,61 @@ def build_parser(language: str | None = None) -> argparse.ArgumentParser:
     p_portproxy_delete.set_defaults(func=cmd_portproxy_delete)
 
     # snapshot
-    p_snapshot = subparsers.add_parser(
-        "snapshot", help=t("cli.snapshot")
-    )
+    p_snapshot = subparsers.add_parser("snapshot", help=t("cli.snapshot"))
     p_snapshot.set_defaults(func=_make_snapshot_help_func(p_snapshot))
     snapshot_subparsers = p_snapshot.add_subparsers(dest="snapshot_command")
 
-    p_snapshot_create = snapshot_subparsers.add_parser(
-        "create", help=t("cli.snapshot.create")
-    )
+    p_snapshot_create = snapshot_subparsers.add_parser("create", help=t("cli.snapshot.create"))
     p_snapshot_create.add_argument("name", help=t("cli.arg.name"))
-    p_snapshot_create.add_argument(
-        "--comment", default="", help=t("cli.arg.snapshot_comment")
-    )
-    p_snapshot_create.add_argument(
-        "--keep", type=int, help=t("cli.arg.snapshot_keep")
-    )
-    p_snapshot_create.add_argument(
-        "--yes", "-y", action="store_true", help=t("cli.arg.yes")
-    )
-    p_snapshot_create.add_argument(
-        "--dir", help=t("cli.arg.snapshot_dir")
-    )
+    p_snapshot_create.add_argument("--comment", default="", help=t("cli.arg.snapshot_comment"))
+    p_snapshot_create.add_argument("--keep", type=int, help=t("cli.arg.snapshot_keep"))
+    p_snapshot_create.add_argument("--yes", "-y", action="store_true", help=t("cli.arg.yes"))
+    p_snapshot_create.add_argument("--dir", help=t("cli.arg.snapshot_dir"))
     p_snapshot_create.add_argument(
         "--format", choices=["table", "json"], default="table", help=t("cli.format")
     )
     p_snapshot_create.add_argument("--quiet", "-q", action="store_true", help=t("cli.quiet"))
     p_snapshot_create.set_defaults(func=cmd_snapshot_create)
 
-    p_snapshot_list = snapshot_subparsers.add_parser(
-        "list", help=t("cli.snapshot.list")
-    )
+    p_snapshot_list = snapshot_subparsers.add_parser("list", help=t("cli.snapshot.list"))
     p_snapshot_list.add_argument("--dir", help=t("cli.arg.snapshot_dir"))
     p_snapshot_list.add_argument(
-        "--format", choices=["table", "json", "csv"], default="table",
+        "--format",
+        choices=["table", "json", "csv"],
+        default="table",
         help=t("cli.format"),
     )
     p_snapshot_list.set_defaults(func=cmd_snapshot_list)
 
-    p_snapshot_restore = snapshot_subparsers.add_parser(
-        "restore", help=t("cli.snapshot.restore")
-    )
+    p_snapshot_restore = snapshot_subparsers.add_parser("restore", help=t("cli.snapshot.restore"))
     p_snapshot_restore.add_argument("tar_file", help=t("cli.arg.snapshot_tar_file"))
-    p_snapshot_restore.add_argument(
-        "--install-path", required=True, help=t("cli.arg.install_path")
-    )
-    p_snapshot_restore.add_argument(
-        "--name", help=t("cli.arg.snapshot_restore_name")
-    )
-    p_snapshot_restore.add_argument(
-        "--dir", help=t("cli.arg.snapshot_dir")
-    )
-    p_snapshot_restore.add_argument(
-        "--yes", "-y", action="store_true", help=t("cli.arg.yes")
-    )
+    p_snapshot_restore.add_argument("--install-path", required=True, help=t("cli.arg.install_path"))
+    p_snapshot_restore.add_argument("--name", help=t("cli.arg.snapshot_restore_name"))
+    p_snapshot_restore.add_argument("--dir", help=t("cli.arg.snapshot_dir"))
+    p_snapshot_restore.add_argument("--yes", "-y", action="store_true", help=t("cli.arg.yes"))
     p_snapshot_restore.add_argument(
         "--format", choices=["table", "json"], default="table", help=t("cli.format")
     )
     p_snapshot_restore.add_argument("--quiet", "-q", action="store_true", help=t("cli.quiet"))
     p_snapshot_restore.set_defaults(func=cmd_snapshot_restore)
 
-    p_snapshot_delete = snapshot_subparsers.add_parser(
-        "delete", help=t("cli.snapshot.delete")
-    )
-    p_snapshot_delete.add_argument(
-        "tar_file", help=t("cli.arg.snapshot_tar_file")
-    )
-    p_snapshot_delete.add_argument(
-        "--dir", help=t("cli.arg.snapshot_dir")
-    )
-    p_snapshot_delete.add_argument(
-        "--yes", "-y", action="store_true", help=t("cli.arg.yes")
-    )
+    p_snapshot_delete = snapshot_subparsers.add_parser("delete", help=t("cli.snapshot.delete"))
+    p_snapshot_delete.add_argument("tar_file", help=t("cli.arg.snapshot_tar_file"))
+    p_snapshot_delete.add_argument("--dir", help=t("cli.arg.snapshot_dir"))
+    p_snapshot_delete.add_argument("--yes", "-y", action="store_true", help=t("cli.arg.yes"))
     p_snapshot_delete.add_argument(
         "--format", choices=["table", "json"], default="table", help=t("cli.format")
     )
     p_snapshot_delete.add_argument("--quiet", "-q", action="store_true", help=t("cli.quiet"))
     p_snapshot_delete.set_defaults(func=cmd_snapshot_delete)
 
-    p_snapshot_prune = snapshot_subparsers.add_parser(
-        "prune", help=t("cli.snapshot.prune")
-    )
+    p_snapshot_prune = snapshot_subparsers.add_parser("prune", help=t("cli.snapshot.prune"))
     p_snapshot_prune.add_argument(
         "--keep", type=int, required=True, help=t("cli.arg.snapshot_keep")
     )
     p_snapshot_prune.add_argument("--name", help=t("cli.arg.name"))
     p_snapshot_prune.add_argument("--dir", help=t("cli.arg.snapshot_dir"))
-    p_snapshot_prune.add_argument(
-        "--yes", "-y", action="store_true", help=t("cli.arg.yes")
-    )
+    p_snapshot_prune.add_argument("--yes", "-y", action="store_true", help=t("cli.arg.yes"))
     p_snapshot_prune.add_argument(
         "--format", choices=["table", "json"], default="table", help=t("cli.format")
     )
@@ -1895,15 +2018,11 @@ def build_parser(language: str | None = None) -> argparse.ArgumentParser:
     p_schedule_create.add_argument("name", help=t("cli.arg.name"))
     p_schedule_create.add_argument("--time", default="03:00", help=t("cli.arg.schedule_time"))
     p_schedule_create.add_argument("--keep", type=int, default=7, help=t("cli.arg.schedule_keep"))
-    p_schedule_create.add_argument(
-        "--dir", help=t("cli.arg.snapshot_dir")
-    )
+    p_schedule_create.add_argument("--dir", help=t("cli.arg.snapshot_dir"))
     p_schedule_create.add_argument("--yes", "-y", action="store_true", help=t("cli.arg.yes"))
     p_schedule_create.add_argument("--quiet", "-q", action="store_true", help=t("cli.quiet"))
     p_schedule_create.set_defaults(func=cmd_snapshot_schedule_create)
-    p_schedule_list = schedule_subparsers.add_parser(
-        "list", help=t("cli.snapshot.schedule_list")
-    )
+    p_schedule_list = schedule_subparsers.add_parser("list", help=t("cli.snapshot.schedule_list"))
     p_schedule_list.set_defaults(func=cmd_snapshot_schedule_list)
     p_schedule_delete = schedule_subparsers.add_parser(
         "delete", help=t("cli.snapshot.schedule_delete")
@@ -1913,9 +2032,7 @@ def build_parser(language: str | None = None) -> argparse.ArgumentParser:
     p_schedule_delete.add_argument("--quiet", "-q", action="store_true", help=t("cli.quiet"))
     p_schedule_delete.set_defaults(func=cmd_snapshot_schedule_delete)
 
-    p_snapshot_set_dir = snapshot_subparsers.add_parser(
-        "set-dir", help=t("cli.snapshot.set_dir")
-    )
+    p_snapshot_set_dir = snapshot_subparsers.add_parser("set-dir", help=t("cli.snapshot.set_dir"))
     p_snapshot_set_dir.add_argument("path", help=t("cli.arg.path"))
     p_snapshot_set_dir.add_argument(
         "--format", choices=["table", "json"], default="table", help=t("cli.format")
@@ -1924,15 +2041,11 @@ def build_parser(language: str | None = None) -> argparse.ArgumentParser:
     p_snapshot_set_dir.set_defaults(func=cmd_snapshot_set_dir)
 
     # clone
-    p_clone = subparsers.add_parser(
-        "clone", help=t("cli.clone")
-    )
+    p_clone = subparsers.add_parser("clone", help=t("cli.clone"))
     p_clone.add_argument("name", help=t("cli.arg.name"))
     p_clone.add_argument("new_name", help=t("cli.arg.clone_new_name"))
     p_clone.add_argument("--install-path", required=True, help=t("cli.arg.install_path"))
-    p_clone.add_argument(
-        "--yes", "-y", action="store_true", help=t("cli.arg.yes")
-    )
+    p_clone.add_argument("--yes", "-y", action="store_true", help=t("cli.arg.yes"))
     p_clone.add_argument(
         "--format", choices=["table", "json"], default="table", help=t("cli.format")
     )
@@ -1941,16 +2054,13 @@ def build_parser(language: str | None = None) -> argparse.ArgumentParser:
 
     # mount
     p_mount = subparsers.add_parser("mount", help=t("cli.mount"))
+    p_mount.add_argument("disk", help=t("cli.arg.mount_disk"))
     p_mount.add_argument(
-        "disk", help=t("cli.arg.mount_disk")
-    )
-    p_mount.add_argument(
-        "--bare", action="store_true",
+        "--bare",
+        action="store_true",
         help=t("cli.arg.mount_bare"),
     )
-    p_mount.add_argument(
-        "--vhd", action="store_true", help=t("cli.arg.mount_vhd")
-    )
+    p_mount.add_argument("--vhd", action="store_true", help=t("cli.arg.mount_vhd"))
     p_mount.add_argument("--type", "-t", help=t("cli.arg.mount_type"))
     p_mount.add_argument("--partition", "-p", type=int, help=t("cli.arg.mount_partition"))
     p_mount.add_argument("--name", help=t("cli.arg.mount_name"))
@@ -1961,11 +2071,11 @@ def build_parser(language: str | None = None) -> argparse.ArgumentParser:
     p_mount.set_defaults(func=cmd_mount)
 
     # unmount
-    p_unmount = subparsers.add_parser(
-        "unmount", help=t("cli.unmount")
-    )
+    p_unmount = subparsers.add_parser("unmount", help=t("cli.unmount"))
     p_unmount.add_argument(
-        "disk", nargs="?", default=None,
+        "disk",
+        nargs="?",
+        default=None,
         help=t("cli.arg.unmount_disk"),
     )
     p_unmount.add_argument(
