@@ -1,6 +1,3 @@
-Warning: truncated output (original token count: 48606)
-Total output lines: 4518
-
 """
 単体テスト for wsl_core.py
 
@@ -1396,7 +1393,1747 @@ class TestBuildDistroSnapshot(unittest.TestCase):
         {
             "name": "Ubuntu",
             "state": "Running",
-            "versi…18606 tokens truncated…qual(f.read(), "original content")
+            "version": "2",
+            "default": True,
+            "cpu": "-",
+            "memory": "-",
+            "disk": "-",
+            "ip": "-",
+        },
+        {
+            "name": "Debian",
+            "state": "Stopped",
+            "version": "2",
+            "default": False,
+            "cpu": "-",
+            "memory": "-",
+            "disk": "-",
+            "ip": "-",
+        },
+    ]
+
+    def test_explicit_timestamp_preserved(self):
+        """明示的に渡した timestamp がそのまま格納される。"""
+        snap = wsl_core.build_distro_snapshot(self.DISTROS, timestamp="2024-01-01T00:00:00")
+        self.assertEqual(snap["timestamp"], "2024-01-01T00:00:00")
+
+    def test_count(self):
+        """count がディストロ数と一致する。"""
+        snap = wsl_core.build_distro_snapshot(self.DISTROS, timestamp="2024-01-01T00:00:00")
+        self.assertEqual(snap["count"], 2)
+
+    def test_running_count(self):
+        """running が state='Running' のディストロ数を返す。"""
+        snap = wsl_core.build_distro_snapshot(self.DISTROS, timestamp="2024-01-01T00:00:00")
+        self.assertEqual(snap["running"], 1)
+
+    def test_distros_stored(self):
+        """渡した distros リストがそのまま格納される。"""
+        snap = wsl_core.build_distro_snapshot(self.DISTROS, timestamp="2024-01-01T00:00:00")
+        self.assertIs(snap["distros"], self.DISTROS)
+
+    def test_empty_distro_list(self):
+        """空のディストロリストでも正しく動作する。"""
+        snap = wsl_core.build_distro_snapshot([], timestamp="2024-01-01T00:00:00")
+        self.assertEqual(snap["count"], 0)
+        self.assertEqual(snap["running"], 0)
+        self.assertEqual(snap["distros"], [])
+
+    def test_all_running(self):
+        """全ディストロが Running の場合 running == count になる。"""
+        distros = [
+            {"name": "Ubuntu", "state": "Running"},
+            {"name": "Debian", "state": "Running"},
+        ]
+        snap = wsl_core.build_distro_snapshot(distros, timestamp="2024-01-01T00:00:00")
+        self.assertEqual(snap["running"], 2)
+        self.assertEqual(snap["count"], 2)
+
+    def test_none_running(self):
+        """全ディストロが Stopped の場合 running == 0 になる。"""
+        distros = [
+            {"name": "Ubuntu", "state": "Stopped"},
+            {"name": "Debian", "state": "Stopped"},
+        ]
+        snap = wsl_core.build_distro_snapshot(distros, timestamp="2024-01-01T00:00:00")
+        self.assertEqual(snap["running"], 0)
+
+    def test_auto_timestamp_is_iso_format(self):
+        """timestamp=None の場合に ISO 8601 形式のタイムスタンプが自動設定される。"""
+        snap = wsl_core.build_distro_snapshot([], timestamp=None)
+        # ISO 8601 の基本パターン: YYYY-MM-DDTHH:MM:SS[.ffffff]
+        iso_pattern = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}")
+        self.assertRegex(snap["timestamp"], iso_pattern)
+
+    def test_returns_dict(self):
+        """戻り値が dict であることを確認する。"""
+        snap = wsl_core.build_distro_snapshot(self.DISTROS, timestamp="2024-01-01T00:00:00")
+        self.assertIsInstance(snap, dict)
+
+    def test_required_keys_present(self):
+        """必須キー timestamp/distros/count/running が全て存在する。"""
+        snap = wsl_core.build_distro_snapshot(self.DISTROS, timestamp="2024-01-01T00:00:00")
+        for key in ("timestamp", "distros", "count", "running"):
+            self.assertIn(key, snap)
+
+
+# ---------------------------------------------------------------------------
+# format_snapshot_summary
+# ---------------------------------------------------------------------------
+
+
+class TestFormatSnapshotSummary(unittest.TestCase):
+    """format_snapshot_summary のテスト。"""
+
+    DISTROS: ClassVar[list[dict[str, str]]] = [
+        {"name": "Ubuntu", "state": "Running"},
+        {"name": "Debian", "state": "Stopped"},
+    ]
+
+    def _make_snapshot(self, distros=None, timestamp="2024-06-01T12:00:00"):
+        d = distros if distros is not None else self.DISTROS
+        return wsl_core.build_distro_snapshot(d, timestamp=timestamp)
+
+    def test_contains_timestamp(self):
+        """サマリーにタイムスタンプが含まれる。"""
+        snap = self._make_snapshot()
+        summary = wsl_core.format_snapshot_summary(snap)
+        self.assertIn("2024-06-01T12:00:00", summary)
+
+    def test_contains_count_and_running(self):
+        """ディストリビューション数と実行中の数がサマリーに含まれる。"""
+        snap = self._make_snapshot()
+        summary = wsl_core.format_snapshot_summary(snap)
+        self.assertIn("2", summary)  # count
+        self.assertIn("1", summary)  # running
+
+    def test_each_distro_name_appears(self):
+        """各ディストロ名がサマリーに含まれる。"""
+        snap = self._make_snapshot()
+        summary = wsl_core.format_snapshot_summary(snap)
+        self.assertIn("Ubuntu", summary)
+        self.assertIn("Debian", summary)
+
+    def test_each_distro_state_appears(self):
+        """各ディストロの state がサマリーに含まれる。"""
+        snap = self._make_snapshot()
+        summary = wsl_core.format_snapshot_summary(snap)
+        self.assertIn("Running", summary)
+        self.assertIn("Stopped", summary)
+
+    def test_distro_line_indented(self):
+        """各ディストロ行が2スペースのインデントで始まる。"""
+        snap = self._make_snapshot()
+        summary = wsl_core.format_snapshot_summary(snap)
+        self.assertIn("  Ubuntu:", summary)
+        self.assertIn("  Debian:", summary)
+
+    def test_ends_with_newline(self):
+        """サマリーは改行で終わる。"""
+        snap = self._make_snapshot()
+        summary = wsl_core.format_snapshot_summary(snap)
+        self.assertTrue(summary.endswith("\n"))
+
+    def test_empty_distro_list(self):
+        """ディストロが0件でも正常に動作する。"""
+        snap = self._make_snapshot(distros=[])
+        summary = wsl_core.format_snapshot_summary(snap)
+        self.assertIn("0", summary)
+        self.assertIsInstance(summary, str)
+
+    def test_returns_string(self):
+        """戻り値が str であることを確認する。"""
+        snap = self._make_snapshot()
+        summary = wsl_core.format_snapshot_summary(snap)
+        self.assertIsInstance(summary, str)
+
+    def test_format_label_japanese(self):
+        """日本語のラベル文字列が含まれる。"""
+        snap = self._make_snapshot()
+        summary = wsl_core.format_snapshot_summary(snap)
+        self.assertIn("スナップショット", summary)
+        self.assertIn("ディストリビューション数", summary)
+        self.assertIn("実行中", summary)
+
+
+# ---------------------------------------------------------------------------
+# format_operation_log_entry
+# ---------------------------------------------------------------------------
+
+
+class TestFormatOperationLogEntry(unittest.TestCase):
+    """format_operation_log_entry のテスト。"""
+
+    def test_explicit_timestamp(self):
+        """明示的な timestamp が角括弧で囲まれてエントリに含まれる。"""
+        entry = wsl_core.format_operation_log_entry(
+            "起動", "Ubuntu", "成功", timestamp="2024-01-01T10:00:00"
+        )
+        self.assertIn("[2024-01-01T10:00:00]", entry)
+
+    def test_operation_in_entry(self):
+        """operation がエントリに含まれる。"""
+        entry = wsl_core.format_operation_log_entry(
+            "停止", "Debian", "成功", timestamp="2024-01-01T10:00:00"
+        )
+        self.assertIn("停止", entry)
+
+    def test_target_in_entry(self):
+        """target がエントリに含まれる。"""
+        entry = wsl_core.format_operation_log_entry(
+            "インストール", "kali-linux", "失敗", timestamp="2024-01-01T10:00:00"
+        )
+        self.assertIn("kali-linux", entry)
+
+    def test_result_in_entry(self):
+        """result がエントリに含まれる。"""
+        entry = wsl_core.format_operation_log_entry(
+            "エクスポート", "Ubuntu", "完了", timestamp="2024-01-01T10:00:00"
+        )
+        self.assertIn("完了", entry)
+
+    def test_pipe_separator(self):
+        """フィールドが '|' で区切られている。"""
+        entry = wsl_core.format_operation_log_entry(
+            "起動", "Ubuntu", "成功", timestamp="2024-01-01T10:00:00"
+        )
+        self.assertEqual(entry.count("|"), 2)
+
+    def test_format_structure(self):
+        """エントリが '[timestamp] op | target | result' 形式である。"""
+        entry = wsl_core.format_operation_log_entry(
+            "起動", "Ubuntu", "成功", timestamp="2024-01-01T10:00:00"
+        )
+        self.assertEqual(entry, "[2024-01-01T10:00:00] 起動 | Ubuntu | 成功")
+
+    def test_auto_timestamp_is_iso_format(self):
+        """timestamp=None の場合に ISO 8601 形式のタイムスタンプが自動設定される。"""
+        entry = wsl_core.format_operation_log_entry("起動", "Ubuntu", "成功", timestamp=None)
+        iso_pattern = re.compile(r"\[\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}")
+        self.assertRegex(entry, iso_pattern)
+
+    def test_returns_string(self):
+        """戻り値が str であることを確認する。"""
+        entry = wsl_core.format_operation_log_entry(
+            "起動", "Ubuntu", "成功", timestamp="2024-01-01T10:00:00"
+        )
+        self.assertIsInstance(entry, str)
+
+    def test_various_operations(self):
+        """複数の operation 文字列が正しく埋め込まれる。"""
+        for op in ("起動", "停止", "インストール", "エクスポート"):
+            with self.subTest(operation=op):
+                entry = wsl_core.format_operation_log_entry(
+                    op, "Ubuntu", "成功", timestamp="2024-01-01T10:00:00"
+                )
+                self.assertIn(op, entry)
+
+
+# ---------------------------------------------------------------------------
+# diff_snapshots
+# ---------------------------------------------------------------------------
+
+
+class TestDiffSnapshots(unittest.TestCase):
+    """diff_snapshots のテスト。"""
+
+    TS_OLD = "2024-01-01T00:00:00"
+    TS_NEW = "2024-01-01T01:00:00"
+
+    def _snap(self, distros, ts):
+        return wsl_core.build_distro_snapshot(distros, timestamp=ts)
+
+    def test_no_changes(self):
+        """同一ディストロで差分なし。"""
+        distros = [
+            {"name": "Ubuntu", "state": "Running"},
+            {"name": "Debian", "state": "Stopped"},
+        ]
+        old = self._snap(distros, self.TS_OLD)
+        new = self._snap(distros, self.TS_NEW)
+        diff = wsl_core.diff_snapshots(old, new)
+        self.assertEqual(diff["added"], [])
+        self.assertEqual(diff["removed"], [])
+        self.assertEqual(diff["state_changed"], [])
+
+    def test_added_distro(self):
+        """新規ディストロが added リストに含まれる。"""
+        old_distros = [{"name": "Ubuntu", "state": "Running"}]
+        new_distros = [
+            {"name": "Ubuntu", "state": "Running"},
+            {"name": "Debian", "state": "Stopped"},
+        ]
+        diff = wsl_core.diff_snapshots(
+            self._snap(old_distros, self.TS_OLD),
+            self._snap(new_distros, self.TS_NEW),
+        )
+        self.assertIn("Debian", diff["added"])
+        self.assertEqual(diff["removed"], [])
+        self.assertEqual(diff["state_changed"], [])
+
+    def test_removed_distro(self):
+        """削除されたディストロが removed リストに含まれる。"""
+        old_distros = [
+            {"name": "Ubuntu", "state": "Running"},
+            {"name": "Debian", "state": "Stopped"},
+        ]
+        new_distros = [{"name": "Ubuntu", "state": "Running"}]
+        diff = wsl_core.diff_snapshots(
+            self._snap(old_distros, self.TS_OLD),
+            self._snap(new_distros, self.TS_NEW),
+        )
+        self.assertIn("Debian", diff["removed"])
+        self.assertEqual(diff["added"], [])
+        self.assertEqual(diff["state_changed"], [])
+
+    def test_state_changed(self):
+        """state が変化したディストロが state_changed に含まれる。"""
+        old_distros = [{"name": "Ubuntu", "state": "Stopped"}]
+        new_distros = [{"name": "Ubuntu", "state": "Running"}]
+        diff = wsl_core.diff_snapshots(
+            self._snap(old_distros, self.TS_OLD),
+            self._snap(new_distros, self.TS_NEW),
+        )
+        self.assertEqual(len(diff["state_changed"]), 1)
+        entry = diff["state_changed"][0]
+        self.assertEqual(entry["name"], "Ubuntu")
+        self.assertEqual(entry["old_state"], "Stopped")
+        self.assertEqual(entry["new_state"], "Running")
+        self.assertEqual(diff["added"], [])
+        self.assertEqual(diff["removed"], [])
+
+    def test_empty_both_snapshots(self):
+        """両方のスナップショットが空の場合、差分なし。"""
+        diff = wsl_core.diff_snapshots(
+            self._snap([], self.TS_OLD),
+            self._snap([], self.TS_NEW),
+        )
+        self.assertEqual(diff["added"], [])
+        self.assertEqual(diff["removed"], [])
+        self.assertEqual(diff["state_changed"], [])
+
+    def test_old_empty_new_has_distros(self):
+        """旧スナップショットが空で新しいほうにディストロがある場合、全て added。"""
+        new_distros = [
+            {"name": "Ubuntu", "state": "Running"},
+            {"name": "Debian", "state": "Stopped"},
+        ]
+        diff = wsl_core.diff_snapshots(
+            self._snap([], self.TS_OLD),
+            self._snap(new_distros, self.TS_NEW),
+        )
+        self.assertIn("Ubuntu", diff["added"])
+        self.assertIn("Debian", diff["added"])
+        self.assertEqual(diff["removed"], [])
+        self.assertEqual(diff["state_changed"], [])
+
+    def test_new_empty_old_has_distros(self):
+        """新スナップショットが空で旧スナップショットにディストロがある場合、全て removed。"""
+        old_distros = [
+            {"name": "Ubuntu", "state": "Running"},
+            {"name": "Debian", "state": "Stopped"},
+        ]
+        diff = wsl_core.diff_snapshots(
+            self._snap(old_distros, self.TS_OLD),
+            self._snap([], self.TS_NEW),
+        )
+        self.assertIn("Ubuntu", diff["removed"])
+        self.assertIn("Debian", diff["removed"])
+        self.assertEqual(diff["added"], [])
+        self.assertEqual(diff["state_changed"], [])
+
+    def test_combined_add_remove_state_change(self):
+        """追加・削除・状態変化が同時に発生する場合。"""
+        old_distros = [
+            {"name": "Ubuntu", "state": "Running"},
+            {"name": "Debian", "state": "Stopped"},
+        ]
+        new_distros = [
+            {"name": "Ubuntu", "state": "Stopped"},  # state 変化
+            {"name": "kali-linux", "state": "Running"},  # 追加
+            # Debian は削除
+        ]
+        diff = wsl_core.diff_snapshots(
+            self._snap(old_distros, self.TS_OLD),
+            self._snap(new_distros, self.TS_NEW),
+        )
+        self.assertIn("kali-linux", diff["added"])
+        self.assertIn("Debian", diff["removed"])
+        self.assertEqual(len(diff["state_changed"]), 1)
+        self.assertEqual(diff["state_changed"][0]["name"], "Ubuntu")
+        self.assertEqual(diff["state_changed"][0]["old_state"], "Running")
+        self.assertEqual(diff["state_changed"][0]["new_state"], "Stopped")
+
+    def test_returns_required_keys(self):
+        """戻り値に added/removed/state_changed キーが存在する。"""
+        diff = wsl_core.diff_snapshots(
+            self._snap([], self.TS_OLD),
+            self._snap([], self.TS_NEW),
+        )
+        for key in ("added", "removed", "state_changed"):
+            self.assertIn(key, diff)
+
+    def test_returns_dict(self):
+        """戻り値が dict であることを確認する。"""
+        diff = wsl_core.diff_snapshots(
+            self._snap([], self.TS_OLD),
+            self._snap([], self.TS_NEW),
+        )
+        self.assertIsInstance(diff, dict)
+
+
+# ---------------------------------------------------------------------------
+# validate_memory_string
+# ---------------------------------------------------------------------------
+
+
+class TestValidateMemoryString(unittest.TestCase):
+    def test_empty_string_is_valid(self):
+        """空文字列は有効 (未設定)。"""
+        valid, reason = wsl_core.validate_memory_string("")
+        self.assertTrue(valid)
+        self.assertEqual(reason, "")
+
+    def test_bare_number_is_valid(self):
+        """単位なしの数字はバイト数として有効。"""
+        valid, reason = wsl_core.validate_memory_string("1024")
+        self.assertTrue(valid)
+        self.assertEqual(reason, "")
+
+    def test_gb_uppercase(self):
+        """大文字の GB は有効。"""
+        valid, reason = wsl_core.validate_memory_string("4GB")
+        self.assertTrue(valid)
+        self.assertEqual(reason, "")
+
+    def test_mb_uppercase(self):
+        """大文字の MB は有効。"""
+        valid, reason = wsl_core.validate_memory_string("512MB")
+        self.assertTrue(valid)
+        self.assertEqual(reason, "")
+
+    def test_kb_uppercase(self):
+        """大文字の KB は有効。"""
+        valid, reason = wsl_core.validate_memory_string("1024KB")
+        self.assertTrue(valid)
+        self.assertEqual(reason, "")
+
+    def test_tb_uppercase(self):
+        """大文字の TB は有効。"""
+        valid, reason = wsl_core.validate_memory_string("2TB")
+        self.assertTrue(valid)
+        self.assertEqual(reason, "")
+
+    def test_gb_lowercase(self):
+        """小文字の gb は有効。"""
+        valid, reason = wsl_core.validate_memory_string("4gb")
+        self.assertTrue(valid)
+        self.assertEqual(reason, "")
+
+    def test_mb_lowercase(self):
+        """小文字の mb は有効。"""
+        valid, reason = wsl_core.validate_memory_string("512mb")
+        self.assertTrue(valid)
+        self.assertEqual(reason, "")
+
+    def test_kb_lowercase(self):
+        """小文字の kb は有効。"""
+        valid, reason = wsl_core.validate_memory_string("256kb")
+        self.assertTrue(valid)
+        self.assertEqual(reason, "")
+
+    def test_large_value_mb(self):
+        """大きな数値も有効。"""
+        valid, reason = wsl_core.validate_memory_string("16384MB")
+        self.assertTrue(valid)
+        self.assertEqual(reason, "")
+
+    def test_alpha_only_invalid(self):
+        """英字のみは無効。"""
+        valid, reason = wsl_core.validate_memory_string("abc")
+        self.assertFalse(valid)
+        self.assertNotEqual(reason, "")
+
+    def test_unknown_unit_invalid(self):
+        """不明な単位 (XB) は無効。"""
+        valid, reason = wsl_core.validate_memory_string("4XB")
+        self.assertFalse(valid)
+        self.assertNotEqual(reason, "")
+
+    def test_negative_value_invalid(self):
+        """負の値は無効 (先頭の '-' が不正文字)。"""
+        valid, reason = wsl_core.validate_memory_string("-1GB")
+        self.assertFalse(valid)
+        self.assertNotEqual(reason, "")
+
+    def test_zero_gb_invalid(self):
+        """0GB は無効。"""
+        valid, reason = wsl_core.validate_memory_string("0GB")
+        self.assertFalse(valid)
+        self.assertNotEqual(reason, "")
+
+    def test_zero_bare_invalid(self):
+        """単位なし 0 は無効。"""
+        valid, reason = wsl_core.validate_memory_string("0")
+        self.assertFalse(valid)
+        self.assertNotEqual(reason, "")
+
+    def test_float_value_invalid(self):
+        """小数点を含む値は無効。"""
+        valid, reason = wsl_core.validate_memory_string("1.5GB")
+        self.assertFalse(valid)
+        self.assertNotEqual(reason, "")
+
+    def test_space_between_number_unit_invalid(self):
+        """数値と単位の間にスペースがある場合は無効。"""
+        valid, reason = wsl_core.validate_memory_string("4 GB")
+        self.assertFalse(valid)
+        self.assertNotEqual(reason, "")
+
+    def test_returns_tuple(self):
+        """戻り値が (bool, str) の tuple であることを確認。"""
+        result = wsl_core.validate_memory_string("4GB")
+        self.assertIsInstance(result, tuple)
+        self.assertEqual(len(result), 2)
+        self.assertIsInstance(result[0], bool)
+        self.assertIsInstance(result[1], str)
+
+    def test_invalid_reason_is_nonempty(self):
+        """無効時の理由が空文字でないことを確認。"""
+        _, reason = wsl_core.validate_memory_string("bad")
+        self.assertTrue(len(reason) > 0)
+
+    def test_valid_reason_is_empty(self):
+        """有効時の理由が空文字であることを確認。"""
+        _, reason = wsl_core.validate_memory_string("8GB")
+        self.assertEqual(reason, "")
+
+
+# ---------------------------------------------------------------------------
+# validate_processors_string
+# ---------------------------------------------------------------------------
+
+
+class TestValidateProcessorsString(unittest.TestCase):
+    def test_empty_string_is_valid(self):
+        """空文字列は有効 (未設定)。"""
+        valid, reason = wsl_core.validate_processors_string("")
+        self.assertTrue(valid)
+        self.assertEqual(reason, "")
+
+    def test_one_is_valid(self):
+        """1 は有効。"""
+        valid, reason = wsl_core.validate_processors_string("1")
+        self.assertTrue(valid)
+        self.assertEqual(reason, "")
+
+    def test_typical_value_valid(self):
+        """典型的な値 (4) は有効。"""
+        valid, reason = wsl_core.validate_processors_string("4")
+        self.assertTrue(valid)
+        self.assertEqual(reason, "")
+
+    def test_large_number_valid(self):
+        """大きな整数も有効。"""
+        valid, reason = wsl_core.validate_processors_string("128")
+        self.assertTrue(valid)
+        self.assertEqual(reason, "")
+
+    def test_zero_invalid(self):
+        """0 は無効。"""
+        valid, reason = wsl_core.validate_processors_string("0")
+        self.assertFalse(valid)
+        self.assertNotEqual(reason, "")
+
+    def test_negative_invalid(self):
+        """負の整数は無効。"""
+        valid, reason = wsl_core.validate_processors_string("-1")
+        self.assertFalse(valid)
+        self.assertNotEqual(reason, "")
+
+    def test_float_invalid(self):
+        """小数点を含む値は無効。"""
+        valid, reason = wsl_core.validate_processors_string("2.5")
+        self.assertFalse(valid)
+        self.assertNotEqual(reason, "")
+
+    def test_alpha_invalid(self):
+        """英字は無効。"""
+        valid, reason = wsl_core.validate_processors_string("abc")
+        self.assertFalse(valid)
+        self.assertNotEqual(reason, "")
+
+    def test_alphanumeric_invalid(self):
+        """英数混在は無効。"""
+        valid, reason = wsl_core.validate_processors_string("4cores")
+        self.assertFalse(valid)
+        self.assertNotEqual(reason, "")
+
+    def test_whitespace_only_invalid(self):
+        """スペースのみは無効。"""
+        valid, reason = wsl_core.validate_processors_string(" ")
+        self.assertFalse(valid)
+        self.assertNotEqual(reason, "")
+
+    def test_returns_tuple(self):
+        """戻り値が (bool, str) の tuple であることを確認。"""
+        result = wsl_core.validate_processors_string("4")
+        self.assertIsInstance(result, tuple)
+        self.assertEqual(len(result), 2)
+        self.assertIsInstance(result[0], bool)
+        self.assertIsInstance(result[1], str)
+
+    def test_valid_reason_is_empty(self):
+        """有効時の理由が空文字であることを確認。"""
+        _, reason = wsl_core.validate_processors_string("8")
+        self.assertEqual(reason, "")
+
+    def test_invalid_reason_is_nonempty(self):
+        """無効時の理由が空文字でないことを確認。"""
+        _, reason = wsl_core.validate_processors_string("0")
+        self.assertTrue(len(reason) > 0)
+
+
+# ---------------------------------------------------------------------------
+# validate_swap_string
+# ---------------------------------------------------------------------------
+
+
+class TestValidateSwapString(unittest.TestCase):
+    def test_empty_string_is_valid(self):
+        """空文字列は有効 (未設定)。"""
+        valid, reason = wsl_core.validate_swap_string("")
+        self.assertTrue(valid)
+        self.assertEqual(reason, "")
+
+    def test_gb_value_valid(self):
+        """有効な GB 値。"""
+        valid, reason = wsl_core.validate_swap_string("8GB")
+        self.assertTrue(valid)
+        self.assertEqual(reason, "")
+
+    def test_mb_value_valid(self):
+        """有効な MB 値。"""
+        valid, reason = wsl_core.validate_swap_string("2048MB")
+        self.assertTrue(valid)
+        self.assertEqual(reason, "")
+
+    def test_kb_lowercase_valid(self):
+        """小文字 kb も有効。"""
+        valid, reason = wsl_core.validate_swap_string("512kb")
+        self.assertTrue(valid)
+        self.assertEqual(reason, "")
+
+    def test_tb_value_valid(self):
+        """有効な TB 値。"""
+        valid, reason = wsl_core.validate_swap_string("1TB")
+        self.assertTrue(valid)
+        self.assertEqual(reason, "")
+
+    def test_bare_number_valid(self):
+        """単位なしの数字はバイト数として有効。"""
+        valid, reason = wsl_core.validate_swap_string("4096")
+        self.assertTrue(valid)
+        self.assertEqual(reason, "")
+
+    def test_zero_gb_invalid(self):
+        """0GB は無効。"""
+        valid, reason = wsl_core.validate_swap_string("0GB")
+        self.assertFalse(valid)
+        self.assertNotEqual(reason, "")
+
+    def test_negative_invalid(self):
+        """負の値は無効。"""
+        valid, reason = wsl_core.validate_swap_string("-1GB")
+        self.assertFalse(valid)
+        self.assertNotEqual(reason, "")
+
+    def test_unknown_unit_invalid(self):
+        """不明な単位は無効。"""
+        valid, reason = wsl_core.validate_swap_string("4XB")
+        self.assertFalse(valid)
+        self.assertNotEqual(reason, "")
+
+    def test_alpha_only_invalid(self):
+        """英字のみは無効。"""
+        valid, reason = wsl_core.validate_swap_string("abc")
+        self.assertFalse(valid)
+        self.assertNotEqual(reason, "")
+
+    def test_returns_tuple(self):
+        """戻り値が (bool, str) の tuple であることを確認。"""
+        result = wsl_core.validate_swap_string("2GB")
+        self.assertIsInstance(result, tuple)
+        self.assertEqual(len(result), 2)
+        self.assertIsInstance(result[0], bool)
+        self.assertIsInstance(result[1], str)
+
+    def test_valid_reason_is_empty(self):
+        """有効時の理由が空文字であることを確認。"""
+        _, reason = wsl_core.validate_swap_string("4GB")
+        self.assertEqual(reason, "")
+
+    def test_invalid_reason_is_nonempty(self):
+        """無効時の理由が空文字でないことを確認。"""
+        _, reason = wsl_core.validate_swap_string("0GB")
+        self.assertTrue(len(reason) > 0)
+
+
+# ---------------------------------------------------------------------------
+# parse_memory_to_bytes
+# ---------------------------------------------------------------------------
+
+
+class TestParseMemoryToBytes(unittest.TestCase):
+    def test_gb(self):
+        """4GB → 4 * 1024^3 バイト。"""
+        self.assertEqual(wsl_core.parse_memory_to_bytes("4GB"), 4 * 1024**3)
+
+    def test_mb(self):
+        """512MB → 512 * 1024^2 バイト。"""
+        self.assertEqual(wsl_core.parse_memory_to_bytes("512MB"), 512 * 1024**2)
+
+    def test_kb(self):
+        """1024KB → 1024 * 1024 バイト。"""
+        self.assertEqual(wsl_core.parse_memory_to_bytes("1024KB"), 1024 * 1024)
+
+    def test_tb(self):
+        """2TB → 2 * 1024^4 バイト。"""
+        self.assertEqual(wsl_core.parse_memory_to_bytes("2TB"), 2 * 1024**4)
+
+    def test_bare_number(self):
+        """単位なし数字はそのままバイト数として返す。"""
+        self.assertEqual(wsl_core.parse_memory_to_bytes("1024"), 1024)
+
+    def test_lowercase_gb(self):
+        """小文字 gb も正しく変換される。"""
+        self.assertEqual(wsl_core.parse_memory_to_bytes("4gb"), 4 * 1024**3)
+
+    def test_lowercase_mb(self):
+        """小文字 mb も正しく変換される。"""
+        self.assertEqual(wsl_core.parse_memory_to_bytes("256mb"), 256 * 1024**2)
+
+    def test_lowercase_kb(self):
+        """小文字 kb も正しく変換される。"""
+        self.assertEqual(wsl_core.parse_memory_to_bytes("512kb"), 512 * 1024)
+
+    def test_one_byte(self):
+        """1 (単位なし) → 1 バイト。"""
+        self.assertEqual(wsl_core.parse_memory_to_bytes("1"), 1)
+
+    def test_one_kb(self):
+        """1KB → 1024 バイト。"""
+        self.assertEqual(wsl_core.parse_memory_to_bytes("1KB"), 1024)
+
+    def test_one_mb(self):
+        """1MB → 1048576 バイト。"""
+        self.assertEqual(wsl_core.parse_memory_to_bytes("1MB"), 1048576)
+
+    def test_one_gb(self):
+        """1GB → 1073741824 バイト。"""
+        self.assertEqual(wsl_core.parse_memory_to_bytes("1GB"), 1073741824)
+
+    def test_empty_string_returns_none(self):
+        """空文字列は None を返す。"""
+        self.assertIsNone(wsl_core.parse_memory_to_bytes(""))
+
+    def test_alpha_returns_none(self):
+        """英字のみは None を返す。"""
+        self.assertIsNone(wsl_core.parse_memory_to_bytes("abc"))
+
+    def test_unknown_unit_returns_none(self):
+        """不明な単位は None を返す。"""
+        self.assertIsNone(wsl_core.parse_memory_to_bytes("4XB"))
+
+    def test_negative_returns_none(self):
+        """負の値は None を返す。"""
+        self.assertIsNone(wsl_core.parse_memory_to_bytes("-1GB"))
+
+    def test_float_returns_none(self):
+        """小数点を含む値は None を返す。"""
+        self.assertIsNone(wsl_core.parse_memory_to_bytes("1.5GB"))
+
+    def test_space_returns_none(self):
+        """数値と単位の間にスペースがある場合は None を返す。"""
+        self.assertIsNone(wsl_core.parse_memory_to_bytes("4 GB"))
+
+    def test_returns_int(self):
+        """有効な入力では int を返す。"""
+        result = wsl_core.parse_memory_to_bytes("4GB")
+        self.assertIsInstance(result, int)
+
+    def test_zero_bare(self):
+        """0 (単位なし) → 0 バイト (変換自体は成功)。"""
+        self.assertEqual(wsl_core.parse_memory_to_bytes("0"), 0)
+
+    def test_large_value(self):
+        """大きな値でも正確に変換される。"""
+        self.assertEqual(wsl_core.parse_memory_to_bytes("16384MB"), 16384 * 1024**2)
+
+
+# ---------------------------------------------------------------------------
+# get_default_log_dir
+# ---------------------------------------------------------------------------
+
+
+class TestGetDefaultLogDir(unittest.TestCase):
+    def test_windows_uses_appdata(self):
+        """Windows 環境では APPDATA 配下の WSLManager/logs を返す。"""
+        with mock.patch.object(wsl_core.sys, "platform", "win32"):
+            with mock.patch.dict(os.environ, {"APPDATA": r"C:\Users\test\AppData\Roaming"}):
+                result = wsl_core.get_default_log_dir()
+        self.assertEqual(
+            result, os.path.join(r"C:\Users\test\AppData\Roaming", "WSLManager", "logs")
+        )
+
+    def test_windows_missing_appdata_uses_empty(self):
+        """Windows 環境で APPDATA が未設定の場合は空文字を基点にする。"""
+        with mock.patch.object(wsl_core.sys, "platform", "win32"):
+            env = dict(os.environ)
+            env.pop("APPDATA", None)
+            with mock.patch.dict(os.environ, env, clear=True):
+                result = wsl_core.get_default_log_dir()
+        self.assertEqual(result, os.path.join("", "WSLManager", "logs"))
+
+    def test_non_windows_uses_home(self):
+        """非 Windows 環境では ~/.wslmgr/logs を返す。"""
+        with mock.patch.object(wsl_core.sys, "platform", "linux"):
+            result = wsl_core.get_default_log_dir()
+        self.assertEqual(result, os.path.expanduser("~/.wslmgr/logs"))
+
+    def test_non_windows_darwin(self):
+        """macOS (darwin) でも非 Windows 用パスを返す。"""
+        with mock.patch.object(wsl_core.sys, "platform", "darwin"):
+            result = wsl_core.get_default_log_dir()
+        self.assertEqual(result, os.path.expanduser("~/.wslmgr/logs"))
+
+    def test_non_windows_returns_string(self):
+        """戻り値は文字列型である。"""
+        with mock.patch.object(wsl_core.sys, "platform", "linux"):
+            result = wsl_core.get_default_log_dir()
+        self.assertIsInstance(result, str)
+
+
+# ---------------------------------------------------------------------------
+# serialize_log_entry
+# ---------------------------------------------------------------------------
+
+
+class TestSerializeLogEntry(unittest.TestCase):
+    def test_with_explicit_timestamp(self):
+        """timestamp を指定した場合はその値がそのまま使われる。"""
+        result = wsl_core.serialize_log_entry(
+            "起動", "Ubuntu", "成功", timestamp="2026-01-01T00:00:00"
+        )
+        data = json.loads(result)
+        self.assertEqual(data["timestamp"], "2026-01-01T00:00:00")
+
+    def test_without_timestamp_uses_now(self):
+        """timestamp を省略すると現在時刻が設定される。"""
+        result = wsl_core.serialize_log_entry("停止", "Debian", "失敗")
+        data = json.loads(result)
+        # ISO 8601 形式としてパースできることを確認する
+        datetime_value = data["timestamp"]
+        self.assertTrue(datetime_value)
+
+    def test_returns_valid_json(self):
+        """戻り値は json.loads で正しくパースできる単一行の JSON である。"""
+        result = wsl_core.serialize_log_entry("再起動", "Ubuntu-22.04", "成功", timestamp="t")
+        self.assertEqual(result.count("\n"), 0)
+        data = json.loads(result)
+        self.assertEqual(
+            data,
+            {
+                "schema_version": 1,
+                "timestamp": "t",
+                "operation": "再起動",
+                "target": "Ubuntu-22.04",
+                "result": "成功",
+            },
+        )
+
+    def test_japanese_text_not_escaped(self):
+        """ensure_ascii=False により日本語がそのまま出力される (\\u エスケープされない)。"""
+        result = wsl_core.serialize_log_entry(
+            "エクスポート", "テスト用ディストロ", "成功", timestamp="t"
+        )
+        self.assertIn("エクスポート", result)
+        self.assertIn("テスト用ディストロ", result)
+        self.assertNotIn("\\u", result)
+
+    def test_no_trailing_newline(self):
+        """戻り値の末尾に改行は含まれない。"""
+        result = wsl_core.serialize_log_entry("起動", "Ubuntu", "成功", timestamp="t")
+        self.assertFalse(result.endswith("\n"))
+
+    def test_keys_present(self):
+        """必須キー (timestamp, operation, target, result, schema_version) がすべて含まれる。"""
+        result = wsl_core.serialize_log_entry("削除", "OldDistro", "成功", timestamp="t")
+        data = json.loads(result)
+        self.assertEqual(
+            set(data.keys()),
+            {"timestamp", "operation", "target", "result", "schema_version"},
+        )
+
+    def test_source_omitted_by_default(self):
+        """source を指定しない場合、出力に "source" キーは含まれない (#27, 後方互換)。"""
+        result = wsl_core.serialize_log_entry("起動", "Ubuntu", "成功", timestamp="t")
+        data = json.loads(result)
+        self.assertNotIn("source", data)
+
+    def test_source_included_when_given(self):
+        """source を指定すると "source" キーとして出力される。"""
+        result = wsl_core.serialize_log_entry("起動", "Ubuntu", "成功", timestamp="t", source="cli")
+        data = json.loads(result)
+        self.assertEqual(data["source"], "cli")
+
+    def test_source_gui_value(self):
+        """source="gui" もそのまま出力される。"""
+        result = wsl_core.serialize_log_entry("停止", "Ubuntu", "成功", timestamp="t", source="gui")
+        data = json.loads(result)
+        self.assertEqual(data["source"], "gui")
+
+
+# ---------------------------------------------------------------------------
+# deserialize_log_entries
+# ---------------------------------------------------------------------------
+
+
+class TestDeserializeLogEntries(unittest.TestCase):
+    def test_valid_json_lines(self):
+        """有効な JSON Lines を複数行パースしてリストを返す。"""
+        text = (
+            '{"timestamp": "t1", "operation": "起動", "target": "Ubuntu", "result": "成功"}\n'
+            '{"timestamp": "t2", "operation": "停止", "target": "Debian", "result": "失敗"}'
+        )
+        result = wsl_core.deserialize_log_entries(text)
+        self.assertEqual(len(result), 2)
+        self.assertEqual(result[0]["operation"], "起動")
+        self.assertEqual(result[1]["operation"], "停止")
+
+    def test_skips_blank_lines(self):
+        """空行はスキップされる。"""
+        text = (
+            '{"timestamp": "t1", "operation": "起動", "target": "Ubuntu", "result": "成功"}\n'
+            "\n"
+            "   \n"
+            '{"timestamp": "t2", "operation": "停止", "target": "Debian", "result": "失敗"}'
+        )
+        result = wsl_core.deserialize_log_entries(text)
+        self.assertEqual(len(result), 2)
+
+    def test_skips_invalid_json(self):
+        """JSON としてパースできない行はスキップされる。"""
+        text = (
+            '{"timestamp": "t1", "operation": "起動", "target": "Ubuntu", "result": "成功"}\n'
+            "this is not json\n"
+            '{"timestamp": "t2", "operation": "停止", "target": "Debian", "result": "失敗"}'
+        )
+        result = wsl_core.deserialize_log_entries(text)
+        self.assertEqual(len(result), 2)
+
+    def test_empty_string_returns_empty_list(self):
+        """空文字列を渡すと空リストを返す。"""
+        self.assertEqual(wsl_core.deserialize_log_entries(""), [])
+
+    def test_none_returns_empty_list(self):
+        """None を渡すと空リストを返す。"""
+        self.assertEqual(wsl_core.deserialize_log_entries(None), [])
+
+    def test_round_trip_with_serialize(self):
+        """serialize_log_entry の出力を deserialize_log_entries で復元できる。"""
+        line1 = wsl_core.serialize_log_entry("起動", "Ubuntu", "成功", timestamp="t1")
+        line2 = wsl_core.serialize_log_entry("停止", "Debian", "失敗", timestamp="t2")
+        text = line1 + "\n" + line2
+        result = wsl_core.deserialize_log_entries(text)
+        self.assertEqual(len(result), 2)
+        self.assertEqual(result[0]["target"], "Ubuntu")
+        self.assertEqual(result[1]["target"], "Debian")
+
+
+# ---------------------------------------------------------------------------
+# format_log_entry_from_dict
+# ---------------------------------------------------------------------------
+
+
+class TestFormatLogEntryFromDict(unittest.TestCase):
+    def test_normal_dict(self):
+        """すべてのキーが揃った dict を正しくフォーマットする。"""
+        entry = {
+            "timestamp": "2026-01-01T00:00:00",
+            "operation": "起動",
+            "target": "Ubuntu",
+            "result": "成功",
+        }
+        result = wsl_core.format_log_entry_from_dict(entry)
+        self.assertEqual(result, "[2026-01-01T00:00:00] 起動 | Ubuntu | 成功")
+
+    def test_missing_timestamp(self):
+        """timestamp キーが欠けている場合は '-' を使う。"""
+        entry = {"operation": "停止", "target": "Debian", "result": "成功"}
+        result = wsl_core.format_log_entry_from_dict(entry)
+        self.assertEqual(result, "[-] 停止 | Debian | 成功")
+
+    def test_missing_multiple_keys(self):
+        """複数キーが欠けている場合もそれぞれ '-' を使う。"""
+        entry = {"operation": "削除"}
+        result = wsl_core.format_log_entry_from_dict(entry)
+        self.assertEqual(result, "[-] 削除 | - | -")
+
+    def test_empty_dict(self):
+        """空 dict の場合はすべて '-' になる。"""
+        result = wsl_core.format_log_entry_from_dict({})
+        self.assertEqual(result, "[-] - | - | -")
+
+    def test_returns_string(self):
+        """戻り値は文字列型である。"""
+        result = wsl_core.format_log_entry_from_dict({"timestamp": "t"})
+        self.assertIsInstance(result, str)
+
+
+# ---------------------------------------------------------------------------
+# rotate_log_files
+# ---------------------------------------------------------------------------
+
+
+class TestRotateLogFiles(unittest.TestCase):
+    def setUp(self):
+        self.tmpdir = tempfile.mkdtemp()
+
+    def tearDown(self):
+        shutil.rmtree(self.tmpdir, ignore_errors=True)
+
+    def test_noop_when_file_missing(self):
+        """対象ファイルが存在しない場合は何もしない (例外も発生しない)。"""
+        wsl_core.rotate_log_files(self.tmpdir, max_size=100)
+        self.assertEqual(os.listdir(self.tmpdir), [])
+
+    def test_noop_when_under_max_size(self):
+        """ファイルサイズが上限以下の場合はローテーションしない。"""
+        path = os.path.join(self.tmpdir, "operations.jsonl")
+        with open(path, "wb") as f:
+            f.write(b"x" * 10)
+        wsl_core.rotate_log_files(self.tmpdir, max_size=100)
+        self.assertTrue(os.path.exists(path))
+        self.assertEqual(sorted(os.listdir(self.tmpdir)), ["operations.jsonl"])
+
+    def test_rotates_when_over_max_size(self):
+        """上限を超えると operations.jsonl が operations.1.jsonl にリネームされる。"""
+        path = os.path.join(self.tmpdir, "operations.jsonl")
+        with open(path, "wb") as f:
+            f.write(b"x" * 200)
+        wsl_core.rotate_log_files(self.tmpdir, max_size=100, max_backups=5)
+        self.assertFalse(os.path.exists(path))
+        self.assertTrue(os.path.exists(os.path.join(self.tmpdir, "operations.1.jsonl")))
+
+    def test_existing_backups_shift_up(self):
+        """既存のバックアップ番号が1つずつ繰り上がる。"""
+        base = os.path.join(self.tmpdir, "operations.jsonl")
+        backup1 = os.path.join(self.tmpdir, "operations.1.jsonl")
+        with open(base, "wb") as f:
+            f.write(b"new" * 100)
+        with open(backup1, "wb") as f:
+            f.write(b"old")
+        wsl_core.rotate_log_files(self.tmpdir, max_size=100, max_backups=5)
+        self.assertTrue(os.path.exists(os.path.join(self.tmpdir, "operations.2.jsonl")))
+        with open(os.path.join(self.tmpdir, "operations.2.jsonl"), "rb") as f:
+            self.assertEqual(f.read(), b"old")
+        with open(backup1, "rb") as f:
+            self.assertEqual(f.read(), b"new" * 100)
+
+    def test_old_backups_beyond_max_are_deleted(self):
+        """max_backups を超える番号の古いバックアップは削除される。"""
+        base = os.path.join(self.tmpdir, "operations.jsonl")
+        oldest = os.path.join(self.tmpdir, "operations.3.jsonl")
+        with open(base, "wb") as f:
+            f.write(b"x" * 200)
+        with open(oldest, "wb") as f:
+            f.write(b"oldest")
+        wsl_core.rotate_log_files(self.tmpdir, max_size=100, max_backups=3)
+        self.assertFalse(os.path.exists(oldest))
+        self.assertTrue(os.path.exists(os.path.join(self.tmpdir, "operations.1.jsonl")))
+
+    def test_custom_base_name(self):
+        """base_name を指定すると別のファイル名でローテーションされる。"""
+        path = os.path.join(self.tmpdir, "custom.log")
+        with open(path, "wb") as f:
+            f.write(b"x" * 200)
+        wsl_core.rotate_log_files(self.tmpdir, base_name="custom.log", max_size=100)
+        self.assertFalse(os.path.exists(path))
+        self.assertTrue(os.path.exists(os.path.join(self.tmpdir, "custom.1.log")))
+
+
+# ---------------------------------------------------------------------------
+# tail_entries
+# ---------------------------------------------------------------------------
+
+
+class TestTailEntries(unittest.TestCase):
+    def test_n_less_than_len(self):
+        """n が要素数未満の場合は末尾 n 件を返す。"""
+        self.assertEqual(wsl_core.tail_entries([1, 2, 3, 4, 5], 2), [4, 5])
+
+    def test_n_equal_len(self):
+        """n が要素数と等しい場合は全件を返す。"""
+        self.assertEqual(wsl_core.tail_entries([1, 2, 3], 3), [1, 2, 3])
+
+    def test_n_greater_than_len(self):
+        """n が要素数より大きい場合は全件を返す。"""
+        self.assertEqual(wsl_core.tail_entries([1, 2, 3], 10), [1, 2, 3])
+
+    def test_n_zero(self):
+        """n が 0 の場合は空リストを返す。"""
+        self.assertEqual(wsl_core.tail_entries([1, 2, 3], 0), [])
+
+    def test_n_negative(self):
+        """n が負の場合は空リストを返す。"""
+        self.assertEqual(wsl_core.tail_entries([1, 2, 3], -1), [])
+
+    def test_empty_list(self):
+        """空リストに対しては常に空リストを返す。"""
+        self.assertEqual(wsl_core.tail_entries([], 5), [])
+
+    def test_does_not_mutate_original(self):
+        """元のリストは変更されない。"""
+        original = [1, 2, 3, 4]
+        result = wsl_core.tail_entries(original, 2)
+        self.assertEqual(original, [1, 2, 3, 4])
+        result.append(99)
+        self.assertEqual(original, [1, 2, 3, 4])
+
+    def test_n_equal_len_returns_copy(self):
+        """n が全件と一致する場合でも別オブジェクト (コピー) を返す。"""
+        original = [1, 2, 3]
+        result = wsl_core.tail_entries(original, 3)
+        self.assertIsNot(result, original)
+
+
+# ---------------------------------------------------------------------------
+# validate_port_number
+# ---------------------------------------------------------------------------
+
+
+class TestValidatePortNumber(unittest.TestCase):
+    def test_empty_string(self):
+        """空文字列は無効。"""
+        valid, reason = wsl_core.validate_port_number("")
+        self.assertFalse(valid)
+        self.assertIn("入力してください", reason)
+
+    def test_none(self):
+        """None は無効。"""
+        valid, reason = wsl_core.validate_port_number(None)
+        self.assertFalse(valid)
+        self.assertIn("入力してください", reason)
+
+    def test_non_integer(self):
+        """整数に変換できない文字列は無効。"""
+        valid, reason = wsl_core.validate_port_number("abc")
+        self.assertFalse(valid)
+        self.assertIn("整数", reason)
+
+    def test_zero_out_of_range(self):
+        """0 は範囲外で無効。"""
+        valid, reason = wsl_core.validate_port_number("0")
+        self.assertFalse(valid)
+        self.assertIn("1〜65535", reason)
+
+    def test_negative_out_of_range(self):
+        """負の値は範囲外で無効。"""
+        valid, reason = wsl_core.validate_port_number("-1")
+        self.assertFalse(valid)
+        self.assertIn("1〜65535", reason)
+
+    def test_too_large_out_of_range(self):
+        """65536 は範囲外で無効。"""
+        valid, reason = wsl_core.validate_port_number("65536")
+        self.assertFalse(valid)
+        self.assertIn("1〜65535", reason)
+
+    def test_valid_lower_bound(self):
+        """1 は有効な下限値。"""
+        valid, reason = wsl_core.validate_port_number("1")
+        self.assertTrue(valid)
+        self.assertEqual(reason, "")
+
+    def test_valid_upper_bound(self):
+        """65535 は有効な上限値。"""
+        valid, reason = wsl_core.validate_port_number("65535")
+        self.assertTrue(valid)
+        self.assertEqual(reason, "")
+
+    def test_valid_typical(self):
+        """典型的なポート番号 8080 は有効。"""
+        valid, reason = wsl_core.validate_port_number("8080")
+        self.assertTrue(valid)
+        self.assertEqual(reason, "")
+
+
+# ---------------------------------------------------------------------------
+# parse_portproxy_output
+# ---------------------------------------------------------------------------
+
+
+class TestParsePortproxyOutput(unittest.TestCase):
+    def test_typical_output(self):
+        """典型的な netsh portproxy 出力を解析する。"""
+        output = (
+            "Listen on ipv4:             Connect to ipv4:\n"
+            "\n"
+            "Address         Port        Address         Port\n"
+            "--------------- ----------  --------------- ----------\n"
+            "192.168.1.1     8080        172.20.0.2      8080\n"
+        )
+        result = wsl_core.parse_portproxy_output(output)
+        self.assertEqual(
+            result,
+            [
+                {
+                    "listen_address": "192.168.1.1",
+                    "listen_port": 8080,
+                    "connect_address": "172.20.0.2",
+                    "connect_port": 8080,
+                }
+            ],
+        )
+
+    def test_multiple_rules(self):
+        """複数のルールがある場合はすべて解析される。"""
+        output = (
+            "Listen on ipv4:             Connect to ipv4:\n"
+            "\n"
+            "Address         Port        Address         Port\n"
+            "--------------- ----------  --------------- ----------\n"
+            "192.168.1.1     8080        172.20.0.2      8080\n"
+            "0.0.0.0         3000        172.20.0.2      3000\n"
+        )
+        result = wsl_core.parse_portproxy_output(output)
+        self.assertEqual(len(result), 2)
+        self.assertEqual(result[1]["listen_port"], 3000)
+        self.assertEqual(result[1]["connect_port"], 3000)
+
+    def test_empty_output(self):
+        """空文字列を渡すと空リストを返す。"""
+        self.assertEqual(wsl_core.parse_portproxy_output(""), [])
+
+    def test_none_output(self):
+        """None を渡すと空リストを返す。"""
+        self.assertEqual(wsl_core.parse_portproxy_output(None), [])
+
+    def test_no_rules_present(self):
+        """ルールが1つもない (ヘッダのみの) 出力では空リストを返す。"""
+        output = (
+            "Listen on ipv4:             Connect to ipv4:\n"
+            "\n"
+            "Address         Port        Address         Port\n"
+            "--------------- ----------  --------------- ----------\n"
+        )
+        self.assertEqual(wsl_core.parse_portproxy_output(output), [])
+
+    def test_port_values_are_int(self):
+        """ポート番号は int 型として返される。"""
+        output = (
+            "Address         Port        Address         Port\n"
+            "--------------- ----------  --------------- ----------\n"
+            "127.0.0.1       80          172.20.0.2      8080\n"
+        )
+        result = wsl_core.parse_portproxy_output(output)
+        self.assertIsInstance(result[0]["listen_port"], int)
+        self.assertIsInstance(result[0]["connect_port"], int)
+
+
+# ---------------------------------------------------------------------------
+# parse_ss_output
+# ---------------------------------------------------------------------------
+
+
+class TestParseSsOutput(unittest.TestCase):
+    def test_ipv4_entry(self):
+        """IPv4 のリスニングソケットを解析する。"""
+        output = (
+            "State    Recv-Q   Send-Q   Local Address:Port   Peer Address:Port   Process\n"
+            "LISTEN   0        128      0.0.0.0:22           0.0.0.0:*           "
+            'users:(("sshd",pid=1,fd=3))\n'
+        )
+        result = wsl_core.parse_ss_output(output)
+        self.assertEqual(
+            result,
+            [{"state": "LISTEN", "local_address": "0.0.0.0", "local_port": 22, "process": "sshd"}],
+        )
+
+    def test_ipv6_entry(self):
+        """IPv6 (角括弧表記) のリスニングソケットを解析する。"""
+        output = (
+            "State    Recv-Q   Send-Q   Local Address:Port   Peer Address:Port   Process\n"
+            "LISTEN   0        128      [::]:22              [::]:*              "
+            'users:(("sshd",pid=1,fd=4))\n'
+        )
+        result = wsl_core.parse_ss_output(output)
+        self.assertEqual(result[0]["local_address"], "::")
+        self.assertEqual(result[0]["local_port"], 22)
+        self.assertEqual(result[0]["process"], "sshd")
+
+    def test_multiple_listeners(self):
+        """複数のリスニングソケットをすべて解析する。"""
+        output = (
+            "State    Recv-Q   Send-Q   Local Address:Port   Peer Address:Port   Process\n"
+            "LISTEN   0        128      0.0.0.0:22           0.0.0.0:*           "
+            'users:(("sshd",pid=1,fd=3))\n'
+            "LISTEN   0        511      127.0.0.1:3000       0.0.0.0:*           "
+            'users:(("node",pid=42,fd=18))\n'
+        )
+        result = wsl_core.parse_ss_output(output)
+        self.assertEqual(len(result), 2)
+        self.assertEqual(result[1]["local_address"], "127.0.0.1")
+        self.assertEqual(result[1]["local_port"], 3000)
+        self.assertEqual(result[1]["process"], "node")
+
+    def test_no_process_info(self):
+        """プロセス情報がない場合でもエラーにならず解析できる。"""
+        output = (
+            "State    Recv-Q   Send-Q   Local Address:Port   Peer Address:Port\n"
+            "LISTEN   0        128      0.0.0.0:80           0.0.0.0:*\n"
+        )
+        result = wsl_core.parse_ss_output(output)
+        self.assertEqual(result[0]["local_port"], 80)
+        # users:(...) パターンに一致しないため、生の文字列 (空なら "-") が使われる
+        self.assertTrue(result[0]["process"])
+
+    def test_empty_output(self):
+        """空文字列を渡すと空リストを返す。"""
+        self.assertEqual(wsl_core.parse_ss_output(""), [])
+
+    def test_none_output(self):
+        """None を渡すと空リストを返す。"""
+        self.assertEqual(wsl_core.parse_ss_output(None), [])
+
+    def test_skips_header_line(self):
+        """ヘッダ行 (State で始まる) はデータとして扱われない。"""
+        output = "State    Recv-Q   Send-Q   Local Address:Port   Peer Address:Port   Process\n"
+        self.assertEqual(wsl_core.parse_ss_output(output), [])
+
+
+# ---------------------------------------------------------------------------
+# detect_network_mode
+# ---------------------------------------------------------------------------
+
+
+class TestDetectNetworkMode(unittest.TestCase):
+    def test_mirrored_mode(self):
+        """networkingMode が mirrored の場合は 'mirrored' を返す。"""
+        config = {"wsl2": {"networkingMode": "mirrored"}}
+        self.assertEqual(wsl_core.detect_network_mode(config), "mirrored")
+
+    def test_mirrored_mode_case_insensitive(self):
+        """大文字混じりの 'Mirrored' でも 'mirrored' と判定される。"""
+        config = {"wsl2": {"networkingMode": "Mirrored"}}
+        self.assertEqual(wsl_core.detect_network_mode(config), "mirrored")
+
+    def test_nat_mode(self):
+        """networkingMode が nat の場合は 'nat' を返す。"""
+        config = {"wsl2": {"networkingMode": "NAT"}}
+        self.assertEqual(wsl_core.detect_network_mode(config), "nat")
+
+    def test_empty_value_defaults_to_nat(self):
+        """networkingMode が空文字 (未設定) の場合は 'nat' を返す (デフォルト)。"""
+        config = {"wsl2": {"networkingMode": ""}}
+        self.assertEqual(wsl_core.detect_network_mode(config), "nat")
+
+    def test_missing_section_defaults_to_nat(self):
+        """wsl2 セクション自体が存在しない場合も 'nat' を返す。"""
+        self.assertEqual(wsl_core.detect_network_mode({}), "nat")
+
+    def test_missing_key_defaults_to_nat(self):
+        """wsl2 セクションはあるが networkingMode キーがない場合も 'nat' を返す。"""
+        config = {"wsl2": {"memory": "4GB"}}
+        self.assertEqual(wsl_core.detect_network_mode(config), "nat")
+
+    def test_unknown_value_returned_lowered(self):
+        """未知の値の場合はその値を小文字化してそのまま返す。"""
+        config = {"wsl2": {"networkingMode": "Bridged"}}
+        self.assertEqual(wsl_core.detect_network_mode(config), "bridged")
+
+
+# ---------------------------------------------------------------------------
+# get_default_settings_path
+# ---------------------------------------------------------------------------
+
+
+class TestGetDefaultSettingsPath(unittest.TestCase):
+    def test_windows_uses_appdata(self):
+        """Windows 環境では APPDATA 配下の WSLManager/settings.json を返す。"""
+        with mock.patch.object(wsl_core.sys, "platform", "win32"):
+            with mock.patch.dict(os.environ, {"APPDATA": r"C:\Users\test\AppData\Roaming"}):
+                result = wsl_core.get_default_settings_path()
+        self.assertEqual(
+            result,
+            os.path.join(r"C:\Users\test\AppData\Roaming", "WSLManager", "settings.json"),
+        )
+
+    def test_windows_missing_appdata_uses_empty(self):
+        """Windows 環境で APPDATA が未設定の場合は空文字を基点にする。"""
+        with mock.patch.object(wsl_core.sys, "platform", "win32"):
+            env = dict(os.environ)
+            env.pop("APPDATA", None)
+            with mock.patch.dict(os.environ, env, clear=True):
+                result = wsl_core.get_default_settings_path()
+        self.assertEqual(result, os.path.join("", "WSLManager", "settings.json"))
+
+    def test_non_windows_uses_home(self):
+        """非 Windows 環境では ~/.wslmgr/settings.json を返す。"""
+        with mock.patch.object(wsl_core.sys, "platform", "linux"):
+            result = wsl_core.get_default_settings_path()
+        self.assertEqual(result, os.path.expanduser("~/.wslmgr/settings.json"))
+
+    def test_non_windows_darwin(self):
+        """macOS (darwin) でも非 Windows 用パスを返す。"""
+        with mock.patch.object(wsl_core.sys, "platform", "darwin"):
+            result = wsl_core.get_default_settings_path()
+        self.assertEqual(result, os.path.expanduser("~/.wslmgr/settings.json"))
+
+    def test_non_windows_returns_string(self):
+        """戻り値は文字列型である。"""
+        with mock.patch.object(wsl_core.sys, "platform", "linux"):
+            result = wsl_core.get_default_settings_path()
+        self.assertIsInstance(result, str)
+
+
+# ---------------------------------------------------------------------------
+# is_valid_geometry
+# ---------------------------------------------------------------------------
+
+
+class TestIsValidGeometry(unittest.TestCase):
+    def test_valid_with_offsets(self):
+        """ "WxH+X+Y" 形式は妥当と判定される。"""
+        self.assertTrue(wsl_core.is_valid_geometry("960x460+100+50"))
+
+    def test_valid_without_offsets(self):
+        """ "WxH" のみの形式も妥当と判定される。"""
+        self.assertTrue(wsl_core.is_valid_geometry("100x200"))
+
+    def test_valid_negative_offsets(self):
+        """負のオフセット ("+-X-Y" 形式) も妥当と判定される。"""
+        self.assertTrue(wsl_core.is_valid_geometry("960x460+-10-20"))
+
+    def test_valid_mixed_sign_offsets(self):
+        """符号が混在するオフセットも妥当と判定される。"""
+        self.assertTrue(wsl_core.is_valid_geometry("800x600-5+5"))
+
+    def test_invalid_empty_string(self):
+        """空文字は無効。"""
+        self.assertFalse(wsl_core.is_valid_geometry(""))
+
+    def test_invalid_none(self):
+        """None は無効。"""
+        self.assertFalse(wsl_core.is_valid_geometry(None))
+
+    def test_invalid_non_string_type(self):
+        """int など str 以外の型は無効。"""
+        self.assertFalse(wsl_core.is_valid_geometry(123))
+
+    def test_invalid_missing_height(self):
+        """高さが欠けている場合は無効。"""
+        self.assertFalse(wsl_core.is_valid_geometry("960x"))
+
+    def test_invalid_missing_width(self):
+        """幅が欠けている場合は無効。"""
+        self.assertFalse(wsl_core.is_valid_geometry("x460+1+1"))
+
+    def test_invalid_zero_width(self):
+        """幅が 0 の場合は無効。"""
+        self.assertFalse(wsl_core.is_valid_geometry("0x100+1+1"))
+
+    def test_invalid_zero_height(self):
+        """高さが 0 の場合は無効。"""
+        self.assertFalse(wsl_core.is_valid_geometry("100x0"))
+
+    def test_invalid_incomplete_offset(self):
+        """オフセットが X のみで Y が欠けている場合は無効。"""
+        self.assertFalse(wsl_core.is_valid_geometry("960x460+1"))
+
+    def test_invalid_not_geometry_string(self):
+        """ジオメトリ形式でない文字列は無効。"""
+        self.assertFalse(wsl_core.is_valid_geometry("abc"))
+
+    def test_invalid_extra_offset(self):
+        """オフセットが3つ以上ある場合は無効。"""
+        self.assertFalse(wsl_core.is_valid_geometry("960x460+1+1+1"))
+
+
+# ---------------------------------------------------------------------------
+# normalize_settings
+# ---------------------------------------------------------------------------
+
+
+class TestNormalizeSettings(unittest.TestCase):
+    def test_non_dict_returns_defaults(self):
+        """dict でない入力の場合はデフォルト値を返す。"""
+        for value in (None, "text", 123, [1, 2, 3]):
+            with self.subTest(value=value):
+                self.assertEqual(wsl_core.normalize_settings(value), wsl_core.DEFAULT_SETTINGS)
+
+    def test_empty_dict_returns_defaults(self):
+        """空 dict の場合はデフォルト値を返す。"""
+        self.assertEqual(wsl_core.normalize_settings({}), wsl_core.DEFAULT_SETTINGS)
+
+    def test_full_valid_dict_roundtrips(self):
+        """すべてのキーが妥当な値であればそのまま維持される。"""
+        data = {
+            "schema_version": 1,
+            "theme": "clam",
+            "auto_refresh": True,
+            "window_geometry": "800x600+10+20",
+            "sort_column": "name",
+            "sort_desc": True,
+            "snapshot_dir": "/mnt/snapshots",
+            "language": "ja",
+        }
+        self.assertEqual(wsl_core.normalize_settings(data), data)
+
+    def test_invalid_theme_type_falls_back(self):
+        """theme が str 以外の場合はデフォルト値になる。"""
+        result = wsl_core.normalize_settings({"theme": 123})
+        self.assertEqual(result["theme"], wsl_core.DEFAULT_SETTINGS["theme"])
+
+    def test_empty_theme_falls_back(self):
+        """theme が空文字の場合はデフォルト値になる。"""
+        result = wsl_core.normalize_settings({"theme": ""})
+        self.assertEqual(result["theme"], wsl_core.DEFAULT_SETTINGS["theme"])
+
+    def test_invalid_auto_refresh_type_falls_back(self):
+        """auto_refresh が bool 以外 (文字列 "true" など) の場合はデフォルト値になる。"""
+        result = wsl_core.normalize_settings({"auto_refresh": "true"})
+        self.assertEqual(result["auto_refresh"], wsl_core.DEFAULT_SETTINGS["auto_refresh"])
+
+    def test_auto_refresh_int_falls_back(self):
+        # 日本語の1文なので途中改行は読みにくく、() による暗黙連結では
+        # docstring の見た目が不自然になるため、1 行のまま noqa で許容する。
+        """auto_refresh が int (bool のサブクラスでも True/False 以外扱いされない値) の場合を確認する。"""  # noqa: E501
+        result = wsl_core.normalize_settings({"auto_refresh": 1})
+        self.assertEqual(result["auto_refresh"], wsl_core.DEFAULT_SETTINGS["auto_refresh"])
+
+    def test_invalid_geometry_falls_back(self):
+        """window_geometry が不正な形式の場合はデフォルト値になる。"""
+        result = wsl_core.normalize_settings({"window_geometry": "invalid"})
+        self.assertEqual(result["window_geometry"], wsl_core.DEFAULT_SETTINGS["window_geometry"])
+
+    def test_invalid_sort_column_type_falls_back(self):
+        """sort_column が空文字の場合はデフォルト値になる。"""
+        result = wsl_core.normalize_settings({"sort_column": ""})
+        self.assertEqual(result["sort_column"], wsl_core.DEFAULT_SETTINGS["sort_column"])
+
+    def test_invalid_sort_desc_type_falls_back(self):
+        """sort_desc が int (1) の場合はデフォルト値になる。"""
+        result = wsl_core.normalize_settings({"sort_desc": 1})
+        self.assertEqual(result["sort_desc"], wsl_core.DEFAULT_SETTINGS["sort_desc"])
+
+    def test_valid_snapshot_dir_kept(self):
+        """snapshot_dir が非空文字列であればそのまま維持される。"""
+        result = wsl_core.normalize_settings({"snapshot_dir": "/mnt/snapshots"})
+        self.assertEqual(result["snapshot_dir"], "/mnt/snapshots")
+
+    def test_none_snapshot_dir_falls_back(self):
+        """snapshot_dir が None の場合はデフォルト値になる。"""
+        result = wsl_core.normalize_settings({"snapshot_dir": None})
+        self.assertEqual(result["snapshot_dir"], wsl_core.DEFAULT_SETTINGS["snapshot_dir"])
+
+    def test_empty_snapshot_dir_falls_back(self):
+        """snapshot_dir が空文字の場合はデフォルト値になる。"""
+        result = wsl_core.normalize_settings({"snapshot_dir": ""})
+        self.assertEqual(result["snapshot_dir"], wsl_core.DEFAULT_SETTINGS["snapshot_dir"])
+
+    def test_invalid_snapshot_dir_type_falls_back(self):
+        """snapshot_dir が str 以外の場合はデフォルト値になる。"""
+        result = wsl_core.normalize_settings({"snapshot_dir": 123})
+        self.assertEqual(result["snapshot_dir"], wsl_core.DEFAULT_SETTINGS["snapshot_dir"])
+
+    def test_default_settings_has_snapshot_dir_key(self):
+        """DEFAULT_SETTINGS に snapshot_dir キーが存在し None である。"""
+        self.assertIn("snapshot_dir", wsl_core.DEFAULT_SETTINGS)
+        self.assertIsNone(wsl_core.DEFAULT_SETTINGS["snapshot_dir"])
+
+    def test_unknown_keys_dropped(self):
+        """未知のキーは結果に含まれない。"""
+        result = wsl_core.normalize_settings({"theme": "clam", "unknown_key": "value"})
+        self.assertNotIn("unknown_key", result)
+        self.assertEqual(set(result.keys()), set(wsl_core.DEFAULT_SETTINGS.keys()))
+
+    def test_input_not_mutated(self):
+        """引数の dict は変更されない。"""
+        data = {"theme": "clam"}
+        original = dict(data)
+        wsl_core.normalize_settings(data)
+        self.assertEqual(data, original)
+
+    def test_result_is_new_object_not_sharing_default(self):
+        """戻り値を変更しても DEFAULT_SETTINGS は変化しない。"""
+        result = wsl_core.normalize_settings({})
+        result["theme"] = "mutated"
+        self.assertIsNone(wsl_core.DEFAULT_SETTINGS["theme"])
+
+
+# ---------------------------------------------------------------------------
+# load_settings / save_settings
+# ---------------------------------------------------------------------------
+
+
+class TestLoadSettings(unittest.TestCase):
+    def setUp(self):
+        self.tmpdir = tempfile.mkdtemp()
+
+    def tearDown(self):
+        shutil.rmtree(self.tmpdir, ignore_errors=True)
+
+    def test_missing_file_returns_defaults(self):
+        """ファイルが存在しない場合はデフォルト値を返す。"""
+        path = os.path.join(self.tmpdir, "no_such.json")
+        self.assertEqual(wsl_core.load_settings(path), wsl_core.DEFAULT_SETTINGS)
+
+    def test_broken_json_returns_defaults(self):
+        """JSON として不正な内容の場合はデフォルト値を返す。"""
+        path = os.path.join(self.tmpdir, "broken.json")
+        with open(path, "w", encoding="utf-8") as f:
+            f.write("{not valid json")
+        self.assertEqual(wsl_core.load_settings(path), wsl_core.DEFAULT_SETTINGS)
+
+    def test_json_array_returns_defaults(self):
+        """JSON が dict でない (配列など) 場合はデフォルト値を返す。"""
+        path = os.path.join(self.tmpdir, "array.json")
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump([1, 2, 3], f)
+        self.assertEqual(wsl_core.load_settings(path), wsl_core.DEFAULT_SETTINGS)
+
+    def test_valid_file_returns_normalized_values(self):
+        """妥当な内容のファイルは正規化された値で返される。"""
+        path = os.path.join(self.tmpdir, "settings.json")
+        data = {
+            "schema_version": 1,
+            "theme": "clam",
+            "auto_refresh": True,
+            "window_geometry": "800x600+10+20",
+            "sort_column": "name",
+            "sort_desc": True,
+            "snapshot_dir": "/mnt/snapshots",
+            "language": "auto",
+        }
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(data, f)
+        self.assertEqual(wsl_core.load_settings(path), data)
+
+
+class TestSaveSettings(unittest.TestCase):
+    def setUp(self):
+        self.tmpdir = tempfile.mkdtemp()
+
+    def tearDown(self):
+        shutil.rmtree(self.tmpdir, ignore_errors=True)
+
+    def test_creates_nested_directory(self):
+        """保存先の親ディレクトリが存在しない場合は作成される。"""
+        path = os.path.join(self.tmpdir, "nested", "dir", "settings.json")
+        result = wsl_core.save_settings(path, {"theme": "clam"})
+        self.assertTrue(result)
+        self.assertTrue(os.path.exists(path))
+
+    def test_saved_file_is_valid_json_with_all_keys(self):
+        """保存されたファイルは全キーを含む妥当な JSON である。"""
+        path = os.path.join(self.tmpdir, "settings.json")
+        wsl_core.save_settings(path, {"theme": "clam"})
+        with open(path, encoding="utf-8") as f:
+            data = json.load(f)
+        self.assertEqual(set(data.keys()), set(wsl_core.DEFAULT_SETTINGS.keys()))
+
+    def test_roundtrip_preserves_values(self):
+        """save_settings で保存した内容を load_settings で読み戻すと一致する。"""
+        path = os.path.join(self.tmpdir, "settings.json")
+        data = {
+            "schema_version": 1,
+            "theme": "alt",
+            "auto_refresh": True,
+            "window_geometry": "960x460+0+0",
+            "sort_column": "state",
+            "sort_desc": False,
+            "snapshot_dir": "/mnt/snapshots",
+            "language": "en",
+        }
+        wsl_core.save_settings(path, data)
+        self.assertEqual(wsl_core.load_settings(path), data)
+
+    def test_returns_true_on_success(self):
+        """保存に成功した場合は True を返す。"""
+        path = os.path.join(self.tmpdir, "settings.json")
+        result = wsl_core.save_settings(path, {})
+        self.assertTrue(result)
+
+    def test_returns_false_when_path_unwritable(self):
+        """親ディレクトリの位置に既存ファイルがあり書き込み不能な場合は False を返す。"""
+        blocker = os.path.join(self.tmpdir, "blocker")
+        with open(blocker, "w", encoding="utf-8") as f:
+            f.write("dummy")
+        path = os.path.join(blocker, "settings.json")
+        result = wsl_core.save_settings(path, {})
+        self.assertFalse(result)
+
+
+# ---------------------------------------------------------------------------
+# atomic_write_text
+# ---------------------------------------------------------------------------
+
+
+class TestAtomicWriteText(unittest.TestCase):
+    def setUp(self):
+        self.tmpdir = tempfile.mkdtemp()
+
+    def tearDown(self):
+        shutil.rmtree(self.tmpdir, ignore_errors=True)
+
+    def test_writes_content_to_new_file(self):
+        """新規ファイルへの書き込みが読み戻せる。"""
+        path = os.path.join(self.tmpdir, "out.txt")
+        result = wsl_core.atomic_write_text(path, "hello world")
+        self.assertTrue(result)
+        with open(path, encoding="utf-8") as f:
+            self.assertEqual(f.read(), "hello world")
+
+    def test_replaces_existing_file(self):
+        """既存ファイルは新しい内容で完全に置き換えられる。"""
+        path = os.path.join(self.tmpdir, "out.txt")
+        with open(path, "w", encoding="utf-8") as f:
+            f.write("old content that is longer than new")
+        result = wsl_core.atomic_write_text(path, "new")
+        self.assertTrue(result)
+        with open(path, encoding="utf-8") as f:
+            self.assertEqual(f.read(), "new")
+
+    def test_no_partial_file_left_in_dir_on_success(self):
+        """成功後、ディレクトリ内には対象ファイルのみが残る（一時ファイルは残らない）。"""
+        path = os.path.join(self.tmpdir, "out.txt")
+        wsl_core.atomic_write_text(path, "content")
+        self.assertEqual(os.listdir(self.tmpdir), ["out.txt"])
+
+    def test_returns_false_when_dir_uncreatable(self):
+        # 日本語の1文なので途中改行は読みにくく、() による暗黙連結では
+        # docstring の見た目が不自然になるため、1 行のまま noqa で許容する。
+        """親ディレクトリの位置に既存ファイルがある場合は False を返し、対象ファイルは変化しない。"""  # noqa: E501
+        blocker = os.path.join(self.tmpdir, "blocker")
+        with open(blocker, "w", encoding="utf-8") as f:
+            f.write("dummy")
+        path = os.path.join(blocker, "out.txt")
+        result = wsl_core.atomic_write_text(path, "content")
+        self.assertFalse(result)
+        self.assertTrue(os.path.isfile(blocker))
+
+    def test_does_not_truncate_existing_on_write_error(self):
+        """os.replace が失敗しても既存ファイルは元の内容のまま残り、一時ファイルも残らない。"""
+        path = os.path.join(self.tmpdir, "out.txt")
+        with open(path, "w", encoding="utf-8") as f:
+            f.write("original content")
+        with mock.patch("os.replace", side_effect=OSError("boom")):
+            result = wsl_core.atomic_write_text(path, "new content")
+        self.assertFalse(result)
+        with open(path, encoding="utf-8") as f:
+            self.assertEqual(f.read(), "original content")
         remaining = os.listdir(self.tmpdir)
         self.assertEqual(remaining, ["out.txt"])
 

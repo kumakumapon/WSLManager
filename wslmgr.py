@@ -1,6 +1,3 @@
-Warning: truncated output (original token count: 48469)
-Total output lines: 4683
-
 """
 WSL Manager - WSL2 ディストリビューション管理ツール
 
@@ -1511,7 +1508,1814 @@ class DistroDetailDialog(tk.Toplevel):
             if vhdx:
                 try:
                     size = os.path.getsize(vhdx) / (1024**3)
-                    data["vhdx"] = f"{size:.2f} GB ({os.path.ba…18469 tokens truncated…            default_mark = "★" if d["default"] else ""
+                    data["vhdx"] = f"{size:.2f} GB ({os.path.basename(vhdx)})"
+                except OSError:
+                    data["vhdx"] = f"サイズ取得不可 ({vhdx})"
+            else:
+                data["vhdx"] = "VHD なし (WSL1 の可能性)"
+            return data
+
+        def _run_and_apply() -> None:
+            try:
+                data = _run()
+            except Exception as exc:
+                err_text = str(exc)
+                self.after(0, lambda: self._on_error(err_text))
+                return
+            self.after(0, lambda: self._apply(data))
+
+        threading.Thread(target=_run_and_apply, daemon=True).start()
+
+    @staticmethod
+    def _cmd(distro: str, cmd: str) -> str:
+        try:
+            result = subprocess.run(
+                ["wsl", "-d", distro, "--", "sh", "-lc", cmd],
+                capture_output=True,
+                creationflags=CREATE_NO_WINDOW,
+                timeout=5.0,
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            return ""
+        if result.returncode != 0:
+            return ""
+        return wsl_core.decode_wsl_output(result.stdout).strip()
+
+    def _apply(self, data: dict) -> None:
+        try:
+            if not self.winfo_exists():
+                return
+        except tk.TclError:
+            return
+
+        os_info = data.get("os", {})
+        for key, var in self._os_labels.items():
+            var.set(os_info.get(key, "-"))
+
+        self._uptime_var.set(data.get("uptime", "-"))
+
+        ips = data.get("ips", [])
+        self._ip_var.set(", ".join(ips) if ips else "-")
+
+        self._vhdx_var.set(data.get("vhdx", "-"))
+
+        for item in self._df_tree.get_children():
+            self._df_tree.delete(item)
+        for entry in data.get("df", []):
+            self._df_tree.insert(
+                "",
+                tk.END,
+                values=(
+                    entry["filesystem"],
+                    wsl_core.format_bytes(entry["total"]),
+                    wsl_core.format_bytes(entry["used"]),
+                    wsl_core.format_bytes(entry["available"]),
+                    entry["use_percent"],
+                    entry["mount_point"],
+                ),
+            )
+
+        self._status_var.set("取得完了")
+
+    def _on_error(self, msg: str) -> None:
+        try:
+            if self.winfo_exists():
+                self._status_var.set(f"エラー: {msg}")
+        except tk.TclError:
+            pass
+
+
+class LogViewerDialog(tk.Toplevel):
+    """操作ログを表示するダイアログ。
+
+    ``log_entries`` に渡されたログエントリを読み取り専用の Text ウィジェットで表示します。
+    クリアボタンを押すと ``clear_callback`` を呼び出してログを消去します。
+    """
+
+    def __init__(
+        self,
+        parent: tk.Tk,
+        log_entries: list[str],
+        clear_callback: callable,
+    ) -> None:
+        super().__init__(parent)
+        self._log_entries = log_entries
+        self._clear_callback = clear_callback
+        self.title(
+            wsl_core.translate(
+                "gui.log.title", getattr(parent, "_language", wsl_core.LANGUAGE_AUTO)
+            )
+        )
+        self.geometry("600x400")
+        self.resizable(True, True)
+        self._build_ui()
+        self.transient(parent)
+        self.protocol("WM_DELETE_WINDOW", self.destroy)
+
+    def _build_ui(self) -> None:
+        main = ttk.Frame(self, padding=10)
+        main.pack(fill=tk.BOTH, expand=True)
+
+        text_frame = ttk.Frame(main)
+        text_frame.pack(fill=tk.BOTH, expand=True)
+
+        vsb = ttk.Scrollbar(text_frame, orient=tk.VERTICAL)
+        self._text = tk.Text(
+            text_frame,
+            state=tk.DISABLED,
+            wrap=tk.NONE,
+            yscrollcommand=vsb.set,
+        )
+        vsb.configure(command=self._text.yview)
+        self._text.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        vsb.pack(side=tk.RIGHT, fill=tk.Y)
+
+        self._refresh_text()
+
+        btn_frame = ttk.Frame(main)
+        btn_frame.pack(fill=tk.X, pady=(8, 0))
+        ttk.Button(btn_frame, text="閉じる", command=self.destroy, width=10).pack(
+            side=tk.RIGHT, padx=(4, 0)
+        )
+        ttk.Button(btn_frame, text="クリア", command=self._on_clear, width=10).pack(side=tk.RIGHT)
+
+    def _refresh_text(self) -> None:
+        """ログエントリをテキストウィジェットに反映します。"""
+        self._text.configure(state=tk.NORMAL)
+        self._text.delete("1.0", tk.END)
+        for entry in self._log_entries:
+            self._text.insert(tk.END, entry + "\n")
+        self._text.configure(state=tk.DISABLED)
+        # 最終行までスクロール
+        self._text.see(tk.END)
+
+    def _on_clear(self) -> None:
+        """クリアボタン押下時にコールバックを呼び出してログを消去します。"""
+        self._clear_callback()
+        self._refresh_text()
+
+
+class WslUpdateConfirmDialog(tk.Toplevel):
+    """``wsl --update`` 実行前の確認ダイアログ。
+
+    ``--pre-release`` オプションのチェックボックスを備えます。実行中の
+    ディストリビューションがある場合は、更新によりセッションが終了する
+    可能性がある旨の警告文を表示します。
+
+    ``wait_window()`` で待機し、実行が確定した場合は ``self.result`` に
+    ``{"pre_release": bool}`` を設定します。キャンセル時は ``None`` のままです。
+    """
+
+    def __init__(self, parent: tk.Tk, running_distros: list[str]) -> None:
+        super().__init__(parent)
+        self.title(
+            wsl_core.translate(
+                "gui.update.title", getattr(parent, "_language", wsl_core.LANGUAGE_AUTO)
+            )
+        )
+        self.resizable(False, False)
+        self.result: dict | None = None
+        self._running_distros = running_distros
+        self._build_ui()
+        self.transient(parent)
+        self.grab_set()
+        self.protocol("WM_DELETE_WINDOW", self._on_cancel)
+
+    def _build_ui(self) -> None:
+        frame = ttk.Frame(self, padding=14)
+        frame.pack(fill=tk.BOTH, expand=True)
+
+        ttk.Label(
+            frame,
+            text="wsl --update を実行して WSL 本体（カーネル）を更新します。",
+            wraplength=380,
+            justify=tk.LEFT,
+        ).pack(anchor=tk.W, pady=(0, 8))
+
+        if self._running_distros:
+            names = "、".join(self._running_distros)
+            ttk.Label(
+                frame,
+                text=(
+                    f"実行中のディストリビューション ({names}) があります。\n"
+                    "更新によりこれらのセッションが終了する可能性があります。"
+                ),
+                foreground="#b03030",
+                wraplength=380,
+                justify=tk.LEFT,
+            ).pack(anchor=tk.W, pady=(0, 10))
+
+        self._pre_release_var = tk.BooleanVar(value=False)
+        ttk.Checkbutton(
+            frame,
+            text="プレリリース版を使用する (--pre-release)",
+            variable=self._pre_release_var,
+        ).pack(anchor=tk.W, pady=(0, 10))
+
+        btn_frame = ttk.Frame(frame)
+        btn_frame.pack(fill=tk.X)
+        ttk.Button(btn_frame, text="更新", command=self._on_ok, width=10).pack(
+            side=tk.RIGHT, padx=(4, 0)
+        )
+        ttk.Button(btn_frame, text="キャンセル", command=self._on_cancel, width=10).pack(
+            side=tk.RIGHT
+        )
+
+    def _on_ok(self) -> None:
+        self.result = {"pre_release": self._pre_release_var.get()}
+        self.destroy()
+
+    def _on_cancel(self) -> None:
+        self.result = None
+        self.destroy()
+
+
+class WslVersionDialog(tk.Toplevel):
+    """WSL バージョン情報を表示するダイアログ。
+
+    ``lines`` に渡された各行をラベルとして表示し、「更新を確認」ボタン押下時に
+    ダイアログを閉じたうえで ``on_check_update`` コールバックを呼び出します。
+    """
+
+    def __init__(
+        self,
+        parent: tk.Tk,
+        lines: list[str],
+        on_check_update: callable,
+    ) -> None:
+        super().__init__(parent)
+        self._on_check_update = on_check_update
+        self.title(
+            wsl_core.translate(
+                "gui.version.title", getattr(parent, "_language", wsl_core.LANGUAGE_AUTO)
+            )
+        )
+        self.resizable(False, False)
+        self._build_ui(lines)
+        self.transient(parent)
+        self.protocol("WM_DELETE_WINDOW", self.destroy)
+
+    def _build_ui(self, lines: list[str]) -> None:
+        frame = ttk.Frame(self, padding=14)
+        frame.pack(fill=tk.BOTH, expand=True)
+
+        for line in lines:
+            ttk.Label(frame, text=line, justify=tk.LEFT).pack(anchor=tk.W)
+
+        btn_frame = ttk.Frame(frame)
+        btn_frame.pack(fill=tk.X, pady=(12, 0))
+        ttk.Button(btn_frame, text="閉じる", command=self.destroy, width=10).pack(side=tk.RIGHT)
+        ttk.Button(
+            btn_frame, text="更新を確認", command=self._on_check_update_click, width=12
+        ).pack(side=tk.RIGHT, padx=(0, 4))
+
+    def _on_check_update_click(self) -> None:
+        self.destroy()
+        self._on_check_update()
+
+
+class TransferProgressDialog(tk.Toplevel):
+    """エクスポート/インポートの進捗表示とキャンセルを提供するダイアログ。
+
+    ``wsl`` コマンドを :class:`subprocess.Popen` で起動し、``watch_path`` の
+    ファイルサイズを 1 秒間隔でポーリングして進捗を間接的に可視化します。
+    ``wsl --export`` / ``--import`` 自体は進捗を出力しないため、出力ファイルの
+    成長を ``total_bytes`` (上限の目安) と比較して進捗率を推定します。
+
+    - ``total_bytes`` が分かる場合は確定 (determinate) プログレスバーで % 表示
+    - 不明な場合は不確定 (indeterminate) バー + 書き込み済みサイズのみ表示
+    - ``watch_path`` が None の場合はサイズ監視を行わず経過時間のみ表示
+
+    キャンセルボタンで起動したプロセスを ``terminate()`` します。
+    完了時は ``on_done(returncode, stderr_text, cancelled)`` を呼び出します。
+    キャンセル要求とほぼ同時にプロセスが正常終了した場合は、処理が完了して
+    いるため ``cancelled=False`` として通知します。
+    """
+
+    POLL_INTERVAL_MS = 1000
+
+    def __init__(
+        self,
+        parent: tk.Tk,
+        title: str,
+        message: str,
+        wsl_args: list[str],
+        watch_path: str | None,
+        total_bytes: int | None,
+        on_done: callable,
+        cancel_prompt: str | None = None,
+    ) -> None:
+        super().__init__(parent)
+        self.title(title)
+        self.resizable(False, False)
+        self._watch_path = watch_path
+        self._total_bytes = total_bytes
+        self._on_done = on_done
+        self._cancel_prompt = cancel_prompt or "処理をキャンセルしますか？"
+        self._cancelled = False
+        self._finished = False
+        self._start_time = time.monotonic()
+        self._build_ui(message)
+        self.transient(parent)
+        self.protocol("WM_DELETE_WINDOW", self._request_cancel)
+
+        try:
+            self._proc = subprocess.Popen(
+                ["wsl", *wsl_args],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                creationflags=CREATE_NO_WINDOW,
+            )
+        except (OSError, FileNotFoundError) as e:
+            self._finished = True
+            err_text = str(e)
+            self.after_idle(lambda: self._close_with(-1, err_text, False))
+            return
+
+        threading.Thread(target=self._wait_proc, daemon=True).start()
+        self.after(self.POLL_INTERVAL_MS, self._tick)
+        # アプリ終了時 (WSLManager.on_closing) に強制キャンセルできるよう
+        # 親ウィンドウへ自己登録する。Popen 起動に失敗したパス (上の except)
+        # では after_idle で即座に自己完結するため登録不要。
+        self._owner = parent
+        if hasattr(parent, "_transfer_dialogs"):
+            parent._transfer_dialogs.append(self)
+
+    def _build_ui(self, message: str) -> None:
+        main = ttk.Frame(self, padding=16)
+        main.pack(fill=tk.BOTH, expand=True)
+
+        ttk.Label(main, text=message).pack(anchor=tk.W)
+
+        determinate = self._total_bytes is not None and self._total_bytes > 0
+        self._progress = ttk.Progressbar(
+            main,
+            length=380,
+            mode="determinate" if determinate else "indeterminate",
+        )
+        self._progress.pack(fill=tk.X, pady=(10, 6))
+        if not determinate:
+            self._progress.start(80)
+
+        self._status_var = tk.StringVar(value="開始しています…")
+        ttk.Label(main, textvariable=self._status_var).pack(anchor=tk.W)
+
+        btn_frame = ttk.Frame(main)
+        btn_frame.pack(fill=tk.X, pady=(12, 0))
+        self._cancel_btn = ttk.Button(
+            btn_frame, text="キャンセル", command=self._request_cancel, width=12
+        )
+        self._cancel_btn.pack(side=tk.RIGHT)
+
+    # ── プロセス監視 ──────────────────────────────────────────────────
+
+    def _wait_proc(self) -> None:
+        """バックグラウンドスレッドでプロセス終了を待ちます。"""
+        _stdout, stderr = self._proc.communicate()
+        stderr_text = wsl_core.decode_wsl_output(stderr).strip() if stderr else ""
+        returncode = self._proc.returncode
+        self.after(0, lambda: self._handle_exit(returncode, stderr_text))
+
+    def _handle_exit(self, returncode: int, stderr_text: str) -> None:
+        """プロセス終了を UI スレッドで処理します。"""
+        if self._finished:
+            return
+        self._finished = True
+        # キャンセル要求とほぼ同時に正常終了した場合は完了扱いにする
+        cancelled = self._cancelled and returncode != 0
+        self._close_with(returncode, stderr_text, cancelled)
+
+    def _close_with(self, returncode: int, stderr_text: str, cancelled: bool) -> None:
+        owner = getattr(self, "_owner", None)
+        if owner is not None:
+            try:
+                owner._transfer_dialogs.remove(self)
+            except ValueError:
+                pass
+        try:
+            self.destroy()
+        finally:
+            self._on_done(returncode, stderr_text, cancelled)
+
+    # ── 進捗ポーリング ──────────────────────────────────────────────────
+
+    def _tick(self) -> None:
+        """1 秒ごとにファイルサイズと経過時間で表示を更新します。"""
+        if self._finished:
+            return
+        elapsed = time.monotonic() - self._start_time
+
+        if self._cancelled:
+            self._status_var.set("キャンセルしています…")
+        elif self._watch_path is None:
+            self._status_var.set(f"経過 {wsl_core.format_duration(elapsed)}")
+        else:
+            try:
+                current = os.path.getsize(self._watch_path)
+            except OSError:
+                current = 0
+            self._status_var.set(
+                wsl_core.format_transfer_status(current, self._total_bytes, elapsed)
+            )
+            percent = wsl_core.estimate_transfer_progress(current, self._total_bytes)
+            if percent is not None:
+                # 完了前に 100% に見えないよう 99% で頭打ちにする
+                self._progress.configure(value=min(percent, 99.0))
+
+        self.after(self.POLL_INTERVAL_MS, self._tick)
+
+    # ── キャンセル ──────────────────────────────────────────────────
+
+    def _request_cancel(self) -> None:
+        """キャンセルボタン / 閉じるボタン押下時の処理。"""
+        if self._finished or self._cancelled:
+            return
+        if not messagebox.askyesno("確認", self._cancel_prompt, parent=self):
+            return
+        if self._finished:  # 確認ダイアログ表示中に完了した場合
+            return
+        self._cancelled = True
+        self._cancel_btn.configure(state=tk.DISABLED)
+        self._status_var.set("キャンセルしています…")
+        try:
+            self._proc.terminate()
+        except OSError:
+            pass
+
+    def force_cancel(self, timeout: float = 5.0) -> None:
+        """アプリ終了時 (WSLManager.on_closing) に呼ばれます。
+
+        確認ダイアログや完了コールバック (``_on_done``、ログ記録や
+        「不完全な登録を解除しますか」の確認を含む) は一切呼び出さず、
+        プロセスの終了だけを同期的に保証します。``self._finished`` を
+        先に立てるため、後から ``_wait_proc`` 経由で ``_handle_exit`` が
+        呼ばれても no-op になります (二重処理の防止)。
+        """
+        if self._finished:
+            return
+        self._finished = True
+        proc = getattr(self, "_proc", None)
+        if proc is None or proc.poll() is not None:
+            return
+        try:
+            proc.terminate()
+            proc.wait(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            try:
+                proc.kill()
+                proc.wait(timeout=2.0)
+            except (subprocess.TimeoutExpired, OSError):
+                # kill() の時点で対象プロセスが既に自然終了している場合など、
+                # OSError (Windows では PermissionError 等) が起き得る。
+                # on_closing 側の後続処理 (他ダイアログの force_cancel・
+                # 終了処理) を止めないよう、ここでも握りつぶす。
+                pass
+
+
+class WslMountDialog(tk.Toplevel):
+    """物理ディスクまたは VHD を WSL2 にマウントするダイアログ。"""
+
+    def __init__(self, parent: WSLManager) -> None:
+        super().__init__(parent)
+        self._parent = parent
+        self.title(
+            wsl_core.translate(
+                "gui.mount.title", getattr(parent, "_language", wsl_core.LANGUAGE_AUTO)
+            )
+        )
+        self.resizable(False, False)
+        self._build_ui()
+        self.transient(parent)
+        self.grab_set()
+
+    def _build_ui(self) -> None:
+        frame = ttk.Frame(self, padding=14)
+        frame.pack(fill=tk.BOTH, expand=True)
+
+        ttk.Label(
+            frame,
+            text=(
+                "物理ディスクまたは VHD/VHDX ファイルを WSL2 にマウントします。\n"
+                "※ 管理者権限が必要な場合があります。"
+            ),
+            foreground="#555555",
+        ).grid(row=0, column=0, columnspan=3, sticky=tk.W, pady=(0, 10))
+
+        # ディスクパス
+        ttk.Label(frame, text="ディスク / VHD パス:").grid(row=1, column=0, sticky=tk.W, pady=3)
+        self._disk_var = tk.StringVar()
+        ttk.Entry(frame, textvariable=self._disk_var, width=32).grid(
+            row=1, column=1, sticky=tk.W, pady=3
+        )
+        ttk.Button(frame, text="参照...", command=self._browse_vhd, width=8).grid(
+            row=1, column=2, padx=(4, 0), pady=3
+        )
+
+        # VHD フラグ
+        self._vhd_var = tk.BooleanVar(value=False)
+        ttk.Checkbutton(
+            frame,
+            text="VHD / VHDX ファイルとしてマウント (--vhd)",
+            variable=self._vhd_var,
+        ).grid(row=2, column=0, columnspan=3, sticky=tk.W, pady=3)
+
+        # Bare フラグ
+        self._bare_var = tk.BooleanVar(value=False)
+        ttk.Checkbutton(
+            frame,
+            text="ファイルシステムをマウントせずアタッチのみ (--bare)",
+            variable=self._bare_var,
+        ).grid(row=3, column=0, columnspan=3, sticky=tk.W, pady=3)
+
+        # ファイルシステム
+        ttk.Label(frame, text="ファイルシステム (--type):").grid(
+            row=4, column=0, sticky=tk.W, pady=3
+        )
+        self._type_var = tk.StringVar(value="")
+        ttk.Entry(frame, textvariable=self._type_var, width=20).grid(
+            row=4, column=1, sticky=tk.W, pady=3
+        )
+
+        # パーティション
+        ttk.Label(frame, text="パーティション番号 (--partition):").grid(
+            row=5, column=0, sticky=tk.W, pady=3
+        )
+        self._partition_var = tk.StringVar(value="")
+        ttk.Entry(frame, textvariable=self._partition_var, width=10).grid(
+            row=5, column=1, sticky=tk.W, pady=3
+        )
+
+        # マウント名
+        ttk.Label(frame, text="マウント名 (--name):").grid(row=6, column=0, sticky=tk.W, pady=3)
+        self._name_var = tk.StringVar(value="")
+        ttk.Entry(frame, textvariable=self._name_var, width=20).grid(
+            row=6, column=1, sticky=tk.W, pady=3
+        )
+
+        btn_frame = ttk.Frame(frame)
+        btn_frame.grid(row=7, column=0, columnspan=3, sticky=tk.E, pady=(12, 0))
+        ttk.Button(btn_frame, text="マウント", command=self._on_mount, width=10).pack(
+            side=tk.RIGHT, padx=(4, 0)
+        )
+        ttk.Button(btn_frame, text="キャンセル", command=self.destroy, width=10).pack(side=tk.RIGHT)
+
+    def _browse_vhd(self) -> None:
+        path = filedialog.askopenfilename(
+            parent=self,
+            title="VHD/VHDX ファイルの選択",
+            filetypes=[("VHD Files", "*.vhdx;*.vhd"), ("All Files", "*.*")],
+        )
+        if path:
+            self._disk_var.set(path)
+            self._vhd_var.set(True)
+
+    def _on_mount(self) -> None:
+        disk = self._disk_var.get().strip()
+        if not disk:
+            messagebox.showwarning(
+                "入力エラー", "ディスクまたは VHD のパスを入力してください。", parent=self
+            )
+            return
+
+        part_str = self._partition_var.get().strip()
+        part_num = int(part_str) if part_str.isdigit() else None
+
+        mount_args = wsl_core.build_wsl_mount_args(
+            disk=disk,
+            bare=self._bare_var.get(),
+            fs_type=self._type_var.get().strip() or None,
+            partition=part_num,
+            vhd=self._vhd_var.get(),
+            name=self._name_var.get().strip() or None,
+        )
+
+        self.destroy()
+        self._parent._execute_mount(disk, mount_args)
+
+
+class WslUnmountDialog(tk.Toplevel):
+    """WSL2 にマウントされているディスクをアンマウントするダイアログ。"""
+
+    def __init__(self, parent: WSLManager) -> None:
+        super().__init__(parent)
+        self._parent = parent
+        self.title(
+            wsl_core.translate(
+                "gui.unmount.title", getattr(parent, "_language", wsl_core.LANGUAGE_AUTO)
+            )
+        )
+        self.resizable(False, False)
+        self._build_ui()
+        self.transient(parent)
+        self.grab_set()
+
+    def _build_ui(self) -> None:
+        frame = ttk.Frame(self, padding=14)
+        frame.pack(fill=tk.BOTH, expand=True)
+
+        ttk.Label(
+            frame,
+            text=(
+                "アンマウントするディスクパスを入力してください。\n"
+                "空欄のまま実行すると、マウントされているすべてのディスクをアンマウントします。"
+            ),
+            foreground="#555555",
+        ).pack(anchor=tk.W, pady=(0, 10))
+
+        row = ttk.Frame(frame)
+        row.pack(fill=tk.X, pady=(0, 10))
+        ttk.Label(row, text="ディスクパス (任意):", width=18, anchor=tk.W).pack(side=tk.LEFT)
+        self._disk_var = tk.StringVar()
+        ttk.Entry(row, textvariable=self._disk_var, width=30).pack(
+            side=tk.LEFT, fill=tk.X, expand=True
+        )
+
+        btn_frame = ttk.Frame(frame)
+        btn_frame.pack(fill=tk.X)
+        ttk.Button(btn_frame, text="アンマウント", command=self._on_unmount, width=12).pack(
+            side=tk.RIGHT, padx=(4, 0)
+        )
+        ttk.Button(btn_frame, text="キャンセル", command=self.destroy, width=10).pack(side=tk.RIGHT)
+
+    def _on_unmount(self) -> None:
+        disk = self._disk_var.get().strip() or None
+        unmount_args = wsl_core.build_wsl_unmount_args(disk=disk)
+        self.destroy()
+        self._parent._execute_unmount(disk, unmount_args)
+
+
+class SnapshotManagerDialog(tk.Toplevel):
+    """スナップショット管理ダイアログ。
+
+    保存先ディレクトリ内のスナップショット (tar + JSON メタデータ) 一覧を表示し、
+    復元・削除・保存先フォルダを開く操作を提供します。
+    """
+
+    def __init__(self, parent: WSLManager) -> None:
+        super().__init__(parent)
+        self._parent = parent
+        self._snapshots: list[dict] = []
+        self.title(
+            wsl_core.translate(
+                "gui.snapshot.title", getattr(parent, "_language", wsl_core.LANGUAGE_AUTO)
+            )
+        )
+        self.geometry("720x420")
+        self.minsize(600, 320)
+        self.resizable(True, True)
+        self._build_ui()
+        self.transient(parent)
+        self.protocol("WM_DELETE_WINDOW", self.destroy)
+        self._reload()
+
+    def _build_ui(self) -> None:
+        main = ttk.Frame(self, padding=10)
+        main.pack(fill=tk.BOTH, expand=True)
+
+        top_frame = ttk.Frame(main)
+        top_frame.pack(fill=tk.X, pady=(0, 6))
+
+        self._dir_var = tk.StringVar(value="保存先: -")
+        ttk.Label(top_frame, textvariable=self._dir_var).pack(side=tk.LEFT, fill=tk.X, expand=True)
+        ttk.Button(top_frame, text="保存先変更…", command=self._change_dir, width=12).pack(
+            side=tk.RIGHT
+        )
+
+        tree_frame = ttk.Frame(main)
+        tree_frame.pack(fill=tk.BOTH, expand=True)
+
+        cols = ("name", "created_at", "size", "comment")
+        self._tree = ttk.Treeview(tree_frame, columns=cols, show="headings", selectmode="browse")
+        for cid, text, w in [
+            ("name", "ディストリビューション", 160),
+            ("created_at", "作成日時", 140),
+            ("size", "サイズ", 90),
+            ("comment", "コメント", 220),
+        ]:
+            self._tree.heading(cid, text=text)
+            self._tree.column(cid, width=w, minwidth=60, anchor=tk.W)
+        vsb = ttk.Scrollbar(tree_frame, orient=tk.VERTICAL, command=self._tree.yview)
+        self._tree.configure(yscrollcommand=vsb.set)
+        self._tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        vsb.pack(side=tk.RIGHT, fill=tk.Y)
+
+        bottom = ttk.Frame(main)
+        bottom.pack(fill=tk.X, pady=(8, 0))
+        self._total_var = tk.StringVar(value="合計: 0 B (0 件)")
+        ttk.Label(bottom, textvariable=self._total_var).pack(side=tk.LEFT)
+
+        ttk.Button(bottom, text="閉じる", command=self.destroy, width=10).pack(
+            side=tk.RIGHT, padx=(4, 0)
+        )
+        ttk.Button(bottom, text="更新", command=self._reload, width=10).pack(
+            side=tk.RIGHT, padx=(4, 0)
+        )
+        ttk.Button(bottom, text="フォルダを開く", command=self._open_folder, width=13).pack(
+            side=tk.RIGHT, padx=(4, 0)
+        )
+        ttk.Button(bottom, text="保存先変更...", command=self._change_snapshot_dir, width=13).pack(
+            side=tk.RIGHT, padx=(4, 0)
+        )
+        ttk.Button(bottom, text="削除", command=self._delete_snapshot, width=10).pack(
+            side=tk.RIGHT, padx=(4, 0)
+        )
+        ttk.Button(bottom, text="復元...", command=self._restore_snapshot, width=10).pack(
+            side=tk.RIGHT, padx=(4, 0)
+        )
+
+    def _change_dir(self) -> None:
+        """スナップショット保存先ディレクトリを変更します。"""
+        current = self._parent._snapshot_dir()
+        new_dir = filedialog.askdirectory(
+            parent=self,
+            title="スナップショット保存先フォルダの選択",
+            initialdir=current,
+        )
+        if not new_dir:
+            return
+        self._parent._settings["snapshot_dir"] = os.path.abspath(new_dir)
+        self._parent._save_settings()
+        self._reload()
+
+    def _reload(self) -> None:
+        """スナップショット一覧を保存先ディレクトリから再読込してツリーに反映します。"""
+        snap_dir = self._parent._snapshot_dir()
+        self._dir_var.set(f"保存先: {snap_dir}")
+        self._snapshots = wsl_core.load_snapshots(snap_dir)
+
+        for item in self._tree.get_children():
+            self._tree.delete(item)
+
+        for idx, snap in enumerate(self._snapshots):
+            created = str(snap.get("created_at", "")).replace("T", " ")
+            if snap.get("tar_exists", True):
+                size_text = wsl_core.format_bytes(snap.get("size_bytes", 0))
+            else:
+                size_text = "(tar なし)"
+            self._tree.insert(
+                "",
+                tk.END,
+                iid=str(idx),
+                values=(
+                    snap.get("distro_name", ""),
+                    created,
+                    size_text,
+                    snap.get("comment", ""),
+                ),
+            )
+
+        total = wsl_core.total_snapshots_size(self._snapshots)
+        self._total_var.set(f"合計: {wsl_core.format_bytes(total)} ({len(self._snapshots)} 件)")
+
+    def _selected_snapshot(self) -> dict | None:
+        sel = self._tree.selection()
+        if not sel:
+            return None
+        idx = int(sel[0])
+        if 0 <= idx < len(self._snapshots):
+            return self._snapshots[idx]
+        return None
+
+    def _restore_snapshot(self) -> None:
+        """選択したスナップショットを新しいディストリビューションとして復元します。"""
+        snap = self._selected_snapshot()
+        if snap is None:
+            messagebox.showwarning("警告", "スナップショットを選択してください。", parent=self)
+            return
+        if not snap.get("tar_exists", True):
+            messagebox.showwarning(
+                "警告", "tar ファイルが見つかりません。復元できません。", parent=self
+            )
+            return
+
+        distro_name = snap.get("distro_name", "")
+        tar_path = snap.get("tar_path", "")
+
+        existing = [d["name"] for d in self._parent._all_distros]
+        new_name = simpledialog.askstring(
+            "復元",
+            "復元先のディストリビューション名を入力してください。",
+            initialvalue=wsl_core.default_clone_name(distro_name, existing),
+            parent=self,
+        )
+        if new_name is None:
+            return
+        new_name = new_name.strip()
+        valid, reason = wsl_core.validate_distro_name(new_name)
+        if not valid:
+            messagebox.showwarning("警告", reason, parent=self)
+            return
+        existing_casefold = {n.casefold() for n in existing}
+        if new_name.casefold() in existing_casefold:
+            messagebox.showwarning(
+                "警告", "同名のディストリビューションが既に存在します。", parent=self
+            )
+            return
+
+        install_path = filedialog.askdirectory(title="インストール先フォルダを選択", parent=self)
+        if not install_path:
+            return
+
+        version = snap.get("wsl_version") or "2"
+
+        if not messagebox.askyesno(
+            "確認",
+            (
+                "次の内容で復元します。\n\n"
+                f"名前: {new_name}\n"
+                f"スナップショット: {os.path.basename(tar_path)}\n"
+                f"保存先: {install_path}\n"
+                f"バージョン: WSL{version}"
+            ),
+            parent=self,
+        ):
+            return
+
+        # 入力 tar のサイズを分母に、インストール先 ext4.vhdx の成長を監視する
+        total_bytes: int | None = None
+        watch_path: str | None = None
+        if version == "2":
+            try:
+                total_bytes = os.path.getsize(tar_path)
+            except OSError:
+                total_bytes = None
+            watch_path = os.path.join(install_path, "ext4.vhdx")
+
+        parent = self._parent
+        parent._log_operation("スナップショット復元", new_name, tar_path)
+        parent._set_status(f"「{new_name}」へ復元中…")
+
+        def _on_done(returncode: int, stderr_text: str, cancelled: bool) -> None:
+            if cancelled:
+                parent._log_operation("スナップショット復元", new_name, "キャンセル")
+                parent._set_status(f"「{new_name}」への復元をキャンセルしました。")
+                if messagebox.askyesno(
+                    "確認",
+                    (
+                        "復元を中断したため、不完全な登録が残っている\n"
+                        f"可能性があります。「{new_name}」の登録を解除しますか？"
+                    ),
+                    parent=parent,
+                ):
+                    parent._run_wsl_cmd(
+                        ["--unregister", new_name],
+                        f"「{new_name}」の登録を解除しました。",
+                        f"「{new_name}」の登録解除に失敗しました。",
+                    )
+                    return
+            elif returncode == 0:
+                parent._set_status(f"「{new_name}」に復元しました。")
+            else:
+                parent._set_status(stderr_text or f"「{new_name}」への復元に失敗しました。")
+            parent._refresh()
+
+        # 親をメインウィンドウにする。管理ダイアログを親にすると、復元中に
+        # 管理ダイアログを閉じた場合に進捗ダイアログごと破棄されてしまう。
+        TransferProgressDialog(
+            parent,
+            "スナップショット復元",
+            f"「{new_name}」へ復元中…",
+            ["--import", new_name, install_path, tar_path, "--version", version],
+            watch_path,
+            total_bytes,
+            _on_done,
+        )
+
+    def _delete_snapshot(self) -> None:
+        """選択したスナップショットの tar / JSON ファイルを削除します。"""
+        snap = self._selected_snapshot()
+        if snap is None:
+            messagebox.showwarning("警告", "スナップショットを選択してください。", parent=self)
+            return
+
+        distro_name = snap.get("distro_name", "")
+        created = str(snap.get("created_at", "")).replace("T", " ")
+        tar_file = snap.get("tar_file", "")
+
+        if not messagebox.askyesno(
+            "削除確認",
+            (
+                "次のスナップショットを削除します。この操作は取り消せません。\n\n"
+                f"ディストリビューション: {distro_name}\n"
+                f"作成日時: {created}\n"
+                f"ファイル: {tar_file}"
+            ),
+            parent=self,
+        ):
+            return
+
+        errors: list[str] = []
+        tar_path = snap.get("tar_path", "")
+        json_path = snap.get("json_path", "")
+        if snap.get("tar_exists", True) and tar_path:
+            try:
+                os.remove(tar_path)
+            except OSError as e:
+                errors.append(str(e))
+        if json_path:
+            try:
+                os.remove(json_path)
+            except OSError as e:
+                errors.append(str(e))
+
+        if errors:
+            messagebox.showerror("エラー", "削除に失敗しました:\n" + "\n".join(errors), parent=self)
+
+        self._parent._log_operation("スナップショット削除", distro_name, tar_file)
+        self._reload()
+
+    def _open_folder(self) -> None:
+        """スナップショット保存先フォルダをエクスプローラーで開きます。"""
+        snap_dir = self._parent._snapshot_dir()
+        try:
+            os.makedirs(snap_dir, exist_ok=True)
+        except OSError as e:
+            messagebox.showerror("エラー", str(e), parent=self)
+            return
+
+        if not hasattr(os, "startfile"):
+            messagebox.showinfo("情報", "この機能は Windows でのみ利用できます。", parent=self)
+            return
+        try:
+            os.startfile(snap_dir)  # type: ignore[attr-defined]
+        except OSError as e:
+            messagebox.showerror("エラー", str(e), parent=self)
+
+    def _change_snapshot_dir(self) -> None:
+        """#17: スナップショットの保存先ディレクトリを変更します。"""
+        current_dir = self._parent._snapshot_dir()
+        new_dir = filedialog.askdirectory(
+            title="スナップショット保存先フォルダを選択",
+            initialdir=current_dir if os.path.isdir(current_dir) else None,
+            parent=self,
+        )
+        if not new_dir:
+            return
+        self._parent._settings["snapshot_dir"] = new_dir
+        self._parent._save_settings()
+        self._reload()
+
+
+class ContainerManagerDialog(tk.Toplevel):
+    """Read-only WSL Containers list and inspection dialog."""
+
+    def __init__(self, parent: WSLManager) -> None:
+        super().__init__(parent)
+        self._parent = parent
+        self.title("WSL Containers")
+        self.geometry("760x390")
+        self.minsize(600, 300)
+        self.transient(parent)
+
+        frame = ttk.Frame(self, padding=12)
+        frame.pack(fill=tk.BOTH, expand=True)
+        self._status = tk.StringVar(value="Checking WSL Containers availability...")
+        ttk.Label(frame, textvariable=self._status).pack(anchor=tk.W, pady=(0, 8))
+        columns = ("id", "name", "image", "status", "health", "created")
+        self._tree = ttk.Treeview(frame, columns=columns, show="headings")
+        for key, label, width in (
+            ("id", "ID", 100),
+            ("name", "Name", 130),
+            ("image", "Image", 150),
+            ("status", "Status", 90),
+            ("health", "Health", 90),
+            ("created", "Created", 140),
+        ):
+            self._tree.heading(key, text=label)
+            self._tree.column(key, width=width, anchor=tk.W)
+        self._tree.pack(fill=tk.BOTH, expand=True)
+        self._tree.bind("<Double-1>", self._show_inspect)
+        buttons = ttk.Frame(frame)
+        buttons.pack(fill=tk.X, pady=(8, 0))
+        ttk.Button(buttons, text="Refresh", command=self._reload).pack(side=tk.LEFT)
+        ttk.Button(buttons, text="Inspect", command=self._show_inspect).pack(side=tk.LEFT, padx=6)
+        ttk.Button(buttons, text="Close", command=self.destroy).pack(side=tk.RIGHT)
+        self._reload()
+
+    def _reload(self) -> None:
+        self._status.set("Checking WSL Containers availability...")
+        for item in self._tree.get_children():
+            self._tree.delete(item)
+
+        def _run() -> None:
+            version_result = wsl_core.run_wsl(
+                ["--version"], timeout=10.0, creationflags=CREATE_NO_WINDOW
+            )
+            info = (
+                wsl_core.parse_wsl_version(version_result.stdout)
+                if version_result.returncode == 0
+                else {}
+            )
+            capability = wsl_core.wslc_capability(str(info.get("wsl", "")))
+            if not capability["available"]:
+                self.after(0, lambda: self._status.set(str(capability["reason"])))
+                return
+            result = wsl_core.run_command(
+                ["wslc", "container", "list", "--format", "json"],
+                timeout=15.0,
+                creationflags=CREATE_NO_WINDOW,
+            )
+            if result.returncode != 0:
+                message = (
+                    result.stderr.strip()
+                    or "WSL Containers command was not detected. Run wsl --update."
+                )
+                self.after(0, lambda: self._status.set(message))
+                return
+            rows = [
+                wsl_core.container_summary(item) for item in wsl_core.parse_wslc_json(result.stdout)
+            ]
+
+            def _done() -> None:
+                if not self.winfo_exists():
+                    return
+                for row in rows:
+                    self._tree.insert(
+                        "",
+                        tk.END,
+                        values=tuple(
+                            row[key]
+                            for key in ("id", "name", "image", "status", "health", "created")
+                        ),
+                    )
+                self._status.set(
+                    f"{len(rows)} container(s) found. Read-only view; "
+                    "lifecycle actions are not available."
+                )
+
+            self.after(0, _done)
+
+        threading.Thread(target=_run, daemon=True).start()
+
+    def _show_inspect(self, _event: object | None = None) -> None:
+        selection = self._tree.selection()
+        if not selection:
+            return
+        values = self._tree.item(selection[0], "values")
+        name = str(values[1] or values[0])
+
+        def _run() -> None:
+            result = wsl_core.run_command(
+                ["wslc", "container", "inspect", name], timeout=15.0, creationflags=CREATE_NO_WINDOW
+            )
+            text = result.stdout.strip() if result.returncode == 0 else result.stderr.strip()
+            self.after(
+                0,
+                lambda: messagebox.showinfo(
+                    "Container inspection", text or "No inspection data.", parent=self
+                ),
+            )
+
+        threading.Thread(target=_run, daemon=True).start()
+
+
+class WSLManager(tk.Tk):
+    """WSL2 ディストリビューション管理メインウィンドウ。"""
+
+    # 状態の日本語表示マッピング
+    STATE_JP: ClassVar[dict[str, str]] = {"Running": "実行中", "Stopped": "停止中"}
+
+    # リソース使用量(CPU/メモリ)取得のタイムアウト秒数。
+    # VM 初期化直後や、ログインシェルの起動が重い/プロセス数が多い
+    # ディストリビューションでは 2 秒では応答が返らないことがあるため、
+    # 余裕を持たせた値にしている。
+    RESOURCE_QUERY_TIMEOUT = 8.0
+
+    # IP アドレス取得のタイムアウト秒数。理由は RESOURCE_QUERY_TIMEOUT と同様
+    # (VM 初期化直後 / ログインシェルが重い / プロセス数が多い場合に備える)。
+    IP_QUERY_TIMEOUT = 8.0
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.title("WSL Manager")
+        self.geometry("780x500")
+        self.resizable(True, True)
+        self.minsize(640, 400)
+
+        self._refresh_job: str | None = None
+        self._refresh_in_progress = False
+        self._refresh_pending = False
+        self._process_windows: dict[str, ProcessWindow] = {}
+        self._transfer_dialogs: list[TransferProgressDialog] = []
+        self._all_distros: list[dict] = []
+        self._resource_history = wsl_core.ResourceHistory()
+        self._resource_history_visible = False
+        self._history_layouts: dict[str, wsl_core.ChartLayout] = {}
+        self._operation_log: list[str] = []
+        self._log_dir = wsl_core.get_default_log_dir()
+        self._log_file = os.path.join(self._log_dir, "operations.jsonl")
+        # ログ書き込みは Tk のイベントループを塞がないよう専用スレッドに委譲する
+        self._log_writer = wsl_core.AsyncLogWriter(self._log_dir)
+        # #35: ログ書き込みキューの溢れ/書き込み失敗を一度だけステータスバーに通知するためのフラグ
+        self._log_writer_warning_shown = False
+        self._load_persisted_log()
+        self._settings_path = wsl_core.get_default_settings_path()
+        self._settings = wsl_core.load_settings(self._settings_path)
+        self._language = wsl_core.resolve_language(self._settings["language"])
+        if self._settings["window_geometry"]:
+            try:
+                self.geometry(self._settings["window_geometry"])
+            except tk.TclError:
+                pass
+        self._filter_var = tk.StringVar()
+        self._setup_theme()
+        self._build_ui()
+        self._filter_var.trace_add("write", lambda *_: self._render_distros())
+        if self._settings["auto_refresh"]:
+            self._schedule_auto_refresh()
+        else:
+            self._refresh()
+
+    # ── UI 構築 ──────────────────────────────────────────────────────────────
+
+    def _t(self, key: str, **values: object) -> str:
+        """Translate text used by the main application shell."""
+        return wsl_core.translate(key, self._language, **values)
+
+    def _setup_theme(self) -> None:
+        """利用可能な ttk テーマを検出し、デフォルトテーマを設定します。"""
+        style = ttk.Style(self)
+        self._available_themes = sorted(style.theme_names())
+        self._current_theme = style.theme_use()
+        saved_theme = self._settings["theme"]
+        if saved_theme and saved_theme in self._available_themes:
+            try:
+                style.theme_use(saved_theme)
+                self._current_theme = saved_theme
+            except tk.TclError:
+                pass
+
+    def _build_ui(self) -> None:
+        main_frame = ttk.Frame(self, padding=10)
+        main_frame.pack(fill=tk.BOTH, expand=True)
+
+        self._build_menubar()
+        self._build_toolbar(main_frame)
+        self._build_treeview(main_frame)
+        self._build_resource_history_panel(main_frame)
+        self._build_statusbar(main_frame)
+
+    def _build_menubar(self) -> None:
+        """メニューバーを構築してウィンドウに設定します。"""
+        menubar = tk.Menu(self)
+
+        # ── ファイル ──
+        file_menu = tk.Menu(menubar, tearoff=0)
+        file_menu.add_command(
+            label=self._t("gui.action.import"),
+            command=self._import_distro_image,
+            accelerator="Ctrl+I",
+        )
+        file_menu.add_command(
+            label=self._t("gui.action.export"),
+            command=self._export_distro_image,
+            accelerator="Ctrl+E",
+        )
+        file_menu.add_separator()
+        file_menu.add_command(
+            label=self._t("gui.action.exit"),
+            command=self.on_closing,
+            accelerator="Alt+F4",
+        )
+        menubar.add_cascade(label=self._t("gui.menu.file"), menu=file_menu)
+
+        # ── ディストリビューション ──
+        distro_menu = tk.Menu(menubar, tearoff=0)
+        distro_menu.add_command(
+            label=self._t("gui.action.start_terminal"),
+            command=self._open_terminal,
+            accelerator="Return",
+        )
+        distro_menu.add_command(
+            label=self._t("gui.action.stop"),
+            command=self._stop_distro,
+            accelerator="Delete",
+        )
+        distro_menu.add_command(
+            label=self._t("gui.action.shutdown"),
+            command=self._shutdown_all,
+            accelerator="Ctrl+Shift+Q",
+        )
+        distro_menu.add_separator()
+        distro_menu.add_command(
+            label=self._t("gui.action.set_default"),
+            command=self._set_default,
+        )
+        distro_menu.add_command(
+            label=self._t("gui.action.convert"),
+            command=self._convert_version,
+        )
+        distro_menu.add_separator()
+        distro_menu.add_command(
+            label=self._t("gui.action.install"),
+            command=self._install_distro,
+        )
+        distro_menu.add_command(
+            label=self._t("gui.action.unregister"),
+            command=self._uninstall_distro,
+        )
+        menubar.add_cascade(label=self._t("gui.menu.distribution"), menu=distro_menu)
+
+        # ── ツール ──
+        tools_menu = tk.Menu(menubar, tearoff=0)
+        tools_menu.add_command(
+            label=self._t("gui.action.details"),
+            command=self._show_detail,
+            accelerator="Ctrl+D",
+        )
+        tools_menu.add_command(
+            label=self._t("gui.action.processes"),
+            command=self._show_processes,
+            accelerator="Ctrl+P",
+        )
+        tools_menu.add_command(
+            label=self._t("gui.action.explorer"),
+            command=self._open_in_explorer,
+        )
+        tools_menu.add_command(
+            label=self._t("gui.action.optimize"),
+            command=self._open_disk_optimize,
+        )
+        tools_menu.add_command(
+            label=self._t("gui.action.snapshots"),
+            command=self._open_snapshot_manager,
+        )
+        tools_menu.add_command(
+            label="WSL Containers...",
+            command=self._open_container_manager,
+        )
+        tools_menu.add_separator()
+        tools_menu.add_command(
+            label=self._t("gui.action.mount"),
+            command=self._open_mount,
+        )
+        tools_menu.add_command(
+            label=self._t("gui.action.unmount"),
+            command=self._open_unmount,
+        )
+        tools_menu.add_separator()
+        tools_menu.add_command(
+            label=self._t("gui.action.wsl_config"),
+            command=self._open_wslconfig,
+            accelerator="Ctrl+,",
+        )
+        tools_menu.add_command(
+            label=self._t("gui.action.log"),
+            command=self._show_log_viewer,
+            accelerator="Ctrl+L",
+        )
+        tools_menu.add_separator()
+        self._theme_var = tk.StringVar(value=self._current_theme)
+        theme_menu = tk.Menu(tools_menu, tearoff=0)
+        for theme_name in self._available_themes:
+            theme_menu.add_radiobutton(
+                label=theme_name,
+                variable=self._theme_var,
+                value=theme_name,
+                command=lambda t=theme_name: self._change_theme(t),
+            )
+        tools_menu.add_cascade(label=self._t("gui.action.theme"), menu=theme_menu)
+        language_menu = tk.Menu(tools_menu, tearoff=0)
+        self._language_var = tk.StringVar(value=self._settings["language"])
+        for language in (wsl_core.LANGUAGE_AUTO, *wsl_core.SUPPORTED_LANGUAGES):
+            language_menu.add_radiobutton(
+                label=self._t(f"language.{language}"),
+                variable=self._language_var,
+                value=language,
+                command=lambda value=language: self._change_language(value),
+            )
+        tools_menu.add_cascade(label=self._t("gui.menu.language"), menu=language_menu)
+        menubar.add_cascade(label=self._t("gui.menu.tools"), menu=tools_menu)
+
+        # ── ヘルプ ──
+        help_menu = tk.Menu(menubar, tearoff=0)
+        help_menu.add_command(
+            label=self._t("gui.action.wsl_version"),
+            command=self._show_wsl_version,
+        )
+        help_menu.add_command(
+            label=self._t("gui.action.update_wsl"),
+            command=self._update_wsl,
+        )
+        help_menu.add_command(
+            label=self._t("gui.action.about"),
+            command=self._show_about,
+        )
+        menubar.add_cascade(label=self._t("gui.menu.help"), menu=help_menu)
+
+        self.config(menu=menubar)
+
+        # ── キーボードショートカット ──
+        self.bind_all("<Control-r>", lambda e: self._refresh())
+        self.bind_all("<Control-i>", lambda e: self._import_distro_image())
+        self.bind_all("<Control-e>", lambda e: self._export_distro_image())
+        self.bind_all("<Control-d>", lambda e: self._show_detail())
+        self.bind_all("<Control-p>", lambda e: self._show_processes())
+        self.bind_all("<Control-comma>", lambda e: self._open_wslconfig())
+        self.bind_all("<Control-l>", lambda e: self._show_log_viewer())
+        self.bind_all(
+            "<Delete>",
+            lambda e: (
+                self._stop_distro() if not isinstance(e.widget, (tk.Entry, ttk.Entry)) else None
+            ),
+        )
+        self.bind_all("<Control-Shift-Q>", lambda e: self._shutdown_all())
+        self.bind_all("<F5>", lambda e: self._refresh())
+
+    def _build_toolbar(self, parent: ttk.Frame) -> None:
+        """主要操作と補助操作を2段に分け、狭い画面でも表示を保ちます。"""
+        toolbar = ttk.Frame(parent)
+        toolbar.pack(fill=tk.X, pady=(0, 8))
+
+        primary_row = ttk.Frame(toolbar)
+        primary_row.pack(fill=tk.X)
+
+        primary_actions = [
+            (self._t("gui.toolbar.start"), self._start_distro, 8),
+            (self._t("gui.toolbar.stop"), self._stop_distro, 8),
+            (self._t("gui.toolbar.shutdown"), self._shutdown_all, 11),
+            (self._t("gui.toolbar.terminal"), self._open_terminal, 11),
+            (self._t("gui.toolbar.processes"), self._show_processes, 11),
+        ]
+        for index, (label, cmd, width) in enumerate(primary_actions):
+            if index == 3:
+                ttk.Separator(primary_row, orient=tk.VERTICAL).pack(side=tk.LEFT, padx=6, fill=tk.Y)
+            ttk.Button(primary_row, text=label, command=cmd, width=width).pack(side=tk.LEFT, padx=2)
+        ttk.Button(
+            primary_row,
+            text=self._t("gui.toolbar.refresh"),
+            command=self._refresh,
+            width=10,
+        ).pack(side=tk.RIGHT, padx=2)
+
+        secondary_row = ttk.Frame(toolbar)
+        secondary_row.pack(fill=tk.X, pady=(4, 0))
+
+        secondary_actions = [
+            (self._t("gui.toolbar.install"), self._install_distro, 12),
+            (self._t("gui.toolbar.import"), self._import_distro_image, 10),
+            (self._t("gui.toolbar.export"), self._export_distro_image, 10),
+            (self._t("gui.toolbar.wsl_config"), self._open_wslconfig, 13),
+        ]
+        for label, cmd, width in secondary_actions:
+            ttk.Button(secondary_row, text=label, command=cmd, width=width).pack(
+                side=tk.LEFT, padx=2
+            )
+
+        self._auto_refresh_var = tk.BooleanVar(value=self._settings["auto_refresh"])
+        ttk.Checkbutton(
+            secondary_row,
+            text=self._t("gui.auto_refresh"),
+            variable=self._auto_refresh_var,
+            command=self._toggle_auto_refresh,
+        ).pack(side=tk.LEFT, padx=(8, 4))
+
+        ttk.Label(secondary_row, text="🔍").pack(side=tk.LEFT, padx=(4, 2))
+        ttk.Entry(secondary_row, textvariable=self._filter_var, width=12).pack(side=tk.LEFT, padx=2)
+        ttk.Button(
+            secondary_row,
+            text="✕",
+            width=2,
+            command=lambda: self._filter_var.set(""),
+        ).pack(side=tk.LEFT, padx=2)
+        self._history_toggle = ttk.Button(
+            secondary_row,
+            text=self._t("gui.history.show"),
+            command=self._toggle_resource_history,
+        )
+        self._history_toggle.pack(side=tk.RIGHT, padx=2)
+
+    def _build_treeview(self, parent: ttk.Frame) -> None:
+        tree_frame = ttk.Frame(parent)
+        tree_frame.pack(fill=tk.BOTH, expand=True)
+
+        cols = ("default", "name", "state", "version", "cpu", "memory", "disk", "ip")
+        self._tree = ttk.Treeview(tree_frame, columns=cols, show="headings", selectmode="browse")
+
+        self._tree.heading("default", text="")
+        self._tree.heading("name", text=self._t("gui.column.name"))
+        self._tree.heading("state", text=self._t("gui.column.state"))
+        self._tree.heading("version", text=self._t("gui.column.version"))
+        self._tree.heading("cpu", text="CPU(%)")
+        self._tree.heading("memory", text=self._t("gui.column.memory"))
+        self._tree.heading("disk", text=self._t("gui.column.disk"))
+        self._tree.heading("ip", text=self._t("gui.column.ip"))
+
+        self._tree.column("default", width=26, minwidth=26, anchor=tk.CENTER)
+        self._tree.column("name", width=180, minwidth=120)
+        self._tree.column("state", width=80, minwidth=70, anchor=tk.CENTER)
+        self._tree.column("version", width=70, minwidth=65, anchor=tk.CENTER)
+        self._tree.column("cpu", width=70, minwidth=60, anchor=tk.CENTER)
+        self._tree.column("memory", width=85, minwidth=75, anchor=tk.CENTER)
+        self._tree.column("disk", width=85, minwidth=75, anchor=tk.CENTER)
+        self._tree.column("ip", width=120, minwidth=95)
+
+        vsb = ttk.Scrollbar(tree_frame, orient=tk.VERTICAL, command=self._tree.yview)
+        hsb = ttk.Scrollbar(tree_frame, orient=tk.HORIZONTAL, command=self._tree.xview)
+        self._tree.configure(yscrollcommand=vsb.set, xscrollcommand=hsb.set)
+        self._tree.grid(row=0, column=0, sticky="nsew")
+        vsb.grid(row=0, column=1, sticky="ns")
+        hsb.grid(row=1, column=0, sticky="ew")
+        tree_frame.grid_rowconfigure(0, weight=1)
+        tree_frame.grid_columnconfigure(0, weight=1)
+
+        # ダブルクリックでターミナルを開く
+        self._tree.bind("<Double-1>", lambda _e: self._open_terminal())
+
+        # Enter キーでもダブルクリックと同じ動作にする（メニューの
+        # accelerator="Return" 表示に合わせる）。フィルタ入力欄で
+        # Enter を打っても誤発火しないよう、bind_all ではなく
+        # Treeview ウィジェットに直接バインドする。
+        self._tree.bind("<Return>", self._on_tree_return)
+
+        # 右クリックコンテキストメニュー
+        self._tree.bind("<Button-3>", self._show_context_menu)
+
+        # 状態による行の色分け
+        self._tree.tag_configure("running", foreground="#1a7a1a")
+        self._tree.tag_configure("stopped", foreground="#888888")
+
+        # 列クリックソート
+        self._sorter = TreeviewSorter(self._tree, numeric_columns={"cpu", "memory", "disk"})
+        self._sorter.set_state(self._settings["sort_column"], self._settings["sort_desc"])
+
+    def _build_statusbar(self, parent: ttk.Frame) -> None:
+        self._status_var = tk.StringVar(value=self._t("gui.status.ready"))
+        self._statusbar = ttk.Label(
+            parent,
+            textvariable=self._status_var,
+            relief=tk.SUNKEN,
+            anchor=tk.W,
+            padding=(4, 2),
+        )
+        self._statusbar.pack(fill=tk.X, pady=(8, 0))
+
+    def _build_resource_history_panel(self, parent: ttk.Frame) -> None:
+        """CPU とメモリの最近30分の推移を表示する、折りたたみ可能なパネル。"""
+        self._history_frame = ttk.Labelframe(parent, text="リソース履歴（直近30分）")
+        self._cpu_history_canvas = tk.Canvas(
+            self._history_frame, height=130, highlightthickness=0, background="white"
+        )
+        self._memory_history_canvas = tk.Canvas(
+            self._history_frame, height=130, highlightthickness=0, background="white"
+        )
+        ttk.Label(self._history_frame, text="CPU 使用率").pack(anchor=tk.W, padx=6, pady=(4, 0))
+        self._cpu_history_canvas.pack(fill=tk.X, padx=6)
+        ttk.Label(self._history_frame, text="メモリ使用量").pack(anchor=tk.W, padx=6, pady=(2, 0))
+        self._memory_history_canvas.pack(fill=tk.X, padx=6, pady=(0, 4))
+        for canvas, metric in (
+            (self._cpu_history_canvas, "cpu"),
+            (self._memory_history_canvas, "memory"),
+        ):
+            canvas.bind("<Configure>", lambda _event: self._draw_resource_history())
+            canvas.bind(
+                "<Motion>",
+                lambda event, c=canvas, m=metric: self._on_history_canvas_motion(c, m, event),
+            )
+            canvas.bind("<Leave>", lambda _event, c=canvas: self._clear_history_tooltip(c))
+
+    def _toggle_resource_history(self) -> None:
+        self._resource_history_visible = not self._resource_history_visible
+        if self._resource_history_visible:
+            self._history_frame.pack(fill=tk.X, pady=(6, 0), before=self._statusbar)
+            self._history_toggle.configure(text="📈 履歴を隠す")
+            self._draw_resource_history()
+        else:
+            self._clear_history_tooltip(self._cpu_history_canvas)
+            self._clear_history_tooltip(self._memory_history_canvas)
+            self._history_frame.pack_forget()
+            self._history_toggle.configure(text="📈 履歴を表示")
+
+    def _draw_resource_history(self) -> None:
+        if not self._resource_history_visible:
+            return
+        self._draw_history_canvas(self._cpu_history_canvas, "cpu")
+        self._draw_history_canvas(self._memory_history_canvas, "memory")
+
+    def _draw_history_canvas(self, canvas: tk.Canvas, metric: str) -> None:
+        """Canvas に1メトリックの系列・軸・凡例を安全に描画します。"""
+        canvas.delete("all")
+        width, height = canvas.winfo_width(), canvas.winfo_height()
+        if width <= 2 or height <= 2:
+            self._history_layouts.pop(str(canvas), None)
+            return
+        layout = wsl_core.prepare_chart_layout(self._resource_history, metric, width, height)
+        self._history_layouts[str(canvas)] = layout
+        for tick in layout.y_ticks:
+            canvas.create_line(layout.plot_x0, tick.pos, layout.plot_x1, tick.pos, fill="#e6e6e6")
+            canvas.create_text(
+                layout.plot_x0 - 4, tick.pos, text=tick.label, anchor=tk.E, fill="#555"
+            )
+        for tick in layout.x_ticks:
+            canvas.create_line(tick.pos, layout.plot_y0, tick.pos, layout.plot_y1, fill="#f0f0f0")
+            canvas.create_text(
+                tick.pos,
+                layout.plot_y1 + 12,
+                text=tick.label,
+                anchor=tk.N,
+                fill="#555",
+            )
+        canvas.create_rectangle(
+            layout.plot_x0, layout.plot_y0, layout.plot_x1, layout.plot_y1, outline="#bdbdbd"
+        )
+        for series in layout.series:
+            for segment in series.segments:
+                if len(segment) > 1:
+                    coordinates = [coordinate for point in segment for coordinate in point]
+                    canvas.create_line(*coordinates, fill=series.color, width=2)
+                elif segment:
+                    x, y = segment[0]
+                    canvas.create_oval(x - 2, y - 2, x + 2, y + 2, fill=series.color, outline="")
+        if layout.empty:
+            canvas.create_text(
+                (layout.plot_x0 + layout.plot_x1) / 2,
+                (layout.plot_y0 + layout.plot_y1) / 2,
+                text="有効な履歴データはありません",
+                fill="#666",
+            )
+        legend_x = layout.plot_x0 + 6
+        for series in layout.series:
+            canvas.create_line(
+                legend_x,
+                layout.plot_y0 + 8,
+                legend_x + 12,
+                layout.plot_y0 + 8,
+                fill=series.color,
+                width=2,
+            )
+            canvas.create_text(
+                legend_x + 16,
+                layout.plot_y0 + 8,
+                text=series.name,
+                anchor=tk.W,
+                fill="#333",
+            )
+            legend_x += 22 + len(series.name) * 7
+
+    def _on_history_canvas_motion(self, canvas: tk.Canvas, metric: str, event: tk.Event) -> None:
+        """Show the nearest resource-history observation while the cursor is over a graph."""
+        layout = self._history_layouts.get(str(canvas))
+        if not self._resource_history_visible or layout is None:
+            return
+        nearest = wsl_core.find_nearest_chart_point(layout, event.x, event.y)
+        if nearest is None:
+            self._clear_history_tooltip(canvas)
+            return
+        series, point = nearest
+        self._draw_history_tooltip(canvas, metric, series, point, event.x, event.y)
+
+    @staticmethod
+    def _resource_value_label(metric: str, value: float) -> str:
+        """Format an exact sampled value for a resource-history tooltip."""
+        return f"{value:.1f}%" if metric == "cpu" else f"{value:.1f} MB"
+
+    def _draw_history_tooltip(
+        self,
+        canvas: tk.Canvas,
+        metric: str,
+        series: wsl_core.ChartSeries,
+        point: wsl_core.ChartPoint,
+        cursor_x: float,
+        cursor_y: float,
+    ) -> None:
+        self._clear_history_tooltip(canvas)
+        timestamp = datetime.fromtimestamp(point.timestamp).strftime("%Y-%m-%d %H:%M:%S")
+        value = self._resource_value_label(metric, point.value)
+        label = f"{series.name}\n{timestamp}\n{value}"
+        text_item = canvas.create_text(
+            cursor_x + 12,
+            cursor_y - 12,
+            text=label,
+            anchor=tk.SW,
+            justify=tk.LEFT,
+            fill="#111",
+            tags="history-tooltip",
+        )
+        bbox = canvas.bbox(text_item)
+        if bbox is None:
+            return
+        width, height = canvas.winfo_width(), canvas.winfo_height()
+        dx = max(4 - bbox[0], min(0, width - 4 - bbox[2]))
+        dy = max(4 - bbox[1], min(0, height - 4 - bbox[3]))
+        if dx or dy:
+            canvas.move(text_item, dx, dy)
+        bbox = canvas.bbox(text_item)
+        if bbox is not None:
+            rectangle = canvas.create_rectangle(
+                bbox[0] - 4,
+                bbox[1] - 3,
+                bbox[2] + 4,
+                bbox[3] + 3,
+                fill="#ffffe0",
+                outline="#777",
+                tags="history-tooltip",
+            )
+            canvas.tag_lower(rectangle, text_item)
+        canvas.create_oval(
+            point.x - 4,
+            point.y - 4,
+            point.x + 4,
+            point.y + 4,
+            outline=series.color,
+            width=2,
+            tags="history-tooltip",
+        )
+
+    @staticmethod
+    def _clear_history_tooltip(canvas: tk.Canvas) -> None:
+        canvas.delete("history-tooltip")
+
+    # ── ディストリビューション情報取得 ─────────────────────────────────────
+
+    def _get_distro_resource_usage(self, name: str) -> tuple[str, str]:
+        """指定ディストリビューションのCPU使用率(%)とメモリ使用量(MB)を返します。"""
+        try:
+            result = subprocess.run(
+                [
+                    "wsl",
+                    "-d",
+                    name,
+                    "--",
+                    "sh",
+                    "-lc",
+                    (
+                        "ps -eo pcpu=,rss= | "
+                        "awk '{cpu+=$1; mem+=$2} END {printf \"%.1f %.1f\", cpu, mem/1024}'"
+                    ),
+                ],
+                capture_output=True,
+                creationflags=CREATE_NO_WINDOW,
+                timeout=self.RESOURCE_QUERY_TIMEOUT,
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            return "-", "-"
+
+        if result.returncode != 0:
+            return "-", "-"
+
+        output = wsl_core.decode_wsl_output(result.stdout).strip()
+        return wsl_core.parse_resource_usage(output)
+
+    def _get_distro_ip(self, name: str) -> str:
+        """指定ディストリビューションの IP アドレスを返します。"""
+        try:
+            result = subprocess.run(
+                ["wsl", "-d", name, "--", "hostname", "-I"],
+                capture_output=True,
+                creationflags=CREATE_NO_WINDOW,
+                timeout=self.IP_QUERY_TIMEOUT,
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            return "-"
+        if result.returncode != 0:
+            return "-"
+        output = wsl_core.decode_wsl_output(result.stdout).strip()
+        ips = wsl_core.parse_ip_addresses(output)
+        return ips[0] if ips else "-"
+
+    def _get_distros(self) -> tuple[list[dict], str | None]:
+        """``wsl --list --verbose`` を解析し、必要に応じてリソース情報も取得します。
+
+        Returns:
+            (distros, error_message) のタプル。
+            成功時は distros にリストが入り error_message は None。
+            失敗時は distros は空リストで error_message にメッセージが入ります。
+        """
+        try:
+            result = subprocess.run(
+                ["wsl", "--list", "--verbose"],
+                capture_output=True,
+                creationflags=CREATE_NO_WINDOW,
+                timeout=15.0,
+            )
+        except subprocess.TimeoutExpired:
+            return [], "WSL の応答がタイムアウトしました。"
+        except FileNotFoundError:
+            return [], "wsl.exe が見つかりません。WSL2 がインストールされているか確認してください。"
+        except OSError as e:
+            return [], f"WSL の実行に失敗しました: {e}"
+
+        if result.returncode != 0:
+            stderr = wsl_core.decode_wsl_output(result.stderr).strip()
+            return [], stderr or "ディストリビューション一覧の取得に失敗しました。"
+
+        output = wsl_core.decode_wsl_output(result.stdout)
+        distros: list[dict] = wsl_core.parse_distro_list(output)
+
+        # レジストリから仮想ディスク (ext4.vhdx) のサイズを取得する
+        disk_sizes = _get_distro_vhdx_sizes()
+        for d in distros:
+            size = disk_sizes.get(d["name"])
+            if size is not None:
+                d["disk"] = f"{size:.1f}"
+
+        # Running のディストロのリソース使用量を並列取得する
+        running_distros = [d for d in distros if d["state"] == "Running"]
+        if running_distros:
+            with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
+                future_to_distro = {
+                    executor.submit(self._get_distro_resource_usage, d["name"]): d
+                    for d in running_distros
+                }
+                for future in concurrent.futures.as_completed(future_to_distro):
+                    distro = future_to_distro[future]
+                    try:
+                        cpu, memory = future.result()
+                    except Exception:
+                        cpu, memory = "-", "-"
+                    distro["cpu"] = cpu
+                    distro["memory"] = memory
+
+                ip_future_to_distro = {
+                    executor.submit(self._get_distro_ip, d["name"]): d for d in running_distros
+                }
+                for future in concurrent.futures.as_completed(ip_future_to_distro):
+                    distro = ip_future_to_distro[future]
+                    try:
+                        distro["ip"] = future.result()
+                    except Exception:
+                        distro["ip"] = "-"
+
+        return distros, None
+
+    # ── ツリービュー更新 ──────────────────────────────────────────────────
+
+    def _refresh(self) -> None:
+        if self._refresh_in_progress:
+            self._refresh_pending = True
+            return
+
+        selected = self._selected_name()
+        self._refresh_in_progress = True
+        self._set_status("更新中…")
+
+        def _run() -> None:
+            distros, err = self._get_distros()
+            self._call_soon_safe(lambda: self._apply_refresh_result(distros, err, selected))
+
+        threading.Thread(target=_run, daemon=True).start()
+
+    def _apply_refresh_result(
+        self, distros: list[dict], err: str | None, selected: str | None
+    ) -> None:
+        if err:
+            self._set_status(err)
+            self._refresh_in_progress = False
+            if self._refresh_pending:
+                self._refresh_pending = False
+                self._refresh()
+            return
+
+        self._all_distros = distros
+        self._resource_history.record_refresh(distros)
+        self._render_distros(selected)
+        self._draw_resource_history()
+
+        count = len(distros)
+        running = sum(1 for d in distros if d["state"] == "Running")
+
+        # フィルタが適用されている場合はフィルタ後の件数を追記
+        filter_text = self._filter_var.get().strip().casefold()
+        if filter_text:
+            filtered_count = sum(1 for d in distros if filter_text in d["name"].casefold())
+            self._set_status(
+                f"ディストリビューション数: {count}  "
+                f"(実行中: {running} / 停止中: {count - running})"
+                f"  （フィルタ表示: {filtered_count} 件）"
+            )
+        else:
+            self._set_status(
+                f"ディストリビューション数: {count}  "
+                f"(実行中: {running} / 停止中: {count - running})"
+            )
+
+        self._refresh_in_progress = False
+        if self._refresh_pending:
+            self._refresh_pending = False
+            self._refresh()
+        self._check_log_writer_health()
+
+    def _render_distros(self, selected: str | None = None) -> None:
+        """フィルタを適用してツリービューを再描画します。
+
+        ``self._all_distros`` のみを参照し、subprocess 等の重い処理は行いません。
+        フィルタ入力のたびに呼ばれるため、軽量に保つこと。
+        """
+        # 引数が省略された場合は現在の選択名を維持する
+        if selected is None:
+            selected = self._selected_name()
+
+        # 全行削除
+        for item in self._tree.get_children():
+            self._tree.delete(item)
+
+        filter_text = self._filter_var.get().strip().casefold()
+
+        select_iid: str | None = None
+        for d in self._all_distros:
+            if filter_text and filter_text not in d["name"].casefold():
+                continue
+            default_mark = "★" if d["default"] else ""
             state_jp = (
                 self.STATE_JP.get(d["state"], d["state"]) if self._language == "ja" else d["state"]
             )
