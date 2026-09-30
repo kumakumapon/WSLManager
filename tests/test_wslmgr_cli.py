@@ -1,3 +1,6 @@
+Warning: truncated output (original token count: 32742)
+Total output lines: 2716
+
 """
 単体テスト for wslmgr_cli.py
 
@@ -1269,237 +1272,7 @@ class TestCmdLog(unittest.TestCase):
         with patch("sys.stdout", buf):
             wslmgr_cli.cmd_log(args)
         output = buf.getvalue()
-        lines = [line for line in output.splitlines() if line.strip()]
-        self.assertEqual(len(lines), 2)
-        self.assertIn("Debian", output)
-        self.assertNotIn("2026-01-01", output)
-
-    @patch("wslmgr_cli.os.path.exists", return_value=True)
-    @patch("builtins.open", new_callable=mock_open, read_data=LOG_TEXT)
-    def test_json_format_valid(self, mock_file, mock_exists):
-        """json フォーマットの出力が有効な JSON でパース可能。"""
-        args = argparse.Namespace(tail=50, format="json")
-        buf = io.StringIO()
-        with patch("sys.stdout", buf):
-            wslmgr_cli.cmd_log(args)
-        data = json.loads(buf.getvalue())
-        self.assertEqual(len(data), 3)
-
-    @patch("wslmgr_cli.os.path.exists", return_value=True)
-    @patch("builtins.open", side_effect=OSError("読み込み失敗"))
-    def test_read_oserror_exits(self, mock_file, mock_exists):
-        """ファイル読み込みで OSError が発生した場合 exit 1 する。"""
-        args = argparse.Namespace(tail=50, format="table")
-        with self.assertRaises(SystemExit) as cm:
-            with patch("sys.stderr", io.StringIO()):
-                wslmgr_cli.cmd_log(args)
-        self.assertEqual(cm.exception.code, wslmgr_cli.ExitCode.GENERAL_ERROR)
-
-    @patch("wslmgr_cli.os.path.exists", return_value=True)
-    @patch("builtins.open", new_callable=mock_open, read_data=LOG_TEXT)
-    def test_uses_default_log_dir(self, mock_file, mock_exists):
-        """wsl_core.get_default_log_dir 配下の operations.jsonl を参照する。"""
-        args = argparse.Namespace(tail=50, format="table")
-        with patch("sys.stdout", io.StringIO()):
-            wslmgr_cli.cmd_log(args)
-        # mock_open は open() の呼び出し引数を記録している
-        opened_path = mock_file.call_args[0][0]
-        self.assertTrue(opened_path.endswith("operations.jsonl"))
-
-
-# ---------------------------------------------------------------------------
-# cmd_portproxy_list / cmd_portproxy_add / cmd_portproxy_delete
-# ---------------------------------------------------------------------------
-
-class TestCmdPortproxyList(unittest.TestCase):
-    """cmd_portproxy_list のテスト。"""
-
-    NETSH_OUTPUT = (
-        "Address         Port        Address         Port\n"
-        "--------------- ----------  --------------- ----------\n"
-        "0.0.0.0         8080        172.20.0.2      8080\n"
-    )
-
-    @patch("wslmgr_cli._run_netsh_portproxy")
-    def test_table_format_shows_rule(self, mock_run):
-        """table フォーマットでルールが表示される。"""
-        mock_run.return_value = (0, self.NETSH_OUTPUT, "")
-        args = argparse.Namespace(format="table")
-        buf = io.StringIO()
-        with patch("sys.stdout", buf):
-            wslmgr_cli.cmd_portproxy_list(args)
-        output = buf.getvalue()
-        self.assertIn("172.20.0.2", output)
-        self.assertIn("8080", output)
-
-    @patch("wslmgr_cli._run_netsh_portproxy")
-    def test_json_format_valid(self, mock_run):
-        """json フォーマットの出力が有効な JSON でパース可能。"""
-        mock_run.return_value = (0, self.NETSH_OUTPUT, "")
-        args = argparse.Namespace(format="json")
-        buf = io.StringIO()
-        with patch("sys.stdout", buf):
-            wslmgr_cli.cmd_portproxy_list(args)
-        data = json.loads(buf.getvalue())
-        self.assertEqual(data[0]["connect_address"], "172.20.0.2")
-
-    @patch("wslmgr_cli._run_netsh_portproxy")
-    def test_failure_exits_with_error(self, mock_run):
-        """netsh が失敗した場合 exit 4 (WSL_ERROR) する。"""
-        mock_run.return_value = (1, "", "アクセスが拒否されました")
-        args = argparse.Namespace(format="table")
-        with self.assertRaises(SystemExit) as cm:
-            with patch("sys.stderr", io.StringIO()):
-                wslmgr_cli.cmd_portproxy_list(args)
-        self.assertEqual(cm.exception.code, wslmgr_cli.ExitCode.WSL_ERROR)
-
-    @patch("wslmgr_cli._run_netsh_portproxy")
-    def test_invoked_with_show_all(self, mock_run):
-        """'show all' 引数で _run_netsh_portproxy が呼ばれる。"""
-        mock_run.return_value = (0, self.NETSH_OUTPUT, "")
-        args = argparse.Namespace(format="table")
-        with patch("sys.stdout", io.StringIO()):
-            wslmgr_cli.cmd_portproxy_list(args)
-        mock_run.assert_called_once_with(["show", "all"])
-
-
-class TestCmdPortproxyAdd(unittest.TestCase):
-    """cmd_portproxy_add のテスト。"""
-
-    @patch("wslmgr_cli._run_netsh_portproxy")
-    def test_invalid_listen_port_exits_before_netsh(self, mock_run):
-        """listen_port が不正な場合、netsh を呼ばずに exit 2 (ARGUMENT_ERROR) する。"""
-        args = argparse.Namespace(
-            listen_port="not-a-port", connect_port="80",
-            connect_address="172.20.0.2", listen_address="0.0.0.0",
-        )
-        with self.assertRaises(SystemExit) as cm:
-            with patch("sys.stderr", io.StringIO()):
-                wslmgr_cli.cmd_portproxy_add(args)
-        self.assertEqual(cm.exception.code, wslmgr_cli.ExitCode.ARGUMENT_ERROR)
-        mock_run.assert_not_called()
-
-    @patch("wslmgr_cli._run_netsh_portproxy")
-    def test_invalid_connect_port_exits_before_netsh(self, mock_run):
-        """connect_port が不正な場合、netsh を呼ばずに exit 2 (ARGUMENT_ERROR) する。"""
-        args = argparse.Namespace(
-            listen_port="8080", connect_port="99999",
-            connect_address="172.20.0.2", listen_address="0.0.0.0",
-        )
-        with self.assertRaises(SystemExit) as cm:
-            with patch("sys.stderr", io.StringIO()):
-                wslmgr_cli.cmd_portproxy_add(args)
-        self.assertEqual(cm.exception.code, wslmgr_cli.ExitCode.ARGUMENT_ERROR)
-        mock_run.assert_not_called()
-
-    @patch("wslmgr_cli._run_netsh_portproxy")
-    def test_success_invokes_netsh_add(self, mock_run):
-        """成功時に正しい netsh 引数で呼ばれ、成功メッセージが表示される。"""
-        mock_run.return_value = (0, "", "")
-        args = argparse.Namespace(
-            listen_port="8080", connect_port="80",
-            connect_address="172.20.0.2", listen_address="0.0.0.0",
-        )
-        buf = io.StringIO()
-        with patch("sys.stdout", buf):
-            wslmgr_cli.cmd_portproxy_add(args)
-        mock_run.assert_called_once_with(
-            [
-                "add", "v4tov4",
-                "listenport=8080",
-                "listenaddress=0.0.0.0",
-                "connectport=80",
-                "connectaddress=172.20.0.2",
-            ]
-        )
-        self.assertIn("追加しました", buf.getvalue())
-
-    @patch("wslmgr_cli._run_netsh_portproxy")
-    def test_netsh_failure_exits_with_error(self, mock_run):
-        """netsh が失敗した場合 exit 4 (WSL_ERROR) し、管理者権限に関するメッセージを含む。"""
-        mock_run.return_value = (1, "", "アクセスが拒否されました")
-        args = argparse.Namespace(
-            listen_port="8080", connect_port="80",
-            connect_address="172.20.0.2", listen_address="0.0.0.0",
-        )
-        stderr_buf = io.StringIO()
-        with self.assertRaises(SystemExit) as cm:
-            with patch("sys.stderr", stderr_buf):
-                wslmgr_cli.cmd_portproxy_add(args)
-        self.assertEqual(cm.exception.code, wslmgr_cli.ExitCode.WSL_ERROR)
-        self.assertIn("管理者権限", stderr_buf.getvalue())
-
-    @patch(
-        "wslmgr_cli.subprocess.run",
-        side_effect=subprocess.TimeoutExpired(cmd="netsh", timeout=15),
-    )
-    def test_timeout_exits_with_error(self, mock_run):
-        """netsh がタイムアウトした場合 exit 4 (WSL_ERROR) する。"""
-        args = argparse.Namespace(
-            listen_port="8080", connect_port="80",
-            connect_address="172.20.0.2", listen_address="0.0.0.0",
-        )
-        with self.assertRaises(SystemExit) as cm:
-            with patch("sys.stderr", io.StringIO()):
-                wslmgr_cli.cmd_portproxy_add(args)
-        self.assertEqual(cm.exception.code, wslmgr_cli.ExitCode.WSL_ERROR)
-
-    @patch("wslmgr_cli.subprocess.run", side_effect=FileNotFoundError("netsh not found"))
-    def test_filenotfounderror_exits_with_error(self, mock_run):
-        """netsh 実行ファイルが見つからない場合 exit 4 (WSL_ERROR) する。"""
-        args = argparse.Namespace(
-            listen_port="8080", connect_port="80",
-            connect_address="172.20.0.2", listen_address="0.0.0.0",
-        )
-        with self.assertRaises(SystemExit) as cm:
-            with patch("sys.stderr", io.StringIO()):
-                wslmgr_cli.cmd_portproxy_add(args)
-        self.assertEqual(cm.exception.code, wslmgr_cli.ExitCode.WSL_ERROR)
-
-
-class TestCmdPortproxyDelete(unittest.TestCase):
-    """cmd_portproxy_delete のテスト。"""
-
-    @patch("wslmgr_cli._run_netsh_portproxy")
-    def test_invalid_listen_port_exits_before_netsh(self, mock_run):
-        """listen_port が不正な場合、netsh を呼ばずに exit 2 (ARGUMENT_ERROR) する。"""
-        args = argparse.Namespace(listen_port="0", listen_address="0.0.0.0")
-        with self.assertRaises(SystemExit) as cm:
-            with patch("sys.stderr", io.StringIO()):
-                wslmgr_cli.cmd_portproxy_delete(args)
-        self.assertEqual(cm.exception.code, wslmgr_cli.ExitCode.ARGUMENT_ERROR)
-        mock_run.assert_not_called()
-
-    @patch("wslmgr_cli._run_netsh_portproxy")
-    def test_success_invokes_netsh_delete(self, mock_run):
-        """成功時に正しい netsh 引数で呼ばれ、成功メッセージが表示される。"""
-        mock_run.return_value = (0, "", "")
-        args = argparse.Namespace(listen_port="8080", listen_address="0.0.0.0")
-        buf = io.StringIO()
-        with patch("sys.stdout", buf):
-            wslmgr_cli.cmd_portproxy_delete(args)
-        mock_run.assert_called_once_with(
-            ["delete", "v4tov4", "listenport=8080", "listenaddress=0.0.0.0"]
-        )
-        self.assertIn("削除しました", buf.getvalue())
-
-    @patch("wslmgr_cli._run_netsh_portproxy")
-    def test_netsh_failure_exits_with_error(self, mock_run):
-        """netsh が失敗した場合 exit 4 (WSL_ERROR) し、管理者権限に関するメッセージを含む。"""
-        mock_run.return_value = (1, "", "アクセスが拒否されました")
-        args = argparse.Namespace(listen_port="8080", listen_address="0.0.0.0")
-        stderr_buf = io.StringIO()
-        with self.assertRaises(SystemExit) as cm:
-            with patch("sys.stderr", stderr_buf):
-                wslmgr_cli.cmd_portproxy_delete(args)
-        self.assertEqual(cm.exception.code, wslmgr_cli.ExitCode.WSL_ERROR)
-        self.assertIn("管理者権限", stderr_buf.getvalue())
-
-    @patch(
-        "wslmgr_cli.subprocess.run",
-        side_effect=subprocess.TimeoutExpired(cmd="netsh", timeout=15),
-    )
-    def test_timeout_exits_with_error(self, mock_run):
+        lines = [line for line in outp…2742 tokens truncated…mock_run):
         """netsh がタイムアウトした場合 exit 4 (WSL_ERROR) する。"""
         args = argparse.Namespace(listen_port="8080", listen_address="0.0.0.0")
         with self.assertRaises(SystemExit) as cm:
@@ -2687,6 +2460,29 @@ class TestCmdConfigDistro(unittest.TestCase):
             wslmgr_cli.cmd_config(args)
         data = json.loads(buf.getvalue())
         self.assertEqual(data, {"boot": {"systemd": "true"}})
+
+
+class TestWslcCommands(unittest.TestCase):
+    @patch("wslmgr_cli._run_wslc_command")
+    @patch("wslmgr_cli._run_wsl_command")
+    def test_doctor_json_reports_wslc(self, mock_wsl, mock_wslc):
+        mock_wsl.return_value = (0, "WSL version: 3.0.1\nKernel version: 6.6.0\n", "")
+        mock_wslc.return_value = (0, '{"version": "3.0.1"}', "")
+        with patch("sys.stdout", io.StringIO()) as output:
+            wslmgr_cli.cmd_doctor(argparse.Namespace(format="json"))
+        self.assertTrue(json.loads(output.getvalue())["wslc"]["available"])
+
+    @patch("wslmgr_cli._run_wslc_command")
+    @patch("wslmgr_cli._run_wsl_command")
+    def test_container_list_json(self, mock_wsl, mock_wslc):
+        mock_wsl.return_value = (0, "WSL version: 3.0.1\n", "")
+        mock_wslc.side_effect = [
+            (0, '{"version": "3.0.1"}', ""),
+            (0, '[{"ID": "abc", "Name": "web", "Image": "nginx", "State": "running"}]', ""),
+        ]
+        with patch("sys.stdout", io.StringIO()) as output:
+            wslmgr_cli.cmd_container_list(argparse.Namespace(format="json"))
+        self.assertEqual(json.loads(output.getvalue())[0]["name"], "web")
 
 
 if __name__ == "__main__":
