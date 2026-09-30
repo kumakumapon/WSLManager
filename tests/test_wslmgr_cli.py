@@ -2689,5 +2689,28 @@ class TestCmdConfigDistro(unittest.TestCase):
         self.assertEqual(data, {"boot": {"systemd": "true"}})
 
 
+class TestWslcCommands(unittest.TestCase):
+    @patch("wslmgr_cli._run_wslc_command")
+    @patch("wslmgr_cli._run_wsl_command")
+    def test_doctor_json_reports_wslc(self, mock_wsl, mock_wslc):
+        mock_wsl.return_value = (0, "WSL version: 3.0.1\nKernel version: 6.6.0\n", "")
+        mock_wslc.return_value = (0, '{"version": "3.0.1"}', "")
+        with patch("sys.stdout", io.StringIO()) as output:
+            wslmgr_cli.cmd_doctor(argparse.Namespace(format="json"))
+        self.assertTrue(json.loads(output.getvalue())["wslc"]["available"])
+
+    @patch("wslmgr_cli._run_wslc_command")
+    @patch("wslmgr_cli._run_wsl_command")
+    def test_container_list_json(self, mock_wsl, mock_wslc):
+        mock_wsl.return_value = (0, "WSL version: 3.0.1\n", "")
+        mock_wslc.side_effect = [
+            (0, '{"version": "3.0.1"}', ""),
+            (0, '[{"ID": "abc", "Name": "web", "Image": "nginx", "State": "running"}]', ""),
+        ]
+        with patch("sys.stdout", io.StringIO()) as output:
+            wslmgr_cli.cmd_container_list(argparse.Namespace(format="json"))
+        self.assertEqual(json.loads(output.getvalue())[0]["name"], "web")
+
+
 if __name__ == "__main__":
     unittest.main()

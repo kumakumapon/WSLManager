@@ -22,6 +22,13 @@ from dataclasses import dataclass  # noqa: F401
 from datetime import datetime  # noqa: F401
 from typing import Any, TypedDict  # noqa: F401
 
+from .containers import (
+    WSLC_MINIMUM_VERSION,
+    container_summary,
+    parse_semantic_version,
+    parse_wslc_json,
+    wslc_capability,
+)
 from .i18n import (
     LANGUAGE_AUTO,
     SUPPORTED_LANGUAGES,
@@ -88,6 +95,7 @@ from .resource_history import (
 )
 from .runner import (
     decode_wsl_output,
+    run_command,
     run_wsl,
 )
 from .settings import (
@@ -169,6 +177,7 @@ __all__ = [
     "PARTIAL_WRITE_SUFFIX",
     "SNAPSHOT_TIMESTAMP_FORMAT",
     "SUPPORTED_LANGUAGES",
+    "WSLC_MINIMUM_VERSION",
     "AsyncLogWriter",
     "ChartAxisTick",
     "ChartLayout",
@@ -196,6 +205,7 @@ __all__ = [
     "build_wsl_mount_args",
     "build_wsl_unmount_args",
     "calculate_nice_ceiling",
+    "container_summary",
     "decode_wsl_output",
     "default_clone_name",
     "delete_log_files",
@@ -238,15 +248,18 @@ __all__ = [
     "parse_portproxy_output",
     "parse_process_list",
     "parse_resource_usage",
+    "parse_semantic_version",
     "parse_ss_output",
     "parse_uptime",
     "parse_wsl_update_output",
     "parse_wsl_version",
+    "parse_wslc_json",
     "parse_wslconfig",
     "partial_write_path",
     "prepare_chart_layout",
     "resolve_language",
     "rotate_log_files",
+    "run_command",
     "run_wsl",
     "sanitize_snapshot_name",
     "save_settings",
@@ -267,4 +280,5 @@ __all__ = [
     "validate_swap_string",
     "validate_wslconf_bool",
     "write_snapshot_metadata",
+    "wslc_capability",
 ]

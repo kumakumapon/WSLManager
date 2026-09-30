@@ -67,15 +67,11 @@ class TestResourceHistory(unittest.TestCase):
 
         self.assertTrue(layout.empty)
         self.assertEqual(layout.series, [])
-        self.assertEqual(
-            wsl_core.get_distro_color("Ubuntu"), wsl_core.get_distro_color("Ubuntu")
-        )
+        self.assertEqual(wsl_core.get_distro_color("Ubuntu"), wsl_core.get_distro_color("Ubuntu"))
 
     def test_invalid_chart_metric_is_rejected(self):
         with self.assertRaises(ValueError):
-            wsl_core.prepare_chart_layout(
-                wsl_core.ResourceHistory(), "disk", width=400, height=120
-            )
+            wsl_core.prepare_chart_layout(wsl_core.ResourceHistory(), "disk", width=400, height=120)
 
     def test_nearest_chart_point_uses_hit_radius_and_closest_series(self):
         history = wsl_core.ResourceHistory()
@@ -97,12 +93,13 @@ class TestResourceHistory(unittest.TestCase):
         self.assertEqual(found[1].value, 20.0)
         self.assertNotEqual(ubuntu.points[0].y, debian.points[0].y)
 
+
 # ---------------------------------------------------------------------------
 # decode_wsl_output
 # ---------------------------------------------------------------------------
 
-class TestDecodeWslOutput(unittest.TestCase):
 
+class TestDecodeWslOutput(unittest.TestCase):
     def test_bom_utf16le(self):
         """BOM (FF FE) 付き UTF-16LE バイト列を正しくデコードする。"""
         raw = b"\xff\xfe" + "Ubuntu".encode("utf-16-le")
@@ -198,8 +195,8 @@ class TestDecodeWslOutput(unittest.TestCase):
 # is_numeric
 # ---------------------------------------------------------------------------
 
-class TestIsNumeric(unittest.TestCase):
 
+class TestIsNumeric(unittest.TestCase):
     def test_float_string(self):
         self.assertTrue(wsl_core.is_numeric("3.5"))
 
@@ -236,8 +233,8 @@ class TestIsNumeric(unittest.TestCase):
 # normalize_base_path
 # ---------------------------------------------------------------------------
 
-class TestNormalizeBasePath(unittest.TestCase):
 
+class TestNormalizeBasePath(unittest.TestCase):
     def test_strip_prefix(self):
         """\\\\?\\ プレフィックスを除去する。"""
         self.assertEqual(wsl_core.normalize_base_path(r"\\?\C:\foo"), r"C:\foo")
@@ -267,8 +264,8 @@ class TestNormalizeBasePath(unittest.TestCase):
 # parse_distro_list
 # ---------------------------------------------------------------------------
 
-class TestParseDistroList(unittest.TestCase):
 
+class TestParseDistroList(unittest.TestCase):
     # 典型的な wsl --list --verbose 出力
     TYPICAL_OUTPUT = (
         "  NAME      STATE           VERSION\n"
@@ -352,8 +349,8 @@ class TestParseDistroList(unittest.TestCase):
 # parse_online_distros
 # ---------------------------------------------------------------------------
 
-class TestParseOnlineDistros(unittest.TestCase):
 
+class TestParseOnlineDistros(unittest.TestCase):
     TYPICAL_OUTPUT = (
         "NAME                                   FRIENDLY NAME\n"
         "Ubuntu                                 Ubuntu\n"
@@ -408,8 +405,8 @@ class TestParseOnlineDistros(unittest.TestCase):
 # parse_process_list
 # ---------------------------------------------------------------------------
 
-class TestParseProcessList(unittest.TestCase):
 
+class TestParseProcessList(unittest.TestCase):
     TYPICAL_OUTPUT = (
         "PID USER     %CPU   RSS COMMAND\n"
         "  1 root      0.0  1024 /sbin/init\n"
@@ -490,8 +487,8 @@ class TestParseProcessList(unittest.TestCase):
 # parse_resource_usage
 # ---------------------------------------------------------------------------
 
-class TestParseResourceUsage(unittest.TestCase):
 
+class TestParseResourceUsage(unittest.TestCase):
     def test_normal(self):
         """正常な '12.3 456.7' を (cpu, memory) に変換する。"""
         cpu, mem = wsl_core.parse_resource_usage("12.3 456.7")
@@ -537,8 +534,8 @@ class TestParseResourceUsage(unittest.TestCase):
 # parse_wslconfig
 # ---------------------------------------------------------------------------
 
-class TestParseWslconfig(unittest.TestCase):
 
+class TestParseWslconfig(unittest.TestCase):
     def test_basic_parse(self):
         """基本的な INI テキストをパースする。"""
         text = "[wsl2]\nmemory=4GB\nlocalhostForwarding=true\n"
@@ -564,12 +561,7 @@ class TestParseWslconfig(unittest.TestCase):
 
     def test_multiple_sections(self):
         """複数セクションを正しくパースする。"""
-        text = (
-            "[wsl2]\n"
-            "memory=4GB\n"
-            "[network]\n"
-            "generateResolvConf=false\n"
-        )
+        text = "[wsl2]\nmemory=4GB\n[network]\ngenerateResolvConf=false\n"
         result = wsl_core.parse_wslconfig(text)
         self.assertIn("wsl2", result)
         self.assertIn("network", result)
@@ -598,8 +590,8 @@ class TestParseWslconfig(unittest.TestCase):
 # dump_wslconfig
 # ---------------------------------------------------------------------------
 
-class TestDumpWslconfig(unittest.TestCase):
 
+class TestDumpWslconfig(unittest.TestCase):
     def test_round_trip(self):
         """parse → dump → parse でデータが保持される (camelCase 含む)。"""
         original = "[wsl2]\nmemory=4GB\nlocalhostForwarding=true\n"
@@ -673,8 +665,13 @@ class TestBuildDiskpartCompactScript(unittest.TestCase):
     def test_contains_required_commands(self):
         """select/attach/compact/detach/exit が順に含まれる。"""
         script = wsl_core.build_diskpart_compact_script(r"C:\wsl\ext4.vhdx")
-        for cmd in ("select vdisk", "attach vdisk readonly", "compact vdisk",
-                    "detach vdisk", "exit"):
+        for cmd in (
+            "select vdisk",
+            "attach vdisk readonly",
+            "compact vdisk",
+            "detach vdisk",
+            "exit",
+        ):
             self.assertIn(cmd, script)
 
     def test_path_is_quoted(self):
@@ -693,8 +690,8 @@ class TestBuildDiskpartCompactScript(unittest.TestCase):
 # parse_wsl_version
 # ---------------------------------------------------------------------------
 
-class TestParseWslVersion(unittest.TestCase):
 
+class TestParseWslVersion(unittest.TestCase):
     JAPANESE_OUTPUT = (
         "WSL バージョン: 2.4.4.0\n"
         "カーネル バージョン: 5.15.167.4-1\n"
@@ -786,9 +783,7 @@ class TestParseWslVersion(unittest.TestCase):
     def test_partial_output_missing_wslg(self):
         """WSLg 行がない部分的な出力では wslg キーが含まれない。"""
         partial = (
-            "WSL version: 2.4.4.0\n"
-            "Kernel version: 5.15.167.4-1\n"
-            "Windows version: 10.0.22631.4890\n"
+            "WSL version: 2.4.4.0\nKernel version: 5.15.167.4-1\nWindows version: 10.0.22631.4890\n"
         )
         result = wsl_core.parse_wsl_version(partial)
         self.assertIn("wsl", result)
@@ -799,11 +794,7 @@ class TestParseWslVersion(unittest.TestCase):
 
     def test_line_without_colon_skipped(self):
         """コロンを含まない行は既知キーとしては解析されず _unparsed_lines に集約される。"""
-        output = (
-            "WSL version: 2.4.4.0\n"
-            "this line has no colon\n"
-            "Kernel version: 5.15.167.4-1\n"
-        )
+        output = "WSL version: 2.4.4.0\nthis line has no colon\nKernel version: 5.15.167.4-1\n"
         result = wsl_core.parse_wsl_version(output)
         self.assertEqual(result["wsl"], "2.4.4.0")
         self.assertEqual(result["kernel"], "5.15.167.4-1")
@@ -812,10 +803,7 @@ class TestParseWslVersion(unittest.TestCase):
 
     def test_unrecognized_line_skipped(self):
         """パターンに一致しない行は既知キーとしては解析されず _unparsed_lines に集約される。"""
-        output = (
-            "WSL version: 2.4.4.0\n"
-            "Unknown field: somevalue\n"
-        )
+        output = "WSL version: 2.4.4.0\nUnknown field: somevalue\n"
         result = wsl_core.parse_wsl_version(output)
         self.assertIn("wsl", result)
         self.assertNotIn("Unknown field", result)
@@ -838,8 +826,8 @@ class TestParseWslVersion(unittest.TestCase):
 # parse_wsl_update_output
 # ---------------------------------------------------------------------------
 
-class TestParseWslUpdateOutput(unittest.TestCase):
 
+class TestParseWslUpdateOutput(unittest.TestCase):
     def test_japanese_up_to_date(self):
         """日本語の「既に最新」出力を up_to_date=True と判定する。"""
         output = "最新バージョンの Windows Subsystem for Linux は既にインストールされています。"
@@ -924,8 +912,8 @@ class TestParseWslUpdateOutput(unittest.TestCase):
 # parse_ip_addresses
 # ---------------------------------------------------------------------------
 
-class TestParseIpAddresses(unittest.TestCase):
 
+class TestParseIpAddresses(unittest.TestCase):
     def test_single_ipv4(self):
         """単一の IPv4 アドレスを返す。"""
         result = wsl_core.parse_ip_addresses("192.168.1.1")
@@ -988,13 +976,13 @@ class TestParseIpAddresses(unittest.TestCase):
 # parse_os_release
 # ---------------------------------------------------------------------------
 
-class TestParseOsRelease(unittest.TestCase):
 
+class TestParseOsRelease(unittest.TestCase):
     UBUNTU_OUTPUT = (
         'NAME="Ubuntu"\n'
         'VERSION="22.04.3 LTS (Jammy Jellyfish)"\n'
-        'ID=ubuntu\n'
-        'ID_LIKE=debian\n'
+        "ID=ubuntu\n"
+        "ID_LIKE=debian\n"
         'PRETTY_NAME="Ubuntu 22.04.3 LTS"\n'
         'VERSION_ID="22.04"\n'
         'HOME_URL="https://www.ubuntu.com/"\n'
@@ -1055,8 +1043,8 @@ class TestParseOsRelease(unittest.TestCase):
 # parse_disk_usage
 # ---------------------------------------------------------------------------
 
-class TestParseDiskUsage(unittest.TestCase):
 
+class TestParseDiskUsage(unittest.TestCase):
     TYPICAL_OUTPUT = (
         "Filesystem       1B-blocks        Used   Available Use% Mounted on\n"
         "none           270389592064 16416915456 253972676608   7% /mnt/wslg\n"
@@ -1122,8 +1110,8 @@ class TestParseDiskUsage(unittest.TestCase):
 # parse_uptime
 # ---------------------------------------------------------------------------
 
-class TestParseUptime(unittest.TestCase):
 
+class TestParseUptime(unittest.TestCase):
     def test_hours_minutes(self):
         """時間と分を含む uptime -p 出力をそのまま返す。"""
         self.assertEqual(wsl_core.parse_uptime("up 2 hours, 30 minutes"), "up 2 hours, 30 minutes")
@@ -1151,8 +1139,8 @@ class TestParseUptime(unittest.TestCase):
 # validate_distro_name
 # ---------------------------------------------------------------------------
 
-class TestValidateDistroName(unittest.TestCase):
 
+class TestValidateDistroName(unittest.TestCase):
     def test_valid_name(self):
         """通常のディストロ名は有効。"""
         valid, reason = wsl_core.validate_distro_name("Ubuntu")
@@ -1179,7 +1167,7 @@ class TestValidateDistroName(unittest.TestCase):
 
     def test_invalid_chars(self):
         """使用禁止文字を含む名前は無効。"""
-        invalid_chars = ['/', '\\', ':', '*', '?', '"', '<', '>', '|']
+        invalid_chars = ["/", "\\", ":", "*", "?", '"', "<", ">", "|"]
         for char in invalid_chars:
             with self.subTest(char=char):
                 valid, reason = wsl_core.validate_distro_name(f"distro{char}name")
@@ -1192,7 +1180,7 @@ class TestValidateDistroName(unittest.TestCase):
         `wslmgr.WSLManager._open_terminal` がこの名前を含めて cmd.exe/wt.exe を
         起動するため、それらが特別扱いする文字は使用禁止とする (#security)。
         """
-        shell_metachars = ['&', ';', '%', '^', '(', ')']
+        shell_metachars = ["&", ";", "%", "^", "(", ")"]
         for char in shell_metachars:
             with self.subTest(char=char):
                 valid, reason = wsl_core.validate_distro_name(f"distro{char}name")
@@ -1275,13 +1263,11 @@ class TestValidateDistroName(unittest.TestCase):
 # default_clone_name
 # ---------------------------------------------------------------------------
 
-class TestDefaultCloneName(unittest.TestCase):
 
+class TestDefaultCloneName(unittest.TestCase):
     def test_no_conflict(self):
         """衝突がない場合は '-copy' を返す。"""
-        self.assertEqual(
-            wsl_core.default_clone_name("Ubuntu", ["Ubuntu", "Debian"]), "Ubuntu-copy"
-        )
+        self.assertEqual(wsl_core.default_clone_name("Ubuntu", ["Ubuntu", "Debian"]), "Ubuntu-copy")
 
     def test_copy_exists(self):
         """'-copy' が既に存在する場合は '-copy2' を返す。"""
@@ -1293,9 +1279,7 @@ class TestDefaultCloneName(unittest.TestCase):
     def test_copy_and_copy2_exist(self):
         """'-copy' と '-copy2' が既に存在する場合は '-copy3' を返す。"""
         self.assertEqual(
-            wsl_core.default_clone_name(
-                "Ubuntu", ["Ubuntu", "Ubuntu-copy", "Ubuntu-copy2"]
-            ),
+            wsl_core.default_clone_name("Ubuntu", ["Ubuntu", "Ubuntu-copy", "Ubuntu-copy2"]),
             "Ubuntu-copy3",
         )
 
@@ -1315,8 +1299,8 @@ class TestDefaultCloneName(unittest.TestCase):
 # validate_clone_name
 # ---------------------------------------------------------------------------
 
-class TestValidateCloneName(unittest.TestCase):
 
+class TestValidateCloneName(unittest.TestCase):
     def test_valid_name_not_in_existing(self):
         """existing に無い有効な名前は有効。"""
         valid, reason = wsl_core.validate_clone_name("Ubuntu-copy", ["Ubuntu"])
@@ -1358,8 +1342,8 @@ class TestValidateCloneName(unittest.TestCase):
 # format_bytes
 # ---------------------------------------------------------------------------
 
-class TestFormatBytes(unittest.TestCase):
 
+class TestFormatBytes(unittest.TestCase):
     def test_zero(self):
         """0 は '0 B' を返す。"""
         self.assertEqual(wsl_core.format_bytes(0), "0 B")
@@ -1401,14 +1385,31 @@ class TestFormatBytes(unittest.TestCase):
 # build_distro_snapshot
 # ---------------------------------------------------------------------------
 
+
 class TestBuildDistroSnapshot(unittest.TestCase):
     """build_distro_snapshot のテスト。"""
 
     DISTROS: ClassVar[list[dict[str, object]]] = [
-        {"name": "Ubuntu", "state": "Running", "version": "2", "default": True,
-         "cpu": "-", "memory": "-", "disk": "-", "ip": "-"},
-        {"name": "Debian", "state": "Stopped", "version": "2", "default": False,
-         "cpu": "-", "memory": "-", "disk": "-", "ip": "-"},
+        {
+            "name": "Ubuntu",
+            "state": "Running",
+            "version": "2",
+            "default": True,
+            "cpu": "-",
+            "memory": "-",
+            "disk": "-",
+            "ip": "-",
+        },
+        {
+            "name": "Debian",
+            "state": "Stopped",
+            "version": "2",
+            "default": False,
+            "cpu": "-",
+            "memory": "-",
+            "disk": "-",
+            "ip": "-",
+        },
     ]
 
     def test_explicit_timestamp_preserved(self):
@@ -1479,6 +1480,7 @@ class TestBuildDistroSnapshot(unittest.TestCase):
 # ---------------------------------------------------------------------------
 # format_snapshot_summary
 # ---------------------------------------------------------------------------
+
 
 class TestFormatSnapshotSummary(unittest.TestCase):
     """format_snapshot_summary のテスト。"""
@@ -1558,6 +1560,7 @@ class TestFormatSnapshotSummary(unittest.TestCase):
 # format_operation_log_entry
 # ---------------------------------------------------------------------------
 
+
 class TestFormatOperationLogEntry(unittest.TestCase):
     """format_operation_log_entry のテスト。"""
 
@@ -1629,6 +1632,7 @@ class TestFormatOperationLogEntry(unittest.TestCase):
 # ---------------------------------------------------------------------------
 # diff_snapshots
 # ---------------------------------------------------------------------------
+
 
 class TestDiffSnapshots(unittest.TestCase):
     """diff_snapshots のテスト。"""
@@ -1745,7 +1749,7 @@ class TestDiffSnapshots(unittest.TestCase):
             {"name": "Debian", "state": "Stopped"},
         ]
         new_distros = [
-            {"name": "Ubuntu", "state": "Stopped"},   # state 変化
+            {"name": "Ubuntu", "state": "Stopped"},  # state 変化
             {"name": "kali-linux", "state": "Running"},  # 追加
             # Debian は削除
         ]
@@ -1782,8 +1786,8 @@ class TestDiffSnapshots(unittest.TestCase):
 # validate_memory_string
 # ---------------------------------------------------------------------------
 
-class TestValidateMemoryString(unittest.TestCase):
 
+class TestValidateMemoryString(unittest.TestCase):
     def test_empty_string_is_valid(self):
         """空文字列は有効 (未設定)。"""
         valid, reason = wsl_core.validate_memory_string("")
@@ -1909,8 +1913,8 @@ class TestValidateMemoryString(unittest.TestCase):
 # validate_processors_string
 # ---------------------------------------------------------------------------
 
-class TestValidateProcessorsString(unittest.TestCase):
 
+class TestValidateProcessorsString(unittest.TestCase):
     def test_empty_string_is_valid(self):
         """空文字列は有効 (未設定)。"""
         valid, reason = wsl_core.validate_processors_string("")
@@ -1994,8 +1998,8 @@ class TestValidateProcessorsString(unittest.TestCase):
 # validate_swap_string
 # ---------------------------------------------------------------------------
 
-class TestValidateSwapString(unittest.TestCase):
 
+class TestValidateSwapString(unittest.TestCase):
     def test_empty_string_is_valid(self):
         """空文字列は有効 (未設定)。"""
         valid, reason = wsl_core.validate_swap_string("")
@@ -2079,15 +2083,15 @@ class TestValidateSwapString(unittest.TestCase):
 # parse_memory_to_bytes
 # ---------------------------------------------------------------------------
 
-class TestParseMemoryToBytes(unittest.TestCase):
 
+class TestParseMemoryToBytes(unittest.TestCase):
     def test_gb(self):
         """4GB → 4 * 1024^3 バイト。"""
-        self.assertEqual(wsl_core.parse_memory_to_bytes("4GB"), 4 * 1024 ** 3)
+        self.assertEqual(wsl_core.parse_memory_to_bytes("4GB"), 4 * 1024**3)
 
     def test_mb(self):
         """512MB → 512 * 1024^2 バイト。"""
-        self.assertEqual(wsl_core.parse_memory_to_bytes("512MB"), 512 * 1024 ** 2)
+        self.assertEqual(wsl_core.parse_memory_to_bytes("512MB"), 512 * 1024**2)
 
     def test_kb(self):
         """1024KB → 1024 * 1024 バイト。"""
@@ -2095,7 +2099,7 @@ class TestParseMemoryToBytes(unittest.TestCase):
 
     def test_tb(self):
         """2TB → 2 * 1024^4 バイト。"""
-        self.assertEqual(wsl_core.parse_memory_to_bytes("2TB"), 2 * 1024 ** 4)
+        self.assertEqual(wsl_core.parse_memory_to_bytes("2TB"), 2 * 1024**4)
 
     def test_bare_number(self):
         """単位なし数字はそのままバイト数として返す。"""
@@ -2103,11 +2107,11 @@ class TestParseMemoryToBytes(unittest.TestCase):
 
     def test_lowercase_gb(self):
         """小文字 gb も正しく変換される。"""
-        self.assertEqual(wsl_core.parse_memory_to_bytes("4gb"), 4 * 1024 ** 3)
+        self.assertEqual(wsl_core.parse_memory_to_bytes("4gb"), 4 * 1024**3)
 
     def test_lowercase_mb(self):
         """小文字 mb も正しく変換される。"""
-        self.assertEqual(wsl_core.parse_memory_to_bytes("256mb"), 256 * 1024 ** 2)
+        self.assertEqual(wsl_core.parse_memory_to_bytes("256mb"), 256 * 1024**2)
 
     def test_lowercase_kb(self):
         """小文字 kb も正しく変換される。"""
@@ -2164,15 +2168,15 @@ class TestParseMemoryToBytes(unittest.TestCase):
 
     def test_large_value(self):
         """大きな値でも正確に変換される。"""
-        self.assertEqual(wsl_core.parse_memory_to_bytes("16384MB"), 16384 * 1024 ** 2)
+        self.assertEqual(wsl_core.parse_memory_to_bytes("16384MB"), 16384 * 1024**2)
 
 
 # ---------------------------------------------------------------------------
 # get_default_log_dir
 # ---------------------------------------------------------------------------
 
-class TestGetDefaultLogDir(unittest.TestCase):
 
+class TestGetDefaultLogDir(unittest.TestCase):
     def test_windows_uses_appdata(self):
         """Windows 環境では APPDATA 配下の WSLManager/logs を返す。"""
         with mock.patch.object(wsl_core.sys, "platform", "win32"):
@@ -2214,8 +2218,8 @@ class TestGetDefaultLogDir(unittest.TestCase):
 # serialize_log_entry
 # ---------------------------------------------------------------------------
 
-class TestSerializeLogEntry(unittest.TestCase):
 
+class TestSerializeLogEntry(unittest.TestCase):
     def test_with_explicit_timestamp(self):
         """timestamp を指定した場合はその値がそのまま使われる。"""
         result = wsl_core.serialize_log_entry(
@@ -2279,17 +2283,13 @@ class TestSerializeLogEntry(unittest.TestCase):
 
     def test_source_included_when_given(self):
         """source を指定すると "source" キーとして出力される。"""
-        result = wsl_core.serialize_log_entry(
-            "起動", "Ubuntu", "成功", timestamp="t", source="cli"
-        )
+        result = wsl_core.serialize_log_entry("起動", "Ubuntu", "成功", timestamp="t", source="cli")
         data = json.loads(result)
         self.assertEqual(data["source"], "cli")
 
     def test_source_gui_value(self):
         """source="gui" もそのまま出力される。"""
-        result = wsl_core.serialize_log_entry(
-            "停止", "Ubuntu", "成功", timestamp="t", source="gui"
-        )
+        result = wsl_core.serialize_log_entry("停止", "Ubuntu", "成功", timestamp="t", source="gui")
         data = json.loads(result)
         self.assertEqual(data["source"], "gui")
 
@@ -2298,8 +2298,8 @@ class TestSerializeLogEntry(unittest.TestCase):
 # deserialize_log_entries
 # ---------------------------------------------------------------------------
 
-class TestDeserializeLogEntries(unittest.TestCase):
 
+class TestDeserializeLogEntries(unittest.TestCase):
     def test_valid_json_lines(self):
         """有効な JSON Lines を複数行パースしてリストを返す。"""
         text = (
@@ -2355,8 +2355,8 @@ class TestDeserializeLogEntries(unittest.TestCase):
 # format_log_entry_from_dict
 # ---------------------------------------------------------------------------
 
-class TestFormatLogEntryFromDict(unittest.TestCase):
 
+class TestFormatLogEntryFromDict(unittest.TestCase):
     def test_normal_dict(self):
         """すべてのキーが揃った dict を正しくフォーマットする。"""
         entry = {
@@ -2395,8 +2395,8 @@ class TestFormatLogEntryFromDict(unittest.TestCase):
 # rotate_log_files
 # ---------------------------------------------------------------------------
 
-class TestRotateLogFiles(unittest.TestCase):
 
+class TestRotateLogFiles(unittest.TestCase):
     def setUp(self):
         self.tmpdir = tempfile.mkdtemp()
 
@@ -2467,8 +2467,8 @@ class TestRotateLogFiles(unittest.TestCase):
 # tail_entries
 # ---------------------------------------------------------------------------
 
-class TestTailEntries(unittest.TestCase):
 
+class TestTailEntries(unittest.TestCase):
     def test_n_less_than_len(self):
         """n が要素数未満の場合は末尾 n 件を返す。"""
         self.assertEqual(wsl_core.tail_entries([1, 2, 3, 4, 5], 2), [4, 5])
@@ -2512,8 +2512,8 @@ class TestTailEntries(unittest.TestCase):
 # validate_port_number
 # ---------------------------------------------------------------------------
 
-class TestValidatePortNumber(unittest.TestCase):
 
+class TestValidatePortNumber(unittest.TestCase):
     def test_empty_string(self):
         """空文字列は無効。"""
         valid, reason = wsl_core.validate_port_number("")
@@ -2573,8 +2573,8 @@ class TestValidatePortNumber(unittest.TestCase):
 # parse_portproxy_output
 # ---------------------------------------------------------------------------
 
-class TestParsePortproxyOutput(unittest.TestCase):
 
+class TestParsePortproxyOutput(unittest.TestCase):
     def test_typical_output(self):
         """典型的な netsh portproxy 出力を解析する。"""
         output = (
@@ -2646,13 +2646,13 @@ class TestParsePortproxyOutput(unittest.TestCase):
 # parse_ss_output
 # ---------------------------------------------------------------------------
 
-class TestParseSsOutput(unittest.TestCase):
 
+class TestParseSsOutput(unittest.TestCase):
     def test_ipv4_entry(self):
         """IPv4 のリスニングソケットを解析する。"""
         output = (
             "State    Recv-Q   Send-Q   Local Address:Port   Peer Address:Port   Process\n"
-            'LISTEN   0        128      0.0.0.0:22           0.0.0.0:*           '
+            "LISTEN   0        128      0.0.0.0:22           0.0.0.0:*           "
             'users:(("sshd",pid=1,fd=3))\n'
         )
         result = wsl_core.parse_ss_output(output)
@@ -2665,7 +2665,7 @@ class TestParseSsOutput(unittest.TestCase):
         """IPv6 (角括弧表記) のリスニングソケットを解析する。"""
         output = (
             "State    Recv-Q   Send-Q   Local Address:Port   Peer Address:Port   Process\n"
-            'LISTEN   0        128      [::]:22              [::]:*              '
+            "LISTEN   0        128      [::]:22              [::]:*              "
             'users:(("sshd",pid=1,fd=4))\n'
         )
         result = wsl_core.parse_ss_output(output)
@@ -2677,9 +2677,9 @@ class TestParseSsOutput(unittest.TestCase):
         """複数のリスニングソケットをすべて解析する。"""
         output = (
             "State    Recv-Q   Send-Q   Local Address:Port   Peer Address:Port   Process\n"
-            'LISTEN   0        128      0.0.0.0:22           0.0.0.0:*           '
+            "LISTEN   0        128      0.0.0.0:22           0.0.0.0:*           "
             'users:(("sshd",pid=1,fd=3))\n'
-            'LISTEN   0        511      127.0.0.1:3000       0.0.0.0:*           '
+            "LISTEN   0        511      127.0.0.1:3000       0.0.0.0:*           "
             'users:(("node",pid=42,fd=18))\n'
         )
         result = wsl_core.parse_ss_output(output)
@@ -2717,8 +2717,8 @@ class TestParseSsOutput(unittest.TestCase):
 # detect_network_mode
 # ---------------------------------------------------------------------------
 
-class TestDetectNetworkMode(unittest.TestCase):
 
+class TestDetectNetworkMode(unittest.TestCase):
     def test_mirrored_mode(self):
         """networkingMode が mirrored の場合は 'mirrored' を返す。"""
         config = {"wsl2": {"networkingMode": "mirrored"}}
@@ -2758,8 +2758,8 @@ class TestDetectNetworkMode(unittest.TestCase):
 # get_default_settings_path
 # ---------------------------------------------------------------------------
 
-class TestGetDefaultSettingsPath(unittest.TestCase):
 
+class TestGetDefaultSettingsPath(unittest.TestCase):
     def test_windows_uses_appdata(self):
         """Windows 環境では APPDATA 配下の WSLManager/settings.json を返す。"""
         with mock.patch.object(wsl_core.sys, "platform", "win32"):
@@ -2802,14 +2802,14 @@ class TestGetDefaultSettingsPath(unittest.TestCase):
 # is_valid_geometry
 # ---------------------------------------------------------------------------
 
-class TestIsValidGeometry(unittest.TestCase):
 
+class TestIsValidGeometry(unittest.TestCase):
     def test_valid_with_offsets(self):
-        """"WxH+X+Y" 形式は妥当と判定される。"""
+        """ "WxH+X+Y" 形式は妥当と判定される。"""
         self.assertTrue(wsl_core.is_valid_geometry("960x460+100+50"))
 
     def test_valid_without_offsets(self):
-        """"WxH" のみの形式も妥当と判定される。"""
+        """ "WxH" のみの形式も妥当と判定される。"""
         self.assertTrue(wsl_core.is_valid_geometry("100x200"))
 
     def test_valid_negative_offsets(self):
@@ -2865,8 +2865,8 @@ class TestIsValidGeometry(unittest.TestCase):
 # normalize_settings
 # ---------------------------------------------------------------------------
 
-class TestNormalizeSettings(unittest.TestCase):
 
+class TestNormalizeSettings(unittest.TestCase):
     def test_non_dict_returns_defaults(self):
         """dict でない入力の場合はデフォルト値を返す。"""
         for value in (None, "text", 123, [1, 2, 3]):
@@ -2977,8 +2977,8 @@ class TestNormalizeSettings(unittest.TestCase):
 # load_settings / save_settings
 # ---------------------------------------------------------------------------
 
-class TestLoadSettings(unittest.TestCase):
 
+class TestLoadSettings(unittest.TestCase):
     def setUp(self):
         self.tmpdir = tempfile.mkdtemp()
 
@@ -3023,7 +3023,6 @@ class TestLoadSettings(unittest.TestCase):
 
 
 class TestSaveSettings(unittest.TestCase):
-
     def setUp(self):
         self.tmpdir = tempfile.mkdtemp()
 
@@ -3081,8 +3080,8 @@ class TestSaveSettings(unittest.TestCase):
 # atomic_write_text
 # ---------------------------------------------------------------------------
 
-class TestAtomicWriteText(unittest.TestCase):
 
+class TestAtomicWriteText(unittest.TestCase):
     def setUp(self):
         self.tmpdir = tempfile.mkdtemp()
 
@@ -3143,6 +3142,7 @@ class TestAtomicWriteText(unittest.TestCase):
 # save_wslconfig
 # ---------------------------------------------------------------------------
 
+
 class TestSaveWslconfig(unittest.TestCase):
     """save_wslconfig (#25: .wslconfig をアトミックに保存する合成 API) のテスト。"""
 
@@ -3195,8 +3195,8 @@ class TestSaveWslconfig(unittest.TestCase):
 # estimate_transfer_progress
 # ---------------------------------------------------------------------------
 
-class TestEstimateTransferProgress(unittest.TestCase):
 
+class TestEstimateTransferProgress(unittest.TestCase):
     def test_normal_progress(self):
         """途中経過の進捗率を計算する。"""
         self.assertEqual(wsl_core.estimate_transfer_progress(50, 200), 25.0)
@@ -3227,14 +3227,12 @@ class TestEstimateTransferProgress(unittest.TestCase):
 # estimate_remaining_seconds
 # ---------------------------------------------------------------------------
 
-class TestEstimateRemainingSeconds(unittest.TestCase):
 
+class TestEstimateRemainingSeconds(unittest.TestCase):
     def test_linear_estimate(self):
         """平均速度から残り時間を線形推定する。"""
         # 10秒で100バイト → 10バイト/秒。残り300バイト → 30秒
-        self.assertAlmostEqual(
-            wsl_core.estimate_remaining_seconds(100, 400, 10), 30.0
-        )
+        self.assertAlmostEqual(wsl_core.estimate_remaining_seconds(100, 400, 10), 30.0)
 
     def test_completed_returns_zero(self):
         """current が total 以上なら 0.0 を返す。"""
@@ -3258,8 +3256,8 @@ class TestEstimateRemainingSeconds(unittest.TestCase):
 # format_duration
 # ---------------------------------------------------------------------------
 
-class TestFormatDuration(unittest.TestCase):
 
+class TestFormatDuration(unittest.TestCase):
     def test_seconds_only(self):
         self.assertEqual(wsl_core.format_duration(5), "0:05")
 
@@ -3280,12 +3278,12 @@ class TestFormatDuration(unittest.TestCase):
 # format_transfer_status
 # ---------------------------------------------------------------------------
 
-class TestFormatTransferStatus(unittest.TestCase):
 
+class TestFormatTransferStatus(unittest.TestCase):
     def test_with_total(self):
         """total が分かる場合はサイズ・進捗率・経過・残り時間を含む。"""
         # 10秒で 1 GiB / 4 GiB → 25%、残り 30 秒
-        gib = 1024 ** 3
+        gib = 1024**3
         result = wsl_core.format_transfer_status(gib, 4 * gib, 10)
         self.assertIn("1.0 GiB / 4.0 GiB", result)
         self.assertIn("(25.0%)", result)
@@ -3294,7 +3292,7 @@ class TestFormatTransferStatus(unittest.TestCase):
 
     def test_without_total(self):
         """total が不明な場合は書き込み済みサイズと経過時間のみ。"""
-        result = wsl_core.format_transfer_status(1024 ** 2, None, 65)
+        result = wsl_core.format_transfer_status(1024**2, None, 65)
         self.assertIn("1.0 MiB 書き込み済み", result)
         self.assertIn("経過 1:05", result)
         self.assertNotIn("残り", result)
@@ -3310,8 +3308,8 @@ class TestFormatTransferStatus(unittest.TestCase):
 # validate_wslconf_bool
 # ---------------------------------------------------------------------------
 
-class TestValidateWslconfBool(unittest.TestCase):
 
+class TestValidateWslconfBool(unittest.TestCase):
     def test_empty_is_valid(self):
         """空文字列は未設定として有効。"""
         valid, reason = wsl_core.validate_wslconf_bool("")
@@ -3319,13 +3317,13 @@ class TestValidateWslconfBool(unittest.TestCase):
         self.assertEqual(reason, "")
 
     def test_true_is_valid(self):
-        """"true" は有効。"""
+        """ "true" は有効。"""
         valid, reason = wsl_core.validate_wslconf_bool("true")
         self.assertTrue(valid)
         self.assertEqual(reason, "")
 
     def test_false_is_valid(self):
-        """"false" は有効。"""
+        """ "false" は有効。"""
         valid, reason = wsl_core.validate_wslconf_bool("false")
         self.assertTrue(valid)
         self.assertEqual(reason, "")
@@ -3353,8 +3351,8 @@ class TestValidateWslconfBool(unittest.TestCase):
 # validate_linux_username
 # ---------------------------------------------------------------------------
 
-class TestValidateLinuxUsername(unittest.TestCase):
 
+class TestValidateLinuxUsername(unittest.TestCase):
     def test_empty_is_valid(self):
         """空文字列は未設定として有効。"""
         valid, reason = wsl_core.validate_linux_username("")
@@ -3414,8 +3412,8 @@ class TestValidateLinuxUsername(unittest.TestCase):
 # validate_mount_root
 # ---------------------------------------------------------------------------
 
-class TestValidateMountRoot(unittest.TestCase):
 
+class TestValidateMountRoot(unittest.TestCase):
     def test_empty_is_valid(self):
         """空文字列は未設定として有効。"""
         valid, reason = wsl_core.validate_mount_root("")
@@ -3451,8 +3449,8 @@ class TestValidateMountRoot(unittest.TestCase):
 # validate_hostname
 # ---------------------------------------------------------------------------
 
-class TestValidateHostname(unittest.TestCase):
 
+class TestValidateHostname(unittest.TestCase):
     def test_empty_is_valid(self):
         """空文字列は未設定として有効。"""
         valid, reason = wsl_core.validate_hostname("")
@@ -3512,8 +3510,8 @@ class TestValidateHostname(unittest.TestCase):
 # get_default_snapshot_dir
 # ---------------------------------------------------------------------------
 
-class TestGetDefaultSnapshotDir(unittest.TestCase):
 
+class TestGetDefaultSnapshotDir(unittest.TestCase):
     def test_windows_uses_userprofile(self):
         """Windows 環境では USERPROFILE 配下の WSLSnapshots を返す。"""
         with mock.patch.object(wsl_core.sys, "platform", "win32"):
@@ -3553,8 +3551,8 @@ class TestGetDefaultSnapshotDir(unittest.TestCase):
 # sanitize_snapshot_name
 # ---------------------------------------------------------------------------
 
-class TestSanitizeSnapshotName(unittest.TestCase):
 
+class TestSanitizeSnapshotName(unittest.TestCase):
     def test_normal_name_unchanged(self):
         """通常のディストリ名はそのまま維持される。"""
         self.assertEqual(wsl_core.sanitize_snapshot_name("Ubuntu-22.04"), "Ubuntu-22.04")
@@ -3593,8 +3591,8 @@ class TestSanitizeSnapshotName(unittest.TestCase):
 # build_snapshot_basename
 # ---------------------------------------------------------------------------
 
-class TestBuildSnapshotBasename(unittest.TestCase):
 
+class TestBuildSnapshotBasename(unittest.TestCase):
     def test_combines_sanitized_name_and_timestamp(self):
         """サニタイズされた名前とタイムスタンプを _ で結合する。"""
         result = wsl_core.build_snapshot_basename("Ubuntu", "20260101-120000")
@@ -3615,8 +3613,8 @@ class TestBuildSnapshotBasename(unittest.TestCase):
 # build_snapshot_metadata
 # ---------------------------------------------------------------------------
 
-class TestBuildSnapshotMetadata(unittest.TestCase):
 
+class TestBuildSnapshotMetadata(unittest.TestCase):
     def test_returns_all_six_keys(self):
         """指定したキー（schema_version 含む）をすべて含む dict を返す。"""
         result = wsl_core.build_snapshot_metadata(
@@ -3652,8 +3650,8 @@ class TestBuildSnapshotMetadata(unittest.TestCase):
 # normalize_snapshot_metadata
 # ---------------------------------------------------------------------------
 
-class TestNormalizeSnapshotMetadata(unittest.TestCase):
 
+class TestNormalizeSnapshotMetadata(unittest.TestCase):
     def test_valid_data_passthrough(self):
         """妥当なデータはそのまま維持される。"""
         data = {
@@ -3799,8 +3797,8 @@ class TestNormalizeSnapshotMetadata(unittest.TestCase):
 # load_snapshots
 # ---------------------------------------------------------------------------
 
-class TestLoadSnapshots(unittest.TestCase):
 
+class TestLoadSnapshots(unittest.TestCase):
     def _write_json(self, dir_path, filename, data):
         path = os.path.join(dir_path, filename)
         with open(path, "w", encoding="utf-8") as f:
@@ -3829,9 +3827,7 @@ class TestLoadSnapshots(unittest.TestCase):
     def test_valid_json_without_tar_exists_false(self):
         """対応する tar ファイルが存在しない場合は tar_exists が False になる。"""
         with tempfile.TemporaryDirectory() as tmpdir:
-            self._write_json(
-                tmpdir, "a.json", {"distro_name": "Ubuntu", "tar_file": "missing.tar"}
-            )
+            self._write_json(tmpdir, "a.json", {"distro_name": "Ubuntu", "tar_file": "missing.tar"})
             result = wsl_core.load_snapshots(tmpdir)
         self.assertEqual(len(result), 1)
         self.assertFalse(result[0]["tar_exists"])
@@ -3911,8 +3907,8 @@ class TestLoadSnapshots(unittest.TestCase):
 # total_snapshots_size
 # ---------------------------------------------------------------------------
 
-class TestTotalSnapshotsSize(unittest.TestCase):
 
+class TestTotalSnapshotsSize(unittest.TestCase):
     def test_sums_existing_tar_sizes_only(self):
         """tar_exists が True のエントリのみ合計する。"""
         snapshots = [
@@ -3963,8 +3959,8 @@ class TestSnapshotsToPrune(unittest.TestCase):
 # write_snapshot_metadata
 # ---------------------------------------------------------------------------
 
-class TestWriteSnapshotMetadata(unittest.TestCase):
 
+class TestWriteSnapshotMetadata(unittest.TestCase):
     def setUp(self):
         self.tmpdir = tempfile.mkdtemp()
 
@@ -4009,8 +4005,8 @@ class TestWriteSnapshotMetadata(unittest.TestCase):
 # partial_write_path / finalize_partial_write / discard_partial_write
 # ---------------------------------------------------------------------------
 
-class TestFinalizePartialWrite(unittest.TestCase):
 
+class TestFinalizePartialWrite(unittest.TestCase):
     def setUp(self):
         self.tmpdir = tempfile.mkdtemp()
 
@@ -4077,7 +4073,6 @@ class TestFinalizePartialWrite(unittest.TestCase):
 
 
 class TestLogFilePaths(unittest.TestCase):
-
     def test_includes_base_and_backups(self):
         paths = wsl_core.log_file_paths("/logs", max_backups=3)
         self.assertEqual(
@@ -4114,7 +4109,6 @@ class TestLogFilePaths(unittest.TestCase):
 
 
 class TestDeleteLogFiles(unittest.TestCase):
-
     def setUp(self):
         self.tmpdir = tempfile.mkdtemp()
 
@@ -4181,7 +4175,6 @@ class TestDeleteLogFiles(unittest.TestCase):
 
 
 class TestAsyncLogWriter(unittest.TestCase):
-
     def setUp(self):
         self.tmpdir = tempfile.mkdtemp()
         self.writer = None
@@ -4201,9 +4194,7 @@ class TestAsyncLogWriter(unittest.TestCase):
 
     def test_log_path_uses_base_name(self):
         writer = self._make()
-        self.assertEqual(
-            writer.log_path, os.path.join(self.tmpdir, "operations.jsonl")
-        )
+        self.assertEqual(writer.log_path, os.path.join(self.tmpdir, "operations.jsonl"))
 
     def test_submit_writes_entry_after_flush(self):
         writer = self._make()
@@ -4221,9 +4212,7 @@ class TestAsyncLogWriter(unittest.TestCase):
             writer.submit("操作", f"distro-{i}", "実行")
         self.assertTrue(writer.flush(timeout=5.0))
         entries = self._read_entries()
-        self.assertEqual(
-            [e["target"] for e in entries], [f"distro-{i}" for i in range(20)]
-        )
+        self.assertEqual([e["target"] for e in entries], [f"distro-{i}" for i in range(20)])
 
     def test_appends_to_existing_file(self):
         writer = self._make()
@@ -4252,9 +4241,7 @@ class TestAsyncLogWriter(unittest.TestCase):
         for i in range(20):
             writer.submit("操作", f"distro-{i}", "実行")
         self.assertTrue(writer.flush(timeout=5.0))
-        self.assertTrue(
-            os.path.exists(os.path.join(self.tmpdir, "operations.1.jsonl"))
-        )
+        self.assertTrue(os.path.exists(os.path.join(self.tmpdir, "operations.1.jsonl")))
 
     def test_flush_returns_true_when_nothing_submitted(self):
         writer = self._make()
@@ -4366,14 +4353,11 @@ class TestAsyncLogWriter(unittest.TestCase):
         for i in range(20):
             writer.submit("操作", f"distro-{i}", "実行")
         self.assertTrue(writer.flush(timeout=5.0))
-        deleted, failed = wsl_core.delete_log_files(
-            self.tmpdir, max_backups=3
-        )
+        deleted, failed = wsl_core.delete_log_files(self.tmpdir, max_backups=3)
         self.assertGreaterEqual(deleted, 2)
         self.assertEqual(failed, [])
         self.assertEqual(
-            [p for p in wsl_core.log_file_paths(self.tmpdir, max_backups=3)
-             if os.path.exists(p)],
+            [p for p in wsl_core.log_file_paths(self.tmpdir, max_backups=3) if os.path.exists(p)],
             [],
         )
 
@@ -4444,6 +4428,7 @@ class TestAppendLogEntry(unittest.TestCase):
 # i18n
 # ---------------------------------------------------------------------------
 
+
 class TestI18n(unittest.TestCase):
     def test_detect_system_language(self):
         self.assertEqual(wsl_core.detect_system_language("ja_JP.UTF-8"), "ja")
@@ -4505,6 +4490,28 @@ class TestI18n(unittest.TestCase):
 
     def test_translate_unknown_key_fallback(self):
         self.assertEqual(wsl_core.translate("unknown.custom.key", "en"), "unknown.custom.key")
+
+
+class TestWslContainers(unittest.TestCase):
+    def test_semantic_version_and_capability(self):
+        self.assertEqual(wsl_core.parse_semantic_version("3.0.1.0"), (3, 0, 1))
+        self.assertIsNone(wsl_core.parse_semantic_version("unknown"))
+        self.assertTrue(wsl_core.wslc_capability("3.0.1")["available"])
+        self.assertFalse(wsl_core.wslc_capability("2.9.13")["available"])
+
+    def test_parse_wslc_json_and_summary(self):
+        records = wsl_core.parse_wslc_json(
+            '{"containers": [{"ID": "abc", "Name": "web", "Image": "nginx", '
+            '"State": {"Status": "running", "Health": "healthy"}}]}'
+        )
+        self.assertEqual(len(records), 1)
+        summary = wsl_core.container_summary(records[0])
+        self.assertEqual(summary["name"], "web")
+        self.assertEqual(summary["status"], "running")
+        self.assertEqual(summary["health"], "healthy")
+
+    def test_parse_wslc_json_rejects_non_json(self):
+        self.assertEqual(wsl_core.parse_wslc_json("not json"), [])
 
 
 if __name__ == "__main__":

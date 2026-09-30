@@ -24,6 +24,7 @@ WSL Manager は、WSL ディストリビューションを管理するための 
 - グローバル `%USERPROFILE%\.wslconfig` と各ディストリビューションの `/etc/wsl.conf` 編集
 - スパース VHD 化または `diskpart compact vdisk` による WSL2 VHDX 最適化
 - WSL バージョン、更新情報の表示と `wsl --update`
+- WSL 3.0.1 / WSL Containers の利用可否診断と、読み取り専用のコンテナ表示（GUI / CLI）
 - CLI からの `netsh interface portproxy` ルール管理
 - アプリ設定と操作ログの保存
 
@@ -70,6 +71,10 @@ python wslmgr_cli.py --language en --help
 python wslmgr_cli.py --version
 python wslmgr_cli.py list --with-ip --with-disk
 python wslmgr_cli.py list --format json
+python wslmgr_cli.py doctor --format json
+python wslmgr_cli.py container system-info
+python wslmgr_cli.py container list --format json
+python wslmgr_cli.py container inspect <name-or-id>
 python wslmgr_cli.py start Ubuntu
 python wslmgr_cli.py stop Ubuntu
 python wslmgr_cli.py shutdown
@@ -91,7 +96,11 @@ python wslmgr_cli.py unmount C:\disks\data.vhdx
 python wslmgr_cli.py log clear --yes
 ```
 
-CLI サブコマンドには `list`、`start`、`stop`、`shutdown`、`status`、`export`、`import`、`config`、`set-default`、`unregister`、`install`、`optimize`、`set-version`、`processes`、`log` (`clear`)、`portproxy` (`list`/`add`/`delete`)、`snapshot` (`create`/`list`/`restore`/`delete`/`prune`/`set-dir`/`schedule`)、`clone`、`mount`、`unmount` があります。
+CLI サブコマンドには `list`、`doctor`、`container` (`system-info`/`list`/`inspect`)、`start`、`stop`、`shutdown`、`status`、`export`、`import`、`config`、`set-default`、`unregister`、`install`、`optimize`、`set-version`、`processes`、`log` (`clear`)、`portproxy` (`list`/`add`/`delete`)、`snapshot` (`create`/`list`/`restore`/`delete`/`prune`/`set-dir`/`schedule`)、`clone`、`mount`、`unmount` があります。
+
+### WSL Containers（WSLc）
+
+WSL Containers の利用には **WSL 3.0.1 以降**が必要です。まず `wsl --update` を実行し、`doctor` で利用可否を確認してください。このリリースの GUI と CLI は読み取り専用であり、コンテナの作成・停止・削除・prune・ネットワーク変更は行いません。
 
 CLI は保存済みの GUI 言語設定（未指定ならシステム言語）を使ってトップレベルと
 `list` のヘルプ、および標準の一覧出力を表示します。サブコマンドの前に `--language auto`、`--language ja`、

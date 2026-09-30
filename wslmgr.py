@@ -2456,6 +2456,119 @@ class SnapshotManagerDialog(tk.Toplevel):
         self._reload()
 
 
+class ContainerManagerDialog(tk.Toplevel):
+    """Read-only WSL Containers list and inspection dialog."""
+
+    def __init__(self, parent: WSLManager) -> None:
+        super().__init__(parent)
+        self._parent = parent
+        self.title("WSL Containers")
+        self.geometry("760x390")
+        self.minsize(600, 300)
+        self.transient(parent)
+
+        frame = ttk.Frame(self, padding=12)
+        frame.pack(fill=tk.BOTH, expand=True)
+        self._status = tk.StringVar(value="Checking WSL Containers availability...")
+        ttk.Label(frame, textvariable=self._status).pack(anchor=tk.W, pady=(0, 8))
+        columns = ("id", "name", "image", "status", "health", "created")
+        self._tree = ttk.Treeview(frame, columns=columns, show="headings")
+        for key, label, width in (
+            ("id", "ID", 100),
+            ("name", "Name", 130),
+            ("image", "Image", 150),
+            ("status", "Status", 90),
+            ("health", "Health", 90),
+            ("created", "Created", 140),
+        ):
+            self._tree.heading(key, text=label)
+            self._tree.column(key, width=width, anchor=tk.W)
+        self._tree.pack(fill=tk.BOTH, expand=True)
+        self._tree.bind("<Double-1>", self._show_inspect)
+        buttons = ttk.Frame(frame)
+        buttons.pack(fill=tk.X, pady=(8, 0))
+        ttk.Button(buttons, text="Refresh", command=self._reload).pack(side=tk.LEFT)
+        ttk.Button(buttons, text="Inspect", command=self._show_inspect).pack(side=tk.LEFT, padx=6)
+        ttk.Button(buttons, text="Close", command=self.destroy).pack(side=tk.RIGHT)
+        self._reload()
+
+    def _reload(self) -> None:
+        self._status.set("Checking WSL Containers availability...")
+        for item in self._tree.get_children():
+            self._tree.delete(item)
+
+        def _run() -> None:
+            version_result = wsl_core.run_wsl(
+                ["--version"], timeout=10.0, creationflags=CREATE_NO_WINDOW
+            )
+            info = (
+                wsl_core.parse_wsl_version(version_result.stdout)
+                if version_result.returncode == 0
+                else {}
+            )
+            capability = wsl_core.wslc_capability(str(info.get("wsl", "")))
+            if not capability["available"]:
+                self.after(0, lambda: self._status.set(str(capability["reason"])))
+                return
+            result = wsl_core.run_command(
+                ["wslc", "container", "list", "--format", "json"],
+                timeout=15.0,
+                creationflags=CREATE_NO_WINDOW,
+            )
+            if result.returncode != 0:
+                message = (
+                    result.stderr.strip()
+                    or "WSL Containers command was not detected. Run wsl --update."
+                )
+                self.after(0, lambda: self._status.set(message))
+                return
+            rows = [
+                wsl_core.container_summary(item) for item in wsl_core.parse_wslc_json(result.stdout)
+            ]
+
+            def _done() -> None:
+                if not self.winfo_exists():
+                    return
+                for row in rows:
+                    self._tree.insert(
+                        "",
+                        tk.END,
+                        values=tuple(
+                            row[key]
+                            for key in ("id", "name", "image", "status", "health", "created")
+                        ),
+                    )
+                self._status.set(
+                    f"{len(rows)} container(s) found. Read-only view; "
+                    "lifecycle actions are not available."
+                )
+
+            self.after(0, _done)
+
+        threading.Thread(target=_run, daemon=True).start()
+
+    def _show_inspect(self, _event: object | None = None) -> None:
+        selection = self._tree.selection()
+        if not selection:
+            return
+        values = self._tree.item(selection[0], "values")
+        name = str(values[1] or values[0])
+
+        def _run() -> None:
+            result = wsl_core.run_command(
+                ["wslc", "container", "inspect", name], timeout=15.0, creationflags=CREATE_NO_WINDOW
+            )
+            text = result.stdout.strip() if result.returncode == 0 else result.stderr.strip()
+            self.after(
+                0,
+                lambda: messagebox.showinfo(
+                    "Container inspection", text or "No inspection data.", parent=self
+                ),
+            )
+
+        threading.Thread(target=_run, daemon=True).start()
+
+
 class WSLManager(tk.Tk):
     """WSL2 ディストリビューション管理メインウィンドウ。"""
 
@@ -2626,6 +2739,10 @@ class WSLManager(tk.Tk):
         tools_menu.add_command(
             label=self._t("gui.action.snapshots"),
             command=self._open_snapshot_manager,
+        )
+        tools_menu.add_command(
+            label="WSL Containers...",
+            command=self._open_container_manager,
         )
         tools_menu.add_separator()
         tools_menu.add_command(
@@ -3851,6 +3968,10 @@ class WSLManager(tk.Tk):
         """スナップショット管理ダイアログを開きます。"""
         SnapshotManagerDialog(self)
 
+    def _open_container_manager(self) -> None:
+        """Open the read-only WSL Containers management dialog."""
+        ContainerManagerDialog(self)
+
     def _get_online_distros(self) -> tuple[list[str], str | None]:
         """``wsl --list --online`` からインストール可能なディストロ名を取得します。"""
         try:
@@ -4353,6 +4474,13 @@ class WSLManager(tk.Tk):
                     value = info.get(key)
                     if value is not None:
                         lines.append(f"{label}: {value}")
+                capability = wsl_core.wslc_capability(str(info.get("wsl", "")))
+                lines.append("")
+                lines.append(
+                    "WSL Containers: Available"
+                    if capability["available"]
+                    else f"WSL Containers: {capability['reason']}"
+                )
                 unparsed = info.get("_unparsed_lines")
                 if unparsed:
                     lines.append("")
