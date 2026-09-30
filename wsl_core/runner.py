@@ -99,3 +99,31 @@ def run_wsl(
             stderr=f"コマンド実行エラー: {e}",
             error="os_error",
         )
+
+
+def run_command(
+    command: list[str],
+    timeout: float = 30.0,
+    creationflags: int | None = None,
+) -> WslResult:
+    """Run a non-WSL executable with the same result/error contract as ``run_wsl``."""
+    if creationflags is None:
+        creationflags = 0x08000000 if sys.platform == "win32" else 0
+    try:
+        proc = subprocess.run(
+            command, capture_output=True, timeout=timeout, creationflags=creationflags
+        )
+        return WslResult(
+            returncode=proc.returncode,
+            stdout=decode_wsl_output(proc.stdout),
+            stderr=decode_wsl_output(proc.stderr),
+            error=None,
+        )
+    except FileNotFoundError:
+        return WslResult(
+            returncode=-1, stdout="", stderr=f"{command[0]} was not found.", error="not_found"
+        )
+    except subprocess.TimeoutExpired:
+        return WslResult(returncode=-1, stdout="", stderr="Command timed out.", error="timeout")
+    except OSError as exc:
+        return WslResult(returncode=-1, stdout="", stderr=f"Command error: {exc}", error="os_error")
