@@ -4513,6 +4513,11 @@ class TestWslContainers(unittest.TestCase):
     def test_parse_wslc_json_rejects_non_json(self):
         self.assertEqual(wsl_core.parse_wslc_json("not json"), [])
 
+    def test_container_summary_accepts_wslc_id_key(self):
+        summary = wsl_core.container_summary({"Id": "abc123", "Name": "web"})
+        self.assertEqual(summary["id"], "abc123")
+        self.assertEqual(summary["name"], "web")
+
 
 if __name__ == "__main__":
     unittest.main()

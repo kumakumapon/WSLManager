@@ -82,7 +82,7 @@ def container_summary(record: dict[str, Any]) -> dict[str, str]:
         status = str(state) if state else first("status", "Status")
         health = first("health", "Health")
     return {
-        "id": first("id", "ID", "container_id"),
+        "id": first("id", "Id", "ID", "container_id"),
         "name": first("name", "Name", "names"),
         "image": first("image", "Image"),
         "status": status or "-",
