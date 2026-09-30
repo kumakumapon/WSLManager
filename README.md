@@ -24,6 +24,7 @@ Key capabilities:
 - Edit global `%USERPROFILE%\.wslconfig` and per-distribution `/etc/wsl.conf` settings.
 - Optimize WSL2 VHDX disks using sparse VHD mode or `diskpart compact vdisk`.
 - View WSL version/update information and run `wsl --update`.
+- Diagnose WSL 3.0.1 / WSL Containers availability and inspect containers in a read-only GUI or CLI view.
 - Manage `netsh interface portproxy` forwarding rules from the CLI.
 - Persist app settings and operation logs.
 
@@ -71,6 +72,10 @@ python wslmgr_cli.py --language en --help
 python wslmgr_cli.py --version
 python wslmgr_cli.py list --with-ip --with-disk
 python wslmgr_cli.py list --format json
+python wslmgr_cli.py doctor --format json
+python wslmgr_cli.py container system-info
+python wslmgr_cli.py container list --format json
+python wslmgr_cli.py container inspect <name-or-id>
 python wslmgr_cli.py start Ubuntu
 python wslmgr_cli.py stop Ubuntu
 python wslmgr_cli.py shutdown
@@ -92,7 +97,14 @@ python wslmgr_cli.py unmount C:\disks\data.vhdx
 python wslmgr_cli.py log clear --yes
 ```
 
-CLI subcommands include `list`, `start`, `stop`, `shutdown`, `status`, `export`, `import`, `config`, `set-default`, `unregister`, `install`, `optimize`, `set-version`, `processes`, `log` (`clear`), `portproxy` (`list`/`add`/`delete`), `snapshot` (`create`/`list`/`restore`/`delete`/`prune`/`set-dir`/`schedule`), `clone`, `mount`, and `unmount`.
+CLI subcommands include `list`, `doctor`, `container` (`system-info`/`list`/`inspect`), `start`, `stop`, `shutdown`, `status`, `export`, `import`, `config`, `set-default`, `unregister`, `install`, `optimize`, `set-version`, `processes`, `log` (`clear`), `portproxy` (`list`/`add`/`delete`), `snapshot` (`create`/`list`/`restore`/`delete`/`prune`/`set-dir`/`schedule`), `clone`, `mount`, and `unmount`.
+
+### WSL Containers (WSLc)
+
+WSL Containers requires **WSL 3.0.1 or later**. Run `wsl --update`, then use
+`doctor` to verify the installed capability. The Containers GUI entry and CLI
+commands in this release are read-only: they do not create, stop, remove, prune,
+or change networks for containers.
 
 The CLI uses the saved GUI language preference (or the system language) for its
 localized top-level/list help and standard list output. Override it per invocation with
