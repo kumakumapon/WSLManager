@@ -16,6 +16,41 @@ LANGUAGE_AUTO = "auto"
 SUPPORTED_LANGUAGES = ("ja", "en")
 
 _MESSAGES: Mapping[str, Mapping[str, str]] = {
+    "containers.session": {"ja": "既存セッション名", "en": "Existing session name"},
+    "containers.all": {"ja": "停止中も表示", "en": "Include stopped containers"},
+    "containers.name": {"ja": "名前", "en": "Name"},
+    "containers.image": {"ja": "イメージ", "en": "Image"},
+    "containers.status": {"ja": "状態", "en": "Status"},
+    "containers.health": {"ja": "ヘルス", "en": "Health"},
+    "containers.created": {"ja": "作成日時", "en": "Created"},
+    "containers.inspect": {"ja": "コンテナ詳細", "en": "Inspect container"},
+    "containers.loading": {"ja": "WSL Containers を確認中…", "en": "Checking WSL Containers…"},
+    "containers.error": {"ja": "取得失敗: {error}", "en": "Request failed: {error}"},
+    "containers.count": {
+        "ja": "{count} 件。読み取り専用（作成・停止・削除は行いません）。",
+        "en": "{count} container(s). Read-only (no create, stop or delete actions).",
+    },
+    "containers.select": {
+        "ja": "既存セッションを選択してください。",
+        "en": "Select an existing session.",
+    },
+    "containers.none": {
+        "ja": "既存セッションがありません。自動作成は行いません。",
+        "en": "No existing sessions. Sessions are not created automatically.",
+    },
+    "containers.missing_id": {
+        "ja": "コンテナ ID または名前がないため詳細を取得できません。",
+        "en": "Cannot inspect a row without a container ID or name.",
+    },
+    "containers.inspected": {"ja": "詳細を取得しました。", "en": "Inspection complete."},
+    "containers.eligible": {
+        "ja": "WSL Containers: バージョン条件を満たします（サービスの利用可否は未確認）。",
+        "en": "WSL Containers: version eligible (service availability not checked).",
+    },
+    "containers.session_help": {
+        "ja": "container system-info に表示される既存セッションの Name",
+        "en": "Existing session Name from container system-info",
+    },
     # ── 言語名 ──
     "language.system": {"ja": "システム設定", "en": "System default"},
     "language.ja": {"ja": "日本語", "en": "Japanese"},

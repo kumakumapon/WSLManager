@@ -8,7 +8,9 @@ Windows 10/11 + WSL2 環境での使用を前提としています。
 from __future__ import annotations
 
 import concurrent.futures
+import json
 import os
+import queue
 import subprocess
 import sys
 import tempfile
@@ -2457,122 +2459,189 @@ class SnapshotManagerDialog(tk.Toplevel):
 
 
 class ContainerManagerDialog(tk.Toplevel):
-    """Read-only WSL Containers list and inspection dialog."""
+    """Read-only view of explicitly selected, existing WSLc sessions."""
 
     def __init__(self, parent: WSLManager) -> None:
         super().__init__(parent)
-        self._parent = parent
+        self._language = getattr(parent, "_language", wsl_core.LANGUAGE_AUTO)
+        self._results = queue.SimpleQueue()
+        self._busy = False
+        self._closed = False
+        self._poll_id = None
+        self._row_session = ""
         self.title("WSL Containers")
-        self.geometry("760x390")
+        self.geometry("900x450")
         self.minsize(600, 300)
         self.transient(parent)
+        self.protocol("WM_DELETE_WINDOW", self.destroy)
 
         frame = ttk.Frame(self, padding=12)
         frame.pack(fill=tk.BOTH, expand=True)
-        self._status = tk.StringVar(value="Checking WSL Containers availability...")
-        ttk.Label(frame, textvariable=self._status).pack(anchor=tk.W, pady=(0, 8))
+        self._status = tk.StringVar()
+        ttk.Label(frame, textvariable=self._status, wraplength=820).pack(anchor=tk.W)
+        options = ttk.Frame(frame)
+        options.pack(fill=tk.X, pady=8)
+        ttk.Label(options, text=self._t("containers.session")).pack(side=tk.LEFT)
+        self._session = tk.StringVar()
+        self._sessions = ttk.Combobox(
+            options, textvariable=self._session, state="readonly", width=36
+        )
+        self._sessions.pack(side=tk.LEFT, padx=6)
+        self._sessions.bind("<<ComboboxSelected>>", lambda _e: self._reload())
+        self._all = tk.BooleanVar(value=False)
+        self._all_button = ttk.Checkbutton(
+            options, text=self._t("containers.all"), variable=self._all, command=self._reload
+        )
+        self._all_button.pack(side=tk.LEFT)
         columns = ("id", "name", "image", "status", "health", "created")
-        self._tree = ttk.Treeview(frame, columns=columns, show="headings")
-        for key, label, width in (
-            ("id", "ID", 100),
-            ("name", "Name", 130),
-            ("image", "Image", 150),
-            ("status", "Status", 90),
-            ("health", "Health", 90),
-            ("created", "Created", 140),
-        ):
-            self._tree.heading(key, text=label)
-            self._tree.column(key, width=width, anchor=tk.W)
-        self._tree.pack(fill=tk.BOTH, expand=True)
+        table = ttk.Frame(frame)
+        table.pack(fill=tk.BOTH, expand=True)
+        self._tree = ttk.Treeview(table, columns=columns, show="headings", selectmode="browse")
+        for key in columns:
+            self._tree.heading(key, text="ID" if key == "id" else self._t(f"containers.{key}"))
+            self._tree.column(key, width=140, anchor=tk.W)
+        vertical = ttk.Scrollbar(table, orient=tk.VERTICAL, command=self._tree.yview)
+        horizontal = ttk.Scrollbar(table, orient=tk.HORIZONTAL, command=self._tree.xview)
+        self._tree.configure(yscrollcommand=vertical.set, xscrollcommand=horizontal.set)
+        self._tree.grid(row=0, column=0, sticky="nsew")
+        vertical.grid(row=0, column=1, sticky="ns")
+        horizontal.grid(row=1, column=0, sticky="ew")
+        table.rowconfigure(0, weight=1)
+        table.columnconfigure(0, weight=1)
         self._tree.bind("<Double-1>", self._show_inspect)
         buttons = ttk.Frame(frame)
         buttons.pack(fill=tk.X, pady=(8, 0))
-        ttk.Button(buttons, text="Refresh", command=self._reload).pack(side=tk.LEFT)
-        ttk.Button(buttons, text="Inspect", command=self._show_inspect).pack(side=tk.LEFT, padx=6)
-        ttk.Button(buttons, text="Close", command=self.destroy).pack(side=tk.RIGHT)
+        self._refresh_button = ttk.Button(
+            buttons, text=self._t("gui.common.refresh"), command=self._reload
+        )
+        self._refresh_button.pack(side=tk.LEFT)
+        self._inspect_button = ttk.Button(
+            buttons, text=self._t("containers.inspect"), command=self._show_inspect
+        )
+        self._inspect_button.pack(side=tk.LEFT, padx=6)
+        ttk.Button(buttons, text=self._t("gui.common.close"), command=self.destroy).pack(
+            side=tk.RIGHT
+        )
         self._reload()
 
+    def _t(self, key: str, **values: object) -> str:
+        return wsl_core.translate(key, self._language, **values)
+
+    def _start_task(self, work: Callable, done: Callable) -> None:
+        if self._busy or self._closed:
+            return
+        self._busy = True
+        for widget in (
+            self._refresh_button,
+            self._inspect_button,
+            self._all_button,
+            self._sessions,
+        ):
+            widget.configure(state="disabled")
+        self._status.set(self._t("containers.loading"))
+        results = self._results
+
+        def run() -> None:
+            try:
+                results.put((done, work(), None))
+            except Exception as exc:
+                results.put((done, None, str(exc)))
+
+        threading.Thread(target=run, daemon=True).start()
+        self._poll_id = self.after(50, self._poll_result)
+
+    def _poll_result(self) -> None:
+        self._poll_id = None
+        if self._closed:
+            return
+        try:
+            done, value, error = self._results.get_nowait()
+        except queue.Empty:
+            self._poll_id = self.after(50, self._poll_result)
+            return
+        self._busy = False
+        for widget in (self._refresh_button, self._inspect_button, self._all_button):
+            widget.configure(state="normal")
+        self._sessions.configure(state="readonly")
+        if error is not None:
+            self._status.set(self._t("containers.error", error=error))
+        else:
+            done(value)
+
+    def destroy(self) -> None:
+        self._closed = True
+        if self._poll_id is not None:
+            self.after_cancel(self._poll_id)
+            self._poll_id = None
+        super().destroy()
+
     def _reload(self) -> None:
-        self._status.set("Checking WSL Containers availability...")
+        if self._busy or self._closed:
+            return
+        session, include_all = self._session.get(), self._all.get()
+        self._row_session = ""
         for item in self._tree.get_children():
             self._tree.delete(item)
 
-        def _run() -> None:
-            version_result = wsl_core.run_wsl(
-                ["--version"], timeout=10.0, creationflags=CREATE_NO_WINDOW
+        def work():
+            client = wsl_core.WslcClient()
+            info = client.system_info()
+            names = [item["Name"] for item in info["Server"]["Sessions"]]
+            selected = session if session in names else (names[0] if len(names) == 1 else "")
+            records = (
+                client.list_containers(selected, all_containers=include_all) if selected else []
             )
-            info = (
-                wsl_core.parse_wsl_version(version_result.stdout)
-                if version_result.returncode == 0
-                else {}
+            return names, selected, records
+
+        def done(result):
+            names, selected, records = result
+            self._sessions.configure(values=names)
+            self._session.set(selected)
+            self._row_session = selected
+            for record in records:
+                row = wsl_core.container_summary(record)
+                self._tree.insert("", tk.END, values=tuple(row.values()))
+            key = (
+                "containers.count"
+                if selected
+                else "containers.select"
+                if names
+                else "containers.none"
             )
-            capability = wsl_core.wslc_capability(str(info.get("wsl", "")))
-            if not capability["available"]:
-                self.after(0, lambda: self._status.set(str(capability["reason"])))
-                return
-            result = wsl_core.run_command(
-                ["wslc", "container", "list", "--format", "json"],
-                timeout=15.0,
-                creationflags=CREATE_NO_WINDOW,
-            )
-            if result.returncode != 0:
-                message = (
-                    result.stderr.strip()
-                    or "WSL Containers command was not detected. Run wsl --update."
-                )
-                self.after(0, lambda: self._status.set(message))
-                return
-            rows = [
-                wsl_core.container_summary(item) for item in wsl_core.parse_wslc_json(result.stdout)
-            ]
+            self._status.set(self._t(key, count=len(records)))
 
-            def _done() -> None:
-                if not self.winfo_exists():
-                    return
-                for row in rows:
-                    self._tree.insert(
-                        "",
-                        tk.END,
-                        values=tuple(
-                            row[key]
-                            for key in ("id", "name", "image", "status", "health", "created")
-                        ),
-                    )
-                self._status.set(
-                    f"{len(rows)} container(s) found. Read-only view; "
-                    "lifecycle actions are not available."
-                )
-
-            self.after(0, _done)
-
-        threading.Thread(target=_run, daemon=True).start()
+        self._start_task(work, done)
 
     def _show_inspect(self, _event: object | None = None) -> None:
+        if self._busy or self._closed:
+            return
         selection = self._tree.selection()
-        if not selection:
+        if not selection or not self._row_session:
             return
         values = self._tree.item(selection[0], "values")
-        name = next(
-            (str(value) for value in (values[0], values[1]) if value and str(value) != "-"),
-            "",
-        )
+        name = next((str(v) for v in (values[0], values[1]) if v and str(v) != "-"), "")
         if not name:
-            self._status.set("Container ID or name is missing; cannot inspect this row.")
+            self._status.set(self._t("containers.missing_id"))
             return
+        session = self._row_session
 
-        def _run() -> None:
-            result = wsl_core.run_command(
-                ["wslc", "container", "inspect", name], timeout=15.0, creationflags=CREATE_NO_WINDOW
-            )
-            text = result.stdout.strip() if result.returncode == 0 else result.stderr.strip()
-            self.after(
-                0,
-                lambda: messagebox.showinfo(
-                    "Container inspection", text or "No inspection data.", parent=self
-                ),
-            )
+        def work():
+            return wsl_core.WslcClient().inspect_container(session, name)
 
-        threading.Thread(target=_run, daemon=True).start()
+        def done(records):
+            dialog = tk.Toplevel(self)
+            dialog.title(self._t("containers.inspect"))
+            dialog.geometry("760x500")
+            text = tk.Text(dialog, wrap=tk.NONE)
+            scroll = ttk.Scrollbar(dialog, command=text.yview)
+            scroll.pack(side=tk.RIGHT, fill=tk.Y)
+            text.configure(yscrollcommand=scroll.set)
+            text.pack(fill=tk.BOTH, expand=True)
+            text.insert("1.0", json.dumps(records, ensure_ascii=False, indent=2))
+            text.configure(state="disabled")
+            self._status.set(self._t("containers.inspected"))
+
+        self._start_task(work, done)
 
 
 class WSLManager(tk.Tk):
@@ -4483,8 +4552,8 @@ class WSLManager(tk.Tk):
                 capability = wsl_core.wslc_capability(str(info.get("wsl", "")))
                 lines.append("")
                 lines.append(
-                    "WSL Containers: Available"
-                    if capability["available"]
+                    self._t("containers.eligible")
+                    if capability["version_supported"]
                     else f"WSL Containers: {capability['reason']}"
                 )
                 unparsed = info.get("_unparsed_lines")

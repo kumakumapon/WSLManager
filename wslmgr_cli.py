@@ -164,85 +164,90 @@ def _print_structured(
 # ---------------------------------------------------------------------------
 
 
+def _wslc_client() -> wsl_core.WslcClient:
+    def run(args: list[str]) -> wsl_core.WslResult:
+        rc, stdout, stderr = _run_wslc_command(args)
+        return wsl_core.WslResult(returncode=rc, stdout=stdout, stderr=stderr, error=None)
+
+    return wsl_core.WslcClient(run)
+
+
 def _get_wslc_diagnostic() -> dict[str, object]:
-    """Collect WSL version and WSLc availability without changing machine state."""
+    """Probe package eligibility and the service separately, without creating sessions."""
     rc, stdout, stderr = _run_wsl_command(["--version"], timeout=10.0)
     version_info = wsl_core.parse_wsl_version(stdout) if rc == 0 else {}
     capability = wsl_core.wslc_capability(str(version_info.get("wsl", "")))
     result: dict[str, object] = {
         "wsl": version_info,
         "wslc": capability,
-        "wsl_command_error": stderr.strip() if rc != 0 else "",
+        "wsl_command_error": (stderr.strip() or stdout.strip() or f"wsl exited {rc}") if rc else "",
+        "wslc_command_available": False,
+        "wslc_command_error": "",
+        "wslc_system": None,
     }
-    if capability["available"]:
-        wslc_rc, wslc_out, wslc_err = _run_wslc_command(["system", "info", "--format", "json"])
-        result["wslc_command_available"] = wslc_rc == 0
-        result["wslc_command_error"] = wslc_err.strip() if wslc_rc != 0 else ""
-        result["wslc_system"] = wsl_core.parse_wslc_json(wslc_out) if wslc_rc == 0 else []
-    else:
-        result["wslc_command_available"] = False
+    if capability["version_supported"]:
+        try:
+            result["wslc_system"] = _wslc_client().system_info()
+            result["wslc_command_available"] = True
+            capability["available"] = True
+        except wsl_core.WslcError as exc:
+            result["wslc_command_error"] = str(exc)
+            capability["reason"] = str(exc)
     return result
 
 
 def cmd_doctor(args: argparse.Namespace) -> None:
-    """Show WSL 3.0.1 / WSL Containers capability diagnostics."""
+    """Report failures as well as package versions, with machine-readable stdout."""
     diagnostic = _get_wslc_diagnostic()
-    version_info = diagnostic["wsl"]
-    capability = diagnostic["wslc"]
+    version_info, capability = diagnostic["wsl"], diagnostic["wslc"]
     assert isinstance(version_info, dict) and isinstance(capability, dict)
     rows = [
         ["WSL", str(version_info.get("wsl", "-"))],
         ["Kernel", str(version_info.get("kernel", "-"))],
         ["WSLg", str(version_info.get("wslg", "-"))],
-        ["WSL Containers", "available" if capability["available"] else "update required"],
+        ["Windows", str(version_info.get("windows", "-"))],
         ["Minimum version", str(capability["minimum_version"])],
-        [
-            "wslc command",
-            "available" if diagnostic.get("wslc_command_available") else "not detected",
-        ],
+        ["WSL Containers service", "available" if capability["available"] else "unavailable"],
+        ["Reason", str(capability["reason"])],
     ]
     _print_structured(args, diagnostic, ["Component", "Status"], rows)
-    if diagnostic.get("wsl_command_error"):
-        print(str(diagnostic["wsl_command_error"]), file=sys.stderr)
+    if not capability["available"]:
+        print(str(diagnostic["wsl_command_error"] or capability["reason"]), file=sys.stderr)
         sys.exit(ExitCode.WSL_ERROR)
 
 
-def _require_wslc() -> None:
+def _require_wslc() -> dict:
     diagnostic = _get_wslc_diagnostic()
     capability = diagnostic["wslc"]
     assert isinstance(capability, dict)
-    if not capability["available"] or not diagnostic.get("wslc_command_available"):
-        message = str(
-            capability.get("reason") or "WSL Containers is not available. Run wsl --update."
-        )
-        print(f"Error: {message}", file=sys.stderr)
+    if not capability["available"]:
+        print(f"Error: {diagnostic['wsl_command_error'] or capability['reason']}", file=sys.stderr)
         sys.exit(ExitCode.WSL_ERROR)
+    return diagnostic["wslc_system"]
 
 
 def cmd_container_system_info(args: argparse.Namespace) -> None:
-    """Display read-only WSL Containers environment information."""
-    _require_wslc()
-    rc, stdout, stderr = _run_wslc_command(["system", "info", "--format", "json"])
-    if rc != 0:
-        print(f"Error: {stderr.strip() or 'wslc system info failed'}", file=sys.stderr)
-        sys.exit(ExitCode.WSL_ERROR)
-    records = wsl_core.parse_wslc_json(stdout)
+    """Preserve the official Client/Server object, with no duplicate service probe."""
+    info = _require_wslc()
     _print_structured(
         args,
-        records,
+        info,
         ["Key", "Value"],
-        [[key, str(value)] for record in records for key, value in record.items()],
+        [[key, json.dumps(value, ensure_ascii=False)] for key, value in info.items()],
     )
 
 
 def cmd_container_list(args: argparse.Namespace) -> None:
-    """List WSL Containers without changing their state."""
+    """List the explicitly selected session; stopped containers require --all."""
     _require_wslc()
-    rc, stdout, stderr = _run_wslc_command(["container", "list", "--format", "json"])
-    if rc != 0:
-        print(f"Error: {stderr.strip() or 'wslc container list failed'}", file=sys.stderr)
+    try:
+        records = _wslc_client().list_containers(
+            getattr(args, "session", ""), all_containers=getattr(args, "all", False)
+        )
+    except wsl_core.WslcError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
         sys.exit(ExitCode.WSL_ERROR)
-    rows = [wsl_core.container_summary(record) for record in wsl_core.parse_wslc_json(stdout)]
+    rows = [wsl_core.container_summary(record) for record in records]
     headers = ["ID", "Name", "Image", "Status", "Health", "Created"]
     table_rows = [
         [row[key] for key in ("id", "name", "image", "status", "health", "created")] for row in rows
@@ -251,17 +256,14 @@ def cmd_container_list(args: argparse.Namespace) -> None:
 
 
 def cmd_container_inspect(args: argparse.Namespace) -> None:
-    """Show one container's read-only inspection record."""
+    """Preserve inspect's array and nested fields."""
     _require_wslc()
-    rc, stdout, stderr = _run_wslc_command(["container", "inspect", args.name])
-    if rc != 0:
-        print(f"Error: {stderr.strip() or 'wslc container inspect failed'}", file=sys.stderr)
+    try:
+        records = _wslc_client().inspect_container(getattr(args, "session", ""), args.name)
+    except wsl_core.WslcError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
         sys.exit(ExitCode.WSL_ERROR)
-    records = wsl_core.parse_wslc_json(stdout)
-    if getattr(args, "format", "table") == "json":
-        print(json.dumps(records, ensure_ascii=False, indent=2))
-    else:
-        print(stdout.strip())
+    print(json.dumps(records, ensure_ascii=False, indent=2))
 
 
 # ---------------------------------------------------------------------------
@@ -1728,8 +1730,11 @@ def build_parser(language: str | None = None) -> argparse.ArgumentParser:
         "--format", choices=["table", "json", "csv"], default="table", help=t("cli.format")
     )
     p_container_list.set_defaults(func=cmd_container_list)
+    p_container_list.add_argument("--all", "-a", action="store_true", help=t("containers.all"))
+    p_container_list.add_argument("--session", required=True, help=t("containers.session_help"))
     p_container_inspect = container_subparsers.add_parser("inspect", help="Inspect a WSL Container")
     p_container_inspect.add_argument("name", help="Container name or ID")
+    p_container_inspect.add_argument("--session", required=True, help=t("containers.session_help"))
     p_container_inspect.add_argument(
         "--format", choices=["table", "json"], default="table", help=t("cli.format")
     )
