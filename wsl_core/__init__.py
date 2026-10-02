@@ -24,6 +24,8 @@ from typing import Any, TypedDict  # noqa: F401
 
 from .containers import (
     WSLC_MINIMUM_VERSION,
+    WslcClient,
+    WslcError,
     container_summary,
     parse_semantic_version,
     parse_wslc_json,
@@ -195,6 +197,8 @@ __all__ = [
     "SnapshotMetadata",
     "WslConfigParseError",
     "WslResult",
+    "WslcClient",
+    "WslcError",
     "__version__",
     "append_log_entry",
     "atomic_write_text",

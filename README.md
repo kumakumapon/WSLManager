@@ -74,8 +74,8 @@ python wslmgr_cli.py list --with-ip --with-disk
 python wslmgr_cli.py list --format json
 python wslmgr_cli.py doctor --format json
 python wslmgr_cli.py container system-info
-python wslmgr_cli.py container list --format json
-python wslmgr_cli.py container inspect <name-or-id>
+python wslmgr_cli.py container list --session "<session-name>" --all --format json
+python wslmgr_cli.py container inspect --session "<session-name>" <name-or-id>
 python wslmgr_cli.py start Ubuntu
 python wslmgr_cli.py stop Ubuntu
 python wslmgr_cli.py shutdown
@@ -101,10 +101,33 @@ CLI subcommands include `list`, `doctor`, `container` (`system-info`/`list`/`ins
 
 ### WSL Containers (WSLc)
 
-WSL Containers requires **WSL 3.0.1 or later**. Run `wsl --update`, then use
-`doctor` to verify the installed capability. The Containers GUI entry and CLI
-commands in this release are read-only: they do not create, stop, remove, prune,
-or change networks for containers.
+This integration targets the official **WSL 3.0.1** CLI contract and accepts stable
+3.0.1+ package versions. WSL package versions are separate from distribution
+types (WSL1/WSL2); there is no distribution conversion to type 3.
+
+Run `doctor --format json` to check package eligibility and the WSLc service.
+An eligible version alone does not prove availability. Missing executables,
+policy/service errors, timeouts and invalid responses are reported; failed
+diagnostics exit with code 4. Updates are never started automatically.
+
+First run `container system-info --format json`, then pass a session **Name**
+from `Server.Sessions` to `list`/`inspect` using the required `--session` option.
+Session IDs are not names. The GUI provides an existing-session selector and
+selects automatically only when exactly one exists. No sessions means no list
+request; multiple sessions require a selection. This prevents WSLc's implicit
+default-session creation. If a selected session disappears, the error is shown
+without falling back to a new/default session.
+
+Lists show running containers by default; `--all` (GUI: Include stopped
+containers) includes stopped ones. WSLc's NDJSON is normalized to an array of
+`id`, `name`, `image`, `status`, `health`, `created` in CLI JSON output. Full IDs
+are used for inspect. System-info preserves the official **object** (changed
+from the previous one-element array); inspect preserves its nested array.
+
+These commands may contact/start the WSLc service but do not create sessions,
+create/stop/remove containers, prune, or change networks. Traditional WSL2
+distribution features remain usable without WSLc. See the
+[contract references and Windows validation checklist](docs/wsl-3.0.1-compatibility.md).
 
 The CLI uses the saved GUI language preference (or the system language) for its
 localized top-level/list help and standard list output. Override it per invocation with

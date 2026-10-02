@@ -73,8 +73,8 @@ python wslmgr_cli.py list --with-ip --with-disk
 python wslmgr_cli.py list --format json
 python wslmgr_cli.py doctor --format json
 python wslmgr_cli.py container system-info
-python wslmgr_cli.py container list --format json
-python wslmgr_cli.py container inspect <name-or-id>
+python wslmgr_cli.py container list --session "<session-name>" --all --format json
+python wslmgr_cli.py container inspect --session "<session-name>" <name-or-id>
 python wslmgr_cli.py start Ubuntu
 python wslmgr_cli.py stop Ubuntu
 python wslmgr_cli.py shutdown
@@ -100,7 +100,28 @@ CLI サブコマンドには `list`、`doctor`、`container` (`system-info`/`lis
 
 ### WSL Containers（WSLc）
 
-WSL Containers の利用には **WSL 3.0.1 以降**が必要です。まず `wsl --update` を実行し、`doctor` で利用可否を確認してください。このリリースの GUI と CLI は読み取り専用であり、コンテナの作成・停止・削除・prune・ネットワーク変更は行いません。
+この連携は公式 **WSL 3.0.1** の CLI 仕様を基準とし、安定版 3.0.1 以降を受け付けます。
+WSL パッケージのバージョンとディストリビューションの種別（WSL1/WSL2）は別物であり、種別 3 への変換はありません。
+
+`doctor --format json` でバージョン条件と WSLc サービスを確認します。バージョン条件を
+満たすだけでは利用可能と判定しません。実行ファイル不在・ポリシー制限・サービス障害・
+タイムアウト・不正な応答を報告し、診断失敗時の終了コードは 4 です。更新は自動実行しません。
+
+最初に `container system-info --format json` を実行し、`Server.Sessions` に表示される
+既存セッションの **Name** を `list` / `inspect` の必須オプション `--session` に渡してください。
+セッション ID ではなく名前を指定します。GUI では既存セッションを選択します（1 件なら自動選択）。
+0 件なら一覧取得を実行せず、複数件なら選択を求めます。これにより WSLc の既定セッション自動作成を
+防ぎます。選択したセッションが消えた場合も、新規・既定セッションに切り替えずエラーを表示します。
+
+一覧は実行中のみで、`--all`（GUI:「停止中も表示」）で停止中も含めます。WSLc の行単位 JSON を
+CLI では `id` / `name` / `image` / `status` / `health` / `created` の配列へ正規化します。
+詳細取得には省略していない ID を使用します。system-info は公式の **オブジェクト** を保持します
+（以前の 1 要素配列から変更）。inspect は入れ子を含む配列を保持します。
+
+これらの照会は WSLc サービスに接続・起動する場合がありますが、セッション作成、コンテナの
+作成・停止・削除・prune・ネットワーク変更は行いません。従来の WSL2 ディストリビューション管理は
+WSLc がなくても使用できます。[仕様の参照先と Windows 実機確認項目](docs/wsl-3.0.1-compatibility.md)
+も参照してください。
 
 CLI は保存済みの GUI 言語設定（未指定ならシステム言語）を使ってトップレベルと
 `list` のヘルプ、および標準の一覧出力を表示します。サブコマンドの前に `--language auto`、`--language ja`、

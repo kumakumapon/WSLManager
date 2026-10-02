@@ -4496,13 +4496,14 @@ class TestWslContainers(unittest.TestCase):
     def test_semantic_version_and_capability(self):
         self.assertEqual(wsl_core.parse_semantic_version("3.0.1.0"), (3, 0, 1))
         self.assertIsNone(wsl_core.parse_semantic_version("unknown"))
-        self.assertTrue(wsl_core.wslc_capability("3.0.1")["available"])
+        self.assertTrue(wsl_core.wslc_capability("3.0.1")["version_supported"])
+        self.assertFalse(wsl_core.wslc_capability("3.0.1")["available"])
         self.assertFalse(wsl_core.wslc_capability("2.9.13")["available"])
 
     def test_parse_wslc_json_and_summary(self):
         records = wsl_core.parse_wslc_json(
-            '{"containers": [{"ID": "abc", "Name": "web", "Image": "nginx", '
-            '"State": {"Status": "running", "Health": "healthy"}}]}'
+            '[{"ID": "abc", "Name": "web", "Image": "nginx", '
+            '"State": {"Status": "running", "Health": "healthy"}}]'
         )
         self.assertEqual(len(records), 1)
         summary = wsl_core.container_summary(records[0])
@@ -4511,7 +4512,8 @@ class TestWslContainers(unittest.TestCase):
         self.assertEqual(summary["health"], "healthy")
 
     def test_parse_wslc_json_rejects_non_json(self):
-        self.assertEqual(wsl_core.parse_wslc_json("not json"), [])
+        with self.assertRaises(wsl_core.WslcError):
+            wsl_core.parse_wslc_json("not json")
 
     def test_container_summary_accepts_wslc_id_key(self):
         summary = wsl_core.container_summary({"Id": "abc123", "Name": "web"})
