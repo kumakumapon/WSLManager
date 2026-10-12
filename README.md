@@ -171,6 +171,7 @@ The checked-in `WSLManager.spec` and `pyinstaller_hooks/` directory are intentio
 | File | Responsibility |
 |------|----------------|
 | `wslmgr.py` | tkinter GUI, dialogs, background command execution, UI state, and user confirmations |
+| `wslmgr_gui/` | GUI building blocks split out of `wslmgr.py` (Windows constants, registry helpers, shared widgets) |
 | `wslmgr_cli.py` | argparse-based command-line interface for scriptable WSL operations |
 | `wsl_core.py` | Pure parsing, formatting, validation, settings, log, snapshot, and progress helpers |
 | `tests/` | unittest coverage for the core module and CLI behavior |
@@ -223,6 +224,7 @@ Run the test suite:
 
 ```powershell
 python -m py_compile wslmgr.py wslmgr_cli.py wsl_core.py
+python -m compileall -q wsl_core wslmgr_gui
 python -m unittest discover -s tests -v
 ```
 
