@@ -165,6 +165,7 @@ dist\WSLManager.exe
 | ファイル | 役割 |
 |----------|------|
 | `wslmgr.py` | tkinter GUI、各種ダイアログ、バックグラウンド実行、UI 状態、確認処理 |
+| `wslmgr_gui/` | `wslmgr.py` から分割した GUI 部品（Windows 定数、レジストリヘルパー、共通ウィジェット） |
 | `wslmgr_cli.py` | argparse ベースの CLI |
 | `wsl_core.py` | 解析、整形、バリデーション、設定、ログ、スナップショット、進捗計算の純粋ロジック |
 | `tests/` | `wsl_core.py` と CLI の unittest |
@@ -215,6 +216,7 @@ PyInstaller ビルドでは、生の `pyinstaller wslmgr.py` ではなく `WSLMa
 
 ```powershell
 python -m py_compile wslmgr.py wslmgr_cli.py wsl_core.py
+python -m compileall -q wsl_core wslmgr_gui
 python -m unittest discover -s tests -v
 ```
 

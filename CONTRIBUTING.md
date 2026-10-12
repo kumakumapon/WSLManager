@@ -22,6 +22,7 @@ pip install ruff==0.15.8 mypy==2.3.1
 ```powershell
 # コンパイルチェック (GUI を起動せずバイトコードのみ確認、tkinter 不要)
 python -m py_compile wslmgr.py wsl_core.py wslmgr_cli.py
+python -m compileall -q wsl_core wslmgr_gui
 
 # unit test (wsl_core / CLI の純粋ロジックが対象、OS を問わず実行可能)
 python -m unittest discover -s tests -v

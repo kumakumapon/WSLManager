@@ -28,7 +28,9 @@ jobs:
 
       # GUI を起動せずにバイトコードコンパイルだけ行う（tkinter 不要）
       - name: Compile check
-        run: python -m py_compile wslmgr.py wsl_core.py wslmgr_cli.py
+        run: |
+          python -m py_compile wslmgr.py wsl_core.py wslmgr_cli.py
+          python -m compileall -q wsl_core wslmgr_gui
 
       # 純粋ロジック (wsl_core) / CLI の単体テストとカバレッジ計測
       - name: Unit tests & coverage
