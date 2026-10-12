@@ -245,7 +245,11 @@ class TestDialogLogic(unittest.TestCase):
 
     def setUp(self):
         source = (
-            Path(__file__).resolve().parents[1].joinpath("wslmgr.py").read_text(encoding="utf-8")
+            Path(__file__)
+            .resolve()
+            .parents[1]
+            .joinpath("wslmgr_gui", "dialogs", "containers.py")
+            .read_text(encoding="utf-8")
         )
         node = next(
             n
@@ -268,7 +272,10 @@ class TestDialogLogic(unittest.TestCase):
             "wsl_core": wsl_core,
             "Callable": Callable,
         }
-        exec(compile(ast.fix_missing_locations(module), "wslmgr.py", "exec"), namespace)
+        exec(
+            compile(ast.fix_missing_locations(module), "wslmgr_gui/dialogs/containers.py", "exec"),
+            namespace,
+        )
         cls = namespace["ContainerManagerDialog"]
         self.dialog = cls.__new__(cls)
         d = self.dialog

@@ -26,7 +26,7 @@
 | --- | --- | --- |
 | `wsl_core.py` | パース・検証・設定・ログ・スナップショットなどのコアロジック（テスト対象） | GUI/CLI から独立したロジックを維持し、副作用は最小限にする |
 | `wslmgr.py` | tkinter による GUI 本体 | `import` 時に副作用が起きないよう `__name__` ガードを維持する |
-| `wslmgr_gui/` | `wslmgr.py` から分割した GUI 部品（定数・レジストリヘルパー・共通ウィジェット。順次ダイアログも移動予定） | `wslmgr` を import しない（`python wslmgr.py` 実行時の二重ロード防止）。依存は `wslmgr.py` → `wslmgr_gui` の一方向 |
+| `wslmgr_gui/` | `wslmgr.py` から分割した GUI 部品（定数・レジストリヘルパー・共通ウィジェット。順次ダイアログも移動予定） | 実行時に `wslmgr` を import しない（`python wslmgr.py` 実行時の二重ロード防止。型注釈用の `if TYPE_CHECKING:` ブロック内のみ可）。依存は `wslmgr.py` → `wslmgr_gui` の一方向 |
 | `wslmgr_cli.py` | コマンドラインインターフェース | 破壊的操作（terminate/unregister/import/export 等）は確認プロンプトを維持する |
 | `tests/` | `wsl_core` / CLI の単体テスト | ロジック変更時は対応するテストを追加・更新する |
 | `pyinstaller_hooks/` | PyInstaller ビルド用フック | exe ビルド手順に影響するため変更は慎重に |
