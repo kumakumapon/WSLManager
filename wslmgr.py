@@ -8,27 +8,26 @@ Windows 10/11 + WSL2 環境での使用を前提としています。
 from __future__ import annotations
 
 import concurrent.futures
-import json
 import logging
 import os
-import queue
 import subprocess
 import sys
 import tempfile
 import threading
 import time
 import tkinter as tk
-from collections.abc import Callable
 from datetime import datetime
 from tkinter import filedialog, messagebox, simpledialog, ttk
 from typing import ClassVar
 
 import wsl_core
+from wslmgr_gui.dialogs.containers import ContainerManagerDialog
 from wslmgr_gui.dialogs.disk_optimize import DiskOptimizeDialog
 from wslmgr_gui.dialogs.distro_conf import DistroConfDialog
 from wslmgr_gui.dialogs.distro_detail import DistroDetailDialog
 from wslmgr_gui.dialogs.install import InstallDialog
 from wslmgr_gui.dialogs.log_viewer import LogViewerDialog
+from wslmgr_gui.dialogs.mount import WslMountDialog, WslUnmountDialog
 from wslmgr_gui.dialogs.process import ProcessWindow
 from wslmgr_gui.dialogs.wsl_config import WslConfigDialog
 from wslmgr_gui.dialogs.wsl_update import WslUpdateConfirmDialog
@@ -240,178 +239,6 @@ class TransferProgressDialog(tk.Toplevel):
                 # on_closing 側の後続処理 (他ダイアログの force_cancel・
                 # 終了処理) を止めないよう、ここでも握りつぶす。
                 pass
-
-
-class WslMountDialog(tk.Toplevel):
-    """物理ディスクまたは VHD を WSL2 にマウントするダイアログ。"""
-
-    def __init__(self, parent: WSLManager) -> None:
-        super().__init__(parent)
-        self._parent = parent
-        self.title(
-            wsl_core.translate(
-                "gui.mount.title", getattr(parent, "_language", wsl_core.LANGUAGE_AUTO)
-            )
-        )
-        self.resizable(False, False)
-        self._build_ui()
-        self.transient(parent)
-        self.grab_set()
-
-    def _build_ui(self) -> None:
-        frame = ttk.Frame(self, padding=14)
-        frame.pack(fill=tk.BOTH, expand=True)
-
-        ttk.Label(
-            frame,
-            text=(
-                "物理ディスクまたは VHD/VHDX ファイルを WSL2 にマウントします。\n"
-                "※ 管理者権限が必要な場合があります。"
-            ),
-            foreground="#555555",
-        ).grid(row=0, column=0, columnspan=3, sticky=tk.W, pady=(0, 10))
-
-        # ディスクパス
-        ttk.Label(frame, text="ディスク / VHD パス:").grid(row=1, column=0, sticky=tk.W, pady=3)
-        self._disk_var = tk.StringVar()
-        ttk.Entry(frame, textvariable=self._disk_var, width=32).grid(
-            row=1, column=1, sticky=tk.W, pady=3
-        )
-        ttk.Button(frame, text="参照...", command=self._browse_vhd, width=8).grid(
-            row=1, column=2, padx=(4, 0), pady=3
-        )
-
-        # VHD フラグ
-        self._vhd_var = tk.BooleanVar(value=False)
-        ttk.Checkbutton(
-            frame,
-            text="VHD / VHDX ファイルとしてマウント (--vhd)",
-            variable=self._vhd_var,
-        ).grid(row=2, column=0, columnspan=3, sticky=tk.W, pady=3)
-
-        # Bare フラグ
-        self._bare_var = tk.BooleanVar(value=False)
-        ttk.Checkbutton(
-            frame,
-            text="ファイルシステムをマウントせずアタッチのみ (--bare)",
-            variable=self._bare_var,
-        ).grid(row=3, column=0, columnspan=3, sticky=tk.W, pady=3)
-
-        # ファイルシステム
-        ttk.Label(frame, text="ファイルシステム (--type):").grid(
-            row=4, column=0, sticky=tk.W, pady=3
-        )
-        self._type_var = tk.StringVar(value="")
-        ttk.Entry(frame, textvariable=self._type_var, width=20).grid(
-            row=4, column=1, sticky=tk.W, pady=3
-        )
-
-        # パーティション
-        ttk.Label(frame, text="パーティション番号 (--partition):").grid(
-            row=5, column=0, sticky=tk.W, pady=3
-        )
-        self._partition_var = tk.StringVar(value="")
-        ttk.Entry(frame, textvariable=self._partition_var, width=10).grid(
-            row=5, column=1, sticky=tk.W, pady=3
-        )
-
-        # マウント名
-        ttk.Label(frame, text="マウント名 (--name):").grid(row=6, column=0, sticky=tk.W, pady=3)
-        self._name_var = tk.StringVar(value="")
-        ttk.Entry(frame, textvariable=self._name_var, width=20).grid(
-            row=6, column=1, sticky=tk.W, pady=3
-        )
-
-        btn_frame = ttk.Frame(frame)
-        btn_frame.grid(row=7, column=0, columnspan=3, sticky=tk.E, pady=(12, 0))
-        ttk.Button(btn_frame, text="マウント", command=self._on_mount, width=10).pack(
-            side=tk.RIGHT, padx=(4, 0)
-        )
-        ttk.Button(btn_frame, text="キャンセル", command=self.destroy, width=10).pack(side=tk.RIGHT)
-
-    def _browse_vhd(self) -> None:
-        path = filedialog.askopenfilename(
-            parent=self,
-            title="VHD/VHDX ファイルの選択",
-            filetypes=[("VHD Files", "*.vhdx;*.vhd"), ("All Files", "*.*")],
-        )
-        if path:
-            self._disk_var.set(path)
-            self._vhd_var.set(True)
-
-    def _on_mount(self) -> None:
-        disk = self._disk_var.get().strip()
-        if not disk:
-            messagebox.showwarning(
-                "入力エラー", "ディスクまたは VHD のパスを入力してください。", parent=self
-            )
-            return
-
-        part_str = self._partition_var.get().strip()
-        part_num = int(part_str) if part_str.isdigit() else None
-
-        mount_args = wsl_core.build_wsl_mount_args(
-            disk=disk,
-            bare=self._bare_var.get(),
-            fs_type=self._type_var.get().strip() or None,
-            partition=part_num,
-            vhd=self._vhd_var.get(),
-            name=self._name_var.get().strip() or None,
-        )
-
-        self.destroy()
-        self._parent._execute_mount(disk, mount_args)
-
-
-class WslUnmountDialog(tk.Toplevel):
-    """WSL2 にマウントされているディスクをアンマウントするダイアログ。"""
-
-    def __init__(self, parent: WSLManager) -> None:
-        super().__init__(parent)
-        self._parent = parent
-        self.title(
-            wsl_core.translate(
-                "gui.unmount.title", getattr(parent, "_language", wsl_core.LANGUAGE_AUTO)
-            )
-        )
-        self.resizable(False, False)
-        self._build_ui()
-        self.transient(parent)
-        self.grab_set()
-
-    def _build_ui(self) -> None:
-        frame = ttk.Frame(self, padding=14)
-        frame.pack(fill=tk.BOTH, expand=True)
-
-        ttk.Label(
-            frame,
-            text=(
-                "アンマウントするディスクパスを入力してください。\n"
-                "空欄のまま実行すると、マウントされているすべてのディスクをアンマウントします。"
-            ),
-            foreground="#555555",
-        ).pack(anchor=tk.W, pady=(0, 10))
-
-        row = ttk.Frame(frame)
-        row.pack(fill=tk.X, pady=(0, 10))
-        ttk.Label(row, text="ディスクパス (任意):", width=18, anchor=tk.W).pack(side=tk.LEFT)
-        self._disk_var = tk.StringVar()
-        ttk.Entry(row, textvariable=self._disk_var, width=30).pack(
-            side=tk.LEFT, fill=tk.X, expand=True
-        )
-
-        btn_frame = ttk.Frame(frame)
-        btn_frame.pack(fill=tk.X)
-        ttk.Button(btn_frame, text="アンマウント", command=self._on_unmount, width=12).pack(
-            side=tk.RIGHT, padx=(4, 0)
-        )
-        ttk.Button(btn_frame, text="キャンセル", command=self.destroy, width=10).pack(side=tk.RIGHT)
-
-    def _on_unmount(self) -> None:
-        disk = self._disk_var.get().strip() or None
-        unmount_args = wsl_core.build_wsl_unmount_args(disk=disk)
-        self.destroy()
-        self._parent._execute_unmount(disk, unmount_args)
 
 
 class SnapshotManagerDialog(tk.Toplevel):
@@ -724,192 +551,6 @@ class SnapshotManagerDialog(tk.Toplevel):
         self._parent._settings["snapshot_dir"] = new_dir
         self._parent._save_settings()
         self._reload()
-
-
-class ContainerManagerDialog(tk.Toplevel):
-    """Read-only view of explicitly selected, existing WSLc sessions."""
-
-    def __init__(self, parent: WSLManager) -> None:
-        super().__init__(parent)
-        self._language = getattr(parent, "_language", wsl_core.LANGUAGE_AUTO)
-        self._results = queue.SimpleQueue()
-        self._busy = False
-        self._closed = False
-        self._poll_id = None
-        self._row_session = ""
-        self.title("WSL Containers")
-        self.geometry("900x450")
-        self.minsize(600, 300)
-        self.transient(parent)
-        self.protocol("WM_DELETE_WINDOW", self.destroy)
-
-        frame = ttk.Frame(self, padding=12)
-        frame.pack(fill=tk.BOTH, expand=True)
-        self._status = tk.StringVar()
-        ttk.Label(frame, textvariable=self._status, wraplength=820).pack(anchor=tk.W)
-        options = ttk.Frame(frame)
-        options.pack(fill=tk.X, pady=8)
-        ttk.Label(options, text=self._t("containers.session")).pack(side=tk.LEFT)
-        self._session = tk.StringVar()
-        self._sessions = ttk.Combobox(
-            options, textvariable=self._session, state="readonly", width=36
-        )
-        self._sessions.pack(side=tk.LEFT, padx=6)
-        self._sessions.bind("<<ComboboxSelected>>", lambda _e: self._reload())
-        self._all = tk.BooleanVar(value=False)
-        self._all_button = ttk.Checkbutton(
-            options, text=self._t("containers.all"), variable=self._all, command=self._reload
-        )
-        self._all_button.pack(side=tk.LEFT)
-        columns = ("id", "name", "image", "status", "health", "created")
-        table = ttk.Frame(frame)
-        table.pack(fill=tk.BOTH, expand=True)
-        self._tree = ttk.Treeview(table, columns=columns, show="headings", selectmode="browse")
-        for key in columns:
-            self._tree.heading(key, text="ID" if key == "id" else self._t(f"containers.{key}"))
-            self._tree.column(key, width=140, anchor=tk.W)
-        vertical = ttk.Scrollbar(table, orient=tk.VERTICAL, command=self._tree.yview)
-        horizontal = ttk.Scrollbar(table, orient=tk.HORIZONTAL, command=self._tree.xview)
-        self._tree.configure(yscrollcommand=vertical.set, xscrollcommand=horizontal.set)
-        self._tree.grid(row=0, column=0, sticky="nsew")
-        vertical.grid(row=0, column=1, sticky="ns")
-        horizontal.grid(row=1, column=0, sticky="ew")
-        table.rowconfigure(0, weight=1)
-        table.columnconfigure(0, weight=1)
-        self._tree.bind("<Double-1>", self._show_inspect)
-        buttons = ttk.Frame(frame)
-        buttons.pack(fill=tk.X, pady=(8, 0))
-        self._refresh_button = ttk.Button(
-            buttons, text=self._t("gui.common.refresh"), command=self._reload
-        )
-        self._refresh_button.pack(side=tk.LEFT)
-        self._inspect_button = ttk.Button(
-            buttons, text=self._t("containers.inspect"), command=self._show_inspect
-        )
-        self._inspect_button.pack(side=tk.LEFT, padx=6)
-        ttk.Button(buttons, text=self._t("gui.common.close"), command=self.destroy).pack(
-            side=tk.RIGHT
-        )
-        self._reload()
-
-    def _t(self, key: str, **values: object) -> str:
-        return wsl_core.translate(key, self._language, **values)
-
-    def _start_task(self, work: Callable, done: Callable) -> None:
-        if self._busy or self._closed:
-            return
-        self._busy = True
-        for widget in (
-            self._refresh_button,
-            self._inspect_button,
-            self._all_button,
-            self._sessions,
-        ):
-            widget.configure(state="disabled")
-        self._status.set(self._t("containers.loading"))
-        results = self._results
-
-        def run() -> None:
-            try:
-                results.put((done, work(), None))
-            except Exception as exc:
-                results.put((done, None, str(exc)))
-
-        threading.Thread(target=run, daemon=True).start()
-        self._poll_id = self.after(50, self._poll_result)
-
-    def _poll_result(self) -> None:
-        self._poll_id = None
-        if self._closed:
-            return
-        try:
-            done, value, error = self._results.get_nowait()
-        except queue.Empty:
-            self._poll_id = self.after(50, self._poll_result)
-            return
-        self._busy = False
-        for widget in (self._refresh_button, self._inspect_button, self._all_button):
-            widget.configure(state="normal")
-        self._sessions.configure(state="readonly")
-        if error is not None:
-            self._status.set(self._t("containers.error", error=error))
-        else:
-            done(value)
-
-    def destroy(self) -> None:
-        self._closed = True
-        if self._poll_id is not None:
-            self.after_cancel(self._poll_id)
-            self._poll_id = None
-        super().destroy()
-
-    def _reload(self) -> None:
-        if self._busy or self._closed:
-            return
-        session, include_all = self._session.get(), self._all.get()
-        self._row_session = ""
-        for item in self._tree.get_children():
-            self._tree.delete(item)
-
-        def work():
-            client = wsl_core.WslcClient()
-            info = client.system_info()
-            names = [item["Name"] for item in info["Server"]["Sessions"]]
-            selected = session if session in names else (names[0] if len(names) == 1 else "")
-            records = (
-                client.list_containers(selected, all_containers=include_all) if selected else []
-            )
-            return names, selected, records
-
-        def done(result):
-            names, selected, records = result
-            self._sessions.configure(values=names)
-            self._session.set(selected)
-            self._row_session = selected
-            for record in records:
-                row = wsl_core.container_summary(record)
-                self._tree.insert("", tk.END, values=tuple(row.values()))
-            key = (
-                "containers.count"
-                if selected
-                else "containers.select"
-                if names
-                else "containers.none"
-            )
-            self._status.set(self._t(key, count=len(records)))
-
-        self._start_task(work, done)
-
-    def _show_inspect(self, _event: object | None = None) -> None:
-        if self._busy or self._closed:
-            return
-        selection = self._tree.selection()
-        if not selection or not self._row_session:
-            return
-        values = self._tree.item(selection[0], "values")
-        name = next((str(v) for v in (values[0], values[1]) if v and str(v) != "-"), "")
-        if not name:
-            self._status.set(self._t("containers.missing_id"))
-            return
-        session = self._row_session
-
-        def work():
-            return wsl_core.WslcClient().inspect_container(session, name)
-
-        def done(records):
-            dialog = tk.Toplevel(self)
-            dialog.title(self._t("containers.inspect"))
-            dialog.geometry("760x500")
-            text = tk.Text(dialog, wrap=tk.NONE)
-            scroll = ttk.Scrollbar(dialog, command=text.yview)
-            scroll.pack(side=tk.RIGHT, fill=tk.Y)
-            text.configure(yscrollcommand=scroll.set)
-            text.pack(fill=tk.BOTH, expand=True)
-            text.insert("1.0", json.dumps(records, ensure_ascii=False, indent=2))
-            text.configure(state="disabled")
-            self._status.set(self._t("containers.inspected"))
-
-        self._start_task(work, done)
 
 
 class WSLManager(tk.Tk):
