@@ -198,19 +198,21 @@ class SnapshotDeleteConfirmationTests(unittest.TestCase):
         }
         return dialog
 
-    @patch("wslmgr.os.remove")
-    @patch("wslmgr.messagebox")
+    @patch("wslmgr_gui.dialogs.snapshot.os.remove")
+    @patch("wslmgr_gui.dialogs.snapshot.messagebox")
     def test_declined_keeps_files(self, mb: MagicMock, remove: MagicMock) -> None:
         mb.askyesno.return_value = False
         dialog = self._make_dialog()
 
         wslmgr.SnapshotManagerDialog._delete_snapshot(dialog)
 
+        # 確認ダイアログが実際にモックへ到達していること (パッチ先の誤りで素通りしないための確認)
+        mb.askyesno.assert_called_once()
         remove.assert_not_called()
         dialog._parent._log_operation.assert_not_called()
 
-    @patch("wslmgr.os.remove")
-    @patch("wslmgr.messagebox")
+    @patch("wslmgr_gui.dialogs.snapshot.os.remove")
+    @patch("wslmgr_gui.dialogs.snapshot.messagebox")
     def test_confirmed_removes_tar_and_json(self, mb: MagicMock, remove: MagicMock) -> None:
         mb.askyesno.return_value = True
         dialog = self._make_dialog()
@@ -221,8 +223,8 @@ class SnapshotDeleteConfirmationTests(unittest.TestCase):
             [c.args[0] for c in remove.call_args_list], ["C:/snap/a.tar", "C:/snap/a.json"]
         )
 
-    @patch("wslmgr.os.remove")
-    @patch("wslmgr.messagebox")
+    @patch("wslmgr_gui.dialogs.snapshot.os.remove")
+    @patch("wslmgr_gui.dialogs.snapshot.messagebox")
     def test_without_selection_does_not_prompt_or_remove(
         self, mb: MagicMock, remove: MagicMock
     ) -> None:
@@ -231,6 +233,7 @@ class SnapshotDeleteConfirmationTests(unittest.TestCase):
 
         wslmgr.SnapshotManagerDialog._delete_snapshot(dialog)
 
+        mb.showwarning.assert_called_once()
         mb.askyesno.assert_not_called()
         remove.assert_not_called()
 
