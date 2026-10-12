@@ -369,7 +369,7 @@ def prepare_chart_layout(
             segments.append(segment)
         if points or samples:
             color = (
-                distro_colors.get(name)
+                distro_colors[name]
                 if distro_colors and name in distro_colors
                 else get_distro_color(name, names)
             )

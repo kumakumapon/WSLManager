@@ -99,7 +99,7 @@ def format_transfer_status(
     written = format_bytes(current_bytes)
     elapsed = format_duration(elapsed_seconds)
     percent = estimate_transfer_progress(current_bytes, total_bytes)
-    if percent is None:
+    if percent is None or total_bytes is None:
         return f"{written} 書き込み済み ・ 経過 {elapsed}"
 
     parts = [
