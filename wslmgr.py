@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import concurrent.futures
 import json
+import logging
 import os
 import queue
 import subprocess
@@ -29,6 +30,8 @@ try:
 except ImportError:  # Windows 以外 (開発環境など)
     winreg = None  # type: ignore[assignment]
 
+
+logger = logging.getLogger(__name__)
 
 # ── Windows 専用フラグ ──────────────────────────────────────────────────────
 CREATE_NO_WINDOW = 0x08000000 if sys.platform == "win32" else 0
@@ -3297,6 +3300,10 @@ class WSLManager(tk.Tk):
                     try:
                         cpu, memory = future.result()
                     except Exception:
+                        # 1 ディストロの取得失敗で一覧更新全体を止めない。原因はデバッグログに残す。
+                        logger.debug(
+                            "リソース使用量の取得に失敗: %s", distro["name"], exc_info=True
+                        )
                         cpu, memory = "-", "-"
                     distro["cpu"] = cpu
                     distro["memory"] = memory
@@ -3309,6 +3316,7 @@ class WSLManager(tk.Tk):
                     try:
                         distro["ip"] = future.result()
                     except Exception:
+                        logger.debug("IP アドレスの取得に失敗: %s", distro["name"], exc_info=True)
                         distro["ip"] = "-"
 
         return distros, None
@@ -4540,7 +4548,7 @@ class WSLManager(tk.Tk):
                 )
                 output = wsl_core.decode_wsl_output(result.stdout)
                 info = wsl_core.parse_wsl_version(output)
-            except Exception:
+            except (OSError, subprocess.TimeoutExpired, ValueError):
                 info = {}
 
             def _show() -> None:
@@ -4726,12 +4734,12 @@ def main() -> None:
         import ctypes
 
         ctypes.windll.shcore.SetProcessDpiAwareness(2)
-    except Exception:
+    except (AttributeError, OSError):
         try:
             import ctypes
 
             ctypes.windll.user32.SetProcessDPIAware()
-        except Exception:
+        except (AttributeError, OSError):
             pass
 
     # 多重起動防止 (Named Mutex)
@@ -4746,7 +4754,7 @@ def main() -> None:
                 ctypes.windll.user32.ShowWindow(hwnd, 9)  # SW_RESTORE
                 ctypes.windll.user32.SetForegroundWindow(hwnd)
             sys.exit(0)
-    except Exception:
+    except (AttributeError, OSError):
         pass
 
     app = WSLManager()
