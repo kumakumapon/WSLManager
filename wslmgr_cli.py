@@ -223,7 +223,9 @@ def _require_wslc() -> dict:
     if not capability["available"]:
         print(f"Error: {diagnostic['wsl_command_error'] or capability['reason']}", file=sys.stderr)
         sys.exit(ExitCode.WSL_ERROR)
-    return diagnostic["wslc_system"]
+    system = diagnostic["wslc_system"]
+    assert isinstance(system, dict)
+    return system
 
 
 def cmd_container_system_info(args: argparse.Namespace) -> None:

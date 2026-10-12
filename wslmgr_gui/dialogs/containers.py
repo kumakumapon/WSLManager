@@ -22,10 +22,12 @@ class ContainerManagerDialog(tk.Toplevel):
     def __init__(self, parent: WSLManager) -> None:
         super().__init__(parent)
         self._language = getattr(parent, "_language", wsl_core.LANGUAGE_AUTO)
-        self._results = queue.SimpleQueue()
+        self._results: queue.SimpleQueue[tuple[Callable[..., None], object, str | None]] = (
+            queue.SimpleQueue()
+        )
         self._busy = False
         self._closed = False
-        self._poll_id = None
+        self._poll_id: str | None = None
         self._row_session = ""
         self.title("WSL Containers")
         self.geometry("900x450")

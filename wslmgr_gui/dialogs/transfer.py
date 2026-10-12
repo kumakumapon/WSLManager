@@ -7,6 +7,7 @@ import subprocess
 import threading
 import time
 import tkinter as tk
+from collections.abc import Callable
 from tkinter import messagebox, ttk
 
 import wsl_core
@@ -41,7 +42,7 @@ class TransferProgressDialog(tk.Toplevel):
         wsl_args: list[str],
         watch_path: str | None,
         total_bytes: int | None,
-        on_done: callable,
+        on_done: Callable[[int, str, bool], None],
         cancel_prompt: str | None = None,
     ) -> None:
         super().__init__(parent)

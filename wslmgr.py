@@ -8,6 +8,7 @@ Windows 10/11 + WSL2 環境での使用を前提としています。
 from __future__ import annotations
 
 import concurrent.futures
+import functools
 import logging
 import os
 import subprocess
@@ -16,6 +17,7 @@ import tempfile
 import threading
 import time
 import tkinter as tk
+from collections.abc import Callable
 from datetime import datetime
 from tkinter import filedialog, messagebox, simpledialog, ttk
 from typing import ClassVar
@@ -248,7 +250,7 @@ class WSLManager(tk.Tk):
                 label=theme_name,
                 variable=self._theme_var,
                 value=theme_name,
-                command=lambda t=theme_name: self._change_theme(t),
+                command=functools.partial(self._change_theme, theme_name),
             )
         tools_menu.add_cascade(label=self._t("gui.action.theme"), menu=theme_menu)
         language_menu = tk.Menu(tools_menu, tearoff=0)
@@ -258,7 +260,7 @@ class WSLManager(tk.Tk):
                 label=self._t(f"language.{language}"),
                 variable=self._language_var,
                 value=language,
-                command=lambda value=language: self._change_language(value),
+                command=functools.partial(self._change_language, language),
             )
         tools_menu.add_cascade(label=self._t("gui.menu.language"), menu=language_menu)
         menubar.add_cascade(label=self._t("gui.menu.tools"), menu=tools_menu)
@@ -446,9 +448,9 @@ class WSLManager(tk.Tk):
             canvas.bind("<Configure>", lambda _event: self._draw_resource_history())
             canvas.bind(
                 "<Motion>",
-                lambda event, c=canvas, m=metric: self._on_history_canvas_motion(c, m, event),
+                functools.partial(self._on_history_canvas_motion, canvas, metric),
             )
-            canvas.bind("<Leave>", lambda _event, c=canvas: self._clear_history_tooltip(c))
+            canvas.bind("<Leave>", functools.partial(self._on_history_canvas_leave, canvas))
 
     def _toggle_resource_history(self) -> None:
         self._resource_history_visible = not self._resource_history_visible
@@ -597,6 +599,9 @@ class WSLManager(tk.Tk):
             tags="history-tooltip",
         )
 
+    def _on_history_canvas_leave(self, canvas: tk.Canvas, _event: tk.Event) -> None:
+        self._clear_history_tooltip(canvas)
+
     @staticmethod
     def _clear_history_tooltip(canvas: tk.Canvas) -> None:
         canvas.delete("history-tooltip")
@@ -709,10 +714,10 @@ class WSLManager(tk.Tk):
                 ip_future_to_distro = {
                     executor.submit(self._get_distro_ip, d["name"]): d for d in running_distros
                 }
-                for future in concurrent.futures.as_completed(ip_future_to_distro):
-                    distro = ip_future_to_distro[future]
+                for ip_future in concurrent.futures.as_completed(ip_future_to_distro):
+                    distro = ip_future_to_distro[ip_future]
                     try:
-                        distro["ip"] = future.result()
+                        distro["ip"] = ip_future.result()
                     except Exception:
                         logger.debug("IP アドレスの取得に失敗: %s", distro["name"], exc_info=True)
                         distro["ip"] = "-"
@@ -858,7 +863,7 @@ class WSLManager(tk.Tk):
                 f"（キュー溢れによる破棄: {dropped} 件 / 書き込み失敗: {write_errors} 件）"
             )
 
-    def _call_soon_safe(self, fn: callable) -> None:
+    def _call_soon_safe(self, fn: Callable[[], None]) -> None:
         """バックグラウンドスレッドから UI 更新を安全にスケジュールします。
 
         長時間コマンドの実行中にウィンドウが閉じられると ``self`` は destroy

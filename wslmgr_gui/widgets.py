@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import functools
 from tkinter import ttk
 
 import wsl_core
@@ -27,7 +28,7 @@ class TreeviewSorter:
             heading_info = tree.heading(col)
             orig_text = heading_info["text"]
             self._orig_headings[col] = orig_text
-            tree.heading(col, command=lambda c=col: self._on_header_click(c))
+            tree.heading(col, command=functools.partial(self._on_header_click, col))
 
     def _on_header_click(self, col: str) -> None:
         """ヘッダクリック時にソート状態を更新して並べ替えを実行します。"""

@@ -33,7 +33,7 @@ python -c "import wslmgr; print('import OK')"
 # lint
 ruff check .
 
-# 型チェック (対象は wsl_core パッケージ。設定は pyproject.toml の [tool.mypy])
+# 型チェック (対象は wsl_core / wslmgr_gui / wslmgr.py / wslmgr_cli.py。設定は pyproject.toml の [tool.mypy])
 mypy
 ```
 

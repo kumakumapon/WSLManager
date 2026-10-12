@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import tkinter as tk
+from collections.abc import Callable
 from tkinter import ttk
 
 import wsl_core
@@ -19,7 +20,7 @@ class WslVersionDialog(tk.Toplevel):
         self,
         parent: tk.Tk,
         lines: list[str],
-        on_check_update: callable,
+        on_check_update: Callable[[], None],
     ) -> None:
         super().__init__(parent)
         self._on_check_update = on_check_update
