@@ -5,6 +5,26 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- WSL 3.0.1 / WSL Containers (WSLc) support, read-only: `doctor` (`--format table|json|csv`), `container system-info` / `list` / `inspect` CLI commands, and a **Tools → WSL Containers…** GUI view. Container lifecycle and network mutations are intentionally not provided (#61, #62).
+- Multilingual support (Japanese / English): automatic system-language detection, GUI language menu, and CLI `--language {auto,ja,en}` (#2, #57, #59).
+- CPU / memory resource history graphs (last 30 minutes per distribution) with hover details (#3, #54, #56).
+- `snapshot prune` (dry-run by default; deletion requires `--yes`) with generation retention, and scheduled snapshots via Windows Task Scheduler (create / list / delete, with confirmation) (#4, #56).
+- `start_wslmanager.bat` launcher that prefers `dist\WSLManager.exe` and falls back to `.venv` or the Python Launcher (#55).
+
+### Changed
+- Split `wsl_core.py` into a responsibility-based `wsl_core/` package; the top-level `wsl_core` module remains a backward-compatible shim (#30, #53).
+- `container list` now parses NDJSON output (multi-line, empty, CRLF/BOM) and reports malformed output instead of showing 0 items. Containers are listed with `ID / Names / Image / Status / HealthStatus / CreatedAt` and inspected by full ID; an existing session name is always passed explicitly to avoid creating a default WSLc session (#64).
+
+### Fixed
+- GUI WSL Containers Inspect now uses the container `Id` field instead of the `-` placeholder (#63).
+- Restored localized process-kill success feedback and translated remaining CLI help text (#58, #59).
+
+### Security
+- Prevented `cmd.exe` / `wt.exe` argument injection via distribution names (#52).
+
 ## [1.0.0] - 2026-08-22
 
 ### Added
