@@ -25,7 +25,7 @@ class WslcError(ValueError):
 def parse_semantic_version(value: str | None) -> tuple[int, int, int] | None:
     """Accept stable three/four-part WSL versions, not preview suffixes."""
     match = _VERSION_RE.fullmatch(value.strip()) if value else None
-    return tuple(int(part) for part in match.groups()) if match else None
+    return (int(match[1]), int(match[2]), int(match[3])) if match else None
 
 
 def wslc_capability(wsl_version: str | None) -> dict[str, Any]:

@@ -11,10 +11,10 @@ WSL Manager はランタイム依存を持たず、Python 3.10 以降の標準�
 python wslmgr_cli.py --help
 ```
 
-lint (`ruff`) を実行する場合のみ、開発用に別途インストールしてください（バージョンは `pyproject.toml` の `ruff==0.15.8` に固定）。
+lint (`ruff`) と型チェック (`mypy`) を実行する場合のみ、開発用に別途インストールしてください（バージョンは CI と同じく `ruff==0.15.8` / `mypy==2.3.1` に固定）。
 
 ```powershell
-pip install ruff==0.15.8
+pip install ruff==0.15.8 mypy==2.3.1
 ```
 
 ## テストの実行
@@ -31,6 +31,9 @@ python -c "import wslmgr; print('import OK')"
 
 # lint
 ruff check .
+
+# 型チェック (対象は wsl_core パッケージ。設定は pyproject.toml の [tool.mypy])
+mypy
 ```
 
 ロジックを変更した場合は `tests/` に対応するテストを追加・更新してください。GUI (`wslmgr.py`) の表示文言のみの変更などはテスト追加不要です。

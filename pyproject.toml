@@ -48,3 +48,10 @@ ignore = [
 # unittest.mock.patch のネストした with は慣用的で、まとめると
 # 差分が大きくなるだけで可読性は上がらないため、テストのみ許容する。
 "tests/*" = ["SIM117"]
+
+[tool.mypy]
+# 型チェックは GUI/CLI から独立したコアロジック (wsl_core パッケージ) のみを対象にする。
+# wslmgr.py / wslmgr_cli.py は tkinter や Windows 専用 API に依存し、未対応の指摘が
+# 多いため対象外 (段階的に拡大する)。
+python_version = "3.10"
+files = ["wsl_core"]
