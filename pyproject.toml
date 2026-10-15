@@ -50,8 +50,9 @@ ignore = [
 "tests/*" = ["SIM117"]
 
 [tool.mypy]
-# 型チェックは GUI/CLI から独立したコアロジック (wsl_core パッケージ) のみを対象にする。
-# wslmgr.py / wslmgr_cli.py は tkinter や Windows 専用 API に依存し、未対応の指摘が
-# 多いため対象外 (段階的に拡大する)。
+# 対象: コアロジック (wsl_core)、GUI (wslmgr.py / wslmgr_gui)、CLI (wslmgr_cli.py)。
+# このアプリは Windows 専用で winreg などの Windows 専用 API を使うため、実行 OS に
+# 関わらず win32 として型チェックする (Linux の CI でも winreg の型が解決される)。
 python_version = "3.10"
-files = ["wsl_core"]
+platform = "win32"
+files = ["wsl_core", "wslmgr_gui", "wslmgr.py", "wslmgr_cli.py"]

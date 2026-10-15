@@ -109,7 +109,7 @@ class DistroConfDialog(tk.Toplevel):
         form_frame.pack(fill=tk.X)
 
         self._field_vars: dict[tuple[str, str], tk.StringVar] = {}
-        self._widgets: list[tuple[tk.Widget, str]] = []
+        self._widgets: list[tuple[ttk.Entry, str]] = []
         row_idx = 0
         current_section: str | None = None
         for section, key, label, widget_type, combo_values in self._FIELDS:
@@ -129,7 +129,7 @@ class DistroConfDialog(tk.Toplevel):
             var = tk.StringVar(value="")
             self._field_vars[(section, key)] = var
             if widget_type == "combo" and combo_values is not None:
-                widget: tk.Widget = ttk.Combobox(
+                widget: ttk.Entry = ttk.Combobox(
                     form_frame,
                     textvariable=var,
                     values=combo_values,

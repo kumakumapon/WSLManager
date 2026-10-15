@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import tkinter as tk
+from collections.abc import Callable
 from tkinter import ttk
 
 import wsl_core
@@ -19,7 +20,7 @@ class LogViewerDialog(tk.Toplevel):
         self,
         parent: tk.Tk,
         log_entries: list[str],
-        clear_callback: callable,
+        clear_callback: Callable[[], None],
     ) -> None:
         super().__init__(parent)
         self._log_entries = log_entries

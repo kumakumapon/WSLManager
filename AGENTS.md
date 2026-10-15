@@ -47,7 +47,7 @@
 | unit test | `python -m unittest discover -s tests -v` | `wsl_core` の純粋ロジックが対象。OS を問わず実行可能 |
 | import スモークテスト | `python -c "import wslmgr; print('import OK')"` | Windows ランナーのみ（`tkinter`/`winreg` が必要） |
 | lint | `ruff check .` | `ruff==0.15.8` に固定（`pyproject.toml` 参照） |
-| 型チェック | `mypy` | `mypy==2.3.1` に固定。対象は `wsl_core/` のみ（`pyproject.toml` の `[tool.mypy]` 参照） |
+| 型チェック | `mypy` | `mypy==2.3.1` に固定。対象は `wsl_core/`・`wslmgr_gui/`・`wslmgr.py`・`wslmgr_cli.py`。Windows 専用 API の型を解決するため `platform = "win32"` を設定（`pyproject.toml` の `[tool.mypy]` 参照） |
 
 ## 変更禁止領域
 
