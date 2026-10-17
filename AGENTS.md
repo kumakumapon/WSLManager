@@ -25,17 +25,17 @@
 | パス | 役割 | 変更時の注意 |
 | --- | --- | --- |
 | `wsl_core.py` | パース・検証・設定・ログ・スナップショットなどのコアロジック（テスト対象） | GUI/CLI から独立したロジックを維持し、副作用は最小限にする |
-| `wslmgr.py` | tkinter による GUI 本体 | `import` 時に副作用が起きないよう `__name__` ガードを維持する |
-| `wslmgr_gui/` | `wslmgr.py` から分割した GUI 部品（定数・レジストリヘルパー・共通ウィジェット・`dialogs/` のダイアログ・`app/` の `WSLManager` Mixin。`app/` は順次追加中） | 実行時に `wslmgr` を import しない（`python wslmgr.py` 実行時の二重ロード防止。型注釈用の `if TYPE_CHECKING:` ブロック内のみ可）。依存は `wslmgr.py` → `wslmgr_gui` の一方向 |
+| `wslmgr.py` | tkinter による GUI 本体（`WSLManager` と `main()`。UI 構築・更新処理・各種操作。`WSLManager` は `wslmgr_gui/app/` の Mixin を継承する） | `import` 時に副作用が起きないよう `__name__` ガードを維持する |
+| `wslmgr_gui/` | `wslmgr.py` から分割した GUI 部品。`winutil.py`（Windows 定数・レジストリ）、`widgets.py`（共通ウィジェット）、`distro_data.py`（ディストロ一覧・CPU・メモリ・IP の取得関数）、`dialogs/`（14 個のダイアログ）、`app/`（`WSLManager` の Mixin: リソース履歴グラフ・操作ログ・設定、と型チェック用の基底 `AppBase`） | 実行時に `wslmgr` を import しない（`python wslmgr.py` 実行時の二重ロード防止。型注釈用の `if TYPE_CHECKING:` ブロック内のみ可）。依存は `wslmgr.py` → `wslmgr_gui` の一方向。Mixin は `__init__` を持たず、メソッド名を `WSLManager` や他の Mixin と重複させない（MRO で後勝ちになる。`tests/test_wslmgr_structure.py` が検査）。確認プロンプトを持つメソッドを移すときは、テストのパッチ先も移動先モジュールに更新する |
 | `wslmgr_cli.py` | コマンドラインインターフェース | 破壊的操作（terminate/unregister/import/export 等）は確認プロンプトを維持する |
-| `tests/` | `wsl_core` / CLI の単体テスト | ロジック変更時は対応するテストを追加・更新する |
+| `tests/` | `wsl_core` / CLI（`test_wslmgr_cli.py`）/ GUI（それ以外の `test_wslmgr_*.py`）の単体テスト。GUI は実ウィンドウを作らず、`MagicMock` の `self` に対してメソッドを呼び、ダイアログ・スレッド・`subprocess` をモックする | ロジック変更時は対応するテストを追加・更新する。実際の `wsl.exe` や本物のダイアログを起動するテストを書かない |
 | `pyinstaller_hooks/` | PyInstaller ビルド用フック | exe ビルド手順に影響するため変更は慎重に |
 | `docs/` | ドキュメント（レビュー記録等） | 実装と乖離しないよう更新する |
 
 ## アーキテクチャ
 
 - エントリーポイント: GUI は `wslmgr.py`、CLI は `wslmgr_cli.py`。
-- レイヤー・責務: `wsl_core.py`（パース・検証・設定・ログ・スナップショットのコアロジック）→ `wslmgr.py` / `wslmgr_cli.py`（GUI/CLI からコアロジックを呼び出す）。
+- レイヤー・責務: `wsl_core.py`（パース・検証・設定・ログ・スナップショットのコアロジック）→ `wslmgr.py` / `wslmgr_cli.py`（GUI/CLI からコアロジックを呼び出す）。GUI は `wslmgr.py` の `WSLManager` が `wslmgr_gui/` の部品（Mixin・ダイアログ・データ取得）を組み合わせて構成する。
 - 状態管理・非同期処理: 操作ログは非同期化・スレッドセーフを考慮して実装されている（既存実装を踏襲する）。
 - 重要な設計制約: WSL ディストリビューションに対する破壊的操作（terminate/shutdown/unregister/import/export/VHDX 圧縮/スナップショット削除）は、実行前に確認プロンプトを経由させる。
 
@@ -44,7 +44,7 @@
 | 目的 | コマンド | 実行条件・補足 |
 | --- | --- | --- |
 | コンパイルチェック | `python -m py_compile wslmgr.py wsl_core.py wslmgr_cli.py` と `python -m compileall -q wsl_core wslmgr_gui` | GUI を起動せずバイトコードのみ確認（tkinter 不要） |
-| unit test | `python -m unittest discover -s tests -v` | `wsl_core` の純粋ロジックが対象。OS を問わず実行可能 |
+| unit test | `python -m unittest discover -s tests -v` | `wsl_core` / CLI / GUI（モック経由）が対象。ウィンドウは作らず OS を問わず実行可能（`wslmgr` を import できない環境では GUI のテストは skip される） |
 | import スモークテスト | `python -c "import wslmgr; print('import OK')"` | Windows ランナーのみ（`tkinter`/`winreg` が必要） |
 | lint | `ruff check .` | `ruff==0.15.8` に固定（`pyproject.toml` 参照） |
 | 型チェック | `mypy` | `mypy==2.3.1` に固定。対象は `wsl_core/`・`wslmgr_gui/`・`wslmgr.py`・`wslmgr_cli.py`。Windows 専用 API の型を解決するため `platform = "win32"` を設定（`pyproject.toml` の `[tool.mypy]` 参照） |
