@@ -215,6 +215,15 @@ CI は push と pull request のたびにインストーラをコンパイルし
 
 全ユーザー向けにするときは、`/CURRENTUSER` の代わりに `/ALLUSERS` (と `/TASKS=addtopath_system`) を使います。全ユーザー向けでは、既定の `Program Files` のままにしてください。一般のユーザーが書き込めるフォルダを `/DIR` に指定して `addtopath_system` と組み合わせると、そのフォルダがすべてのユーザーのシステム `PATH` に入ってしまいます。サイレントのアンインストールは、インストール先の `unins000.exe /VERYSILENT /SUPPRESSMSGBOXES` です (インストーラと同じく、WSL Manager の起動中は止まります)。
 
+リリースとダウンロード: `pyproject.toml` (と `wsl_core.__version__`) のバージョンに一致するタグ `vX.Y.Z` をプッシュすると、CI が `WSLManager-Setup-X.Y.Z.exe`、単体の `WSLManager.exe` (GUI) と `wslmgr.exe` (コマンドライン)、`SHA256SUMS.txt` を添付した GitHub Release を公開します。ファイルにコード署名はしていないため、チェックサムが役に立つのは、ダウンロードの破損や差し替えに気づくときだけです。ダウンロードしたファイルと見比べてください。
+
+```powershell
+Get-FileHash .\WSLManager-Setup-1.0.0.exe -Algorithm SHA256
+Get-Content .\SHA256SUMS.txt
+```
+
+CI は毎回、インストーラを実際にインストールして検証します (`installer\verify-installer.ps1`: サイレントインストール、上書き、アンインストール、PATH とデスクトップのショートカットの任意タスク、使用中のファイル)。手元でも `pwsh -File installer\verify-installer.ps1 -Setup <Setup.exe> -InstallDir <一時フォルダ>` で実行できます。WSL Manager がすでにインストールされているマシンでは実行を拒否します (同じ AppId なので、その環境を上書きしてしまうため)。また `-InstallDir` を削除するので、`-Force` を付けない限り、一時フォルダの下の空のフォルダしか受け付けません。WSL Manager を起動することも、WSL やデータに触れることもありません。ユーザーの `PATH` は、PATH の検証中だけ変更し、元の値と型を完全に復元します。
+
 ## 実装仕様
 
 ### モジュール構成
