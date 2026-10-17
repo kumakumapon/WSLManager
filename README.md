@@ -66,6 +66,21 @@ Common GUI workflows:
 
 ### Run The CLI
 
+On Windows, `wslmgr.bat` in the repository root is a CLI launcher: it finds Python
+(`.venv`, then the Python Launcher, then `python`), runs `wslmgr_cli.py` with every
+argument you pass, and returns its exit code unchanged (0 success, 1 error, 2 bad
+arguments, 3 cancelled, 4 WSL failure, 5 partial failure), so it is safe to use from
+scripts. Add the repository folder to `PATH` to run it from anywhere as `wslmgr`.
+`dist\WSLManager.exe` is a windowed GUI build and cannot be used as a command-line tool.
+Wrap arguments that contain `&`, `|` or `^` in double quotes. If `py -3` fails because no Python 3 is
+installed, create a `.venv` in the repository folder.
+
+```powershell
+.\wslmgr.bat list --format json
+```
+
+Without the launcher, run the script directly:
+
 ```powershell
 python wslmgr_cli.py --help
 python wslmgr_cli.py --language en --help

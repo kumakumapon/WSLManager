@@ -65,6 +65,15 @@ Python Launcher を使用します。
 
 ### CLI を使う
 
+Windows ではリポジトリ直下の `wslmgr.bat` が CLI ランチャーです。Python を `.venv`、Python Launcher (`py -3`)、`python` の順に探して `wslmgr_cli.py` を実行し、渡した引数をすべてそのまま渡して、終了コードも変えずに返します (0 成功、1 エラー、2 引数エラー、3 取消、4 WSL の失敗、5 一部失敗)。スクリプトからも安全に使えます。リポジトリのフォルダを `PATH` に追加すれば、どこからでも `wslmgr` として実行できます。`dist\WSLManager.exe` はウィンドウ専用の GUI ビルドなので、コマンドラインツールとしては使えません。
+`&`、`|`、`^` を含む引数は二重引用符で囲んでください。Python 3 が未導入で `py -3` が失敗する場合は、リポジトリのフォルダに `.venv` を作成してください。
+
+```powershell
+.\wslmgr.bat list --format json
+```
+
+ランチャーを使わず、スクリプトを直接実行することもできます。
+
 ```powershell
 python wslmgr_cli.py --help
 python wslmgr_cli.py --language en --help
