@@ -13,10 +13,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - CPU / memory resource history graphs (last 30 minutes per distribution) with hover details (#3, #54, #56).
 - `snapshot prune` (dry-run by default; deletion requires `--yes`) with generation retention, and scheduled snapshots via Windows Task Scheduler (create / list / delete, with confirmation) (#4, #56).
 - `start_wslmanager.bat` launcher that prefers `dist\WSLManager.exe` and falls back to `.venv` or the Python Launcher (#55).
+- Static type checking with `mypy` (pinned, run in CI) for `wsl_core`, `wslmgr_gui`, `wslmgr.py` and `wslmgr_cli.py`; `platform = "win32"` is set so Windows-only APIs such as `winreg` are typed on any OS (#68, #76).
+- Automated tests for the GUI confirmation prompts of destructive operations: stop, shutdown, unregister (two-step), WSL version conversion, snapshot deletion, export overwrite, import, snapshot restore, VHDX compaction / sparse, WSL update, transfer cancel, and quitting with a running transfer (#67, #75).
 
 ### Changed
 - Split `wsl_core.py` into a responsibility-based `wsl_core/` package; the top-level `wsl_core` module remains a backward-compatible shim (#30, #53).
 - `container list` now parses NDJSON output (multi-line, empty, CRLF/BOM) and reports malformed output instead of showing 0 items. Containers are listed with `ID / Names / Image / Status / HealthStatus / CreatedAt` and inspected by full ID; an existing session name is always passed explicitly to avoid creating a default WSLc session (#64).
+- Split `wslmgr.py` into the `wslmgr_gui` package: Windows helpers, `TreeviewSorter` and all 14 dialogs moved to `wslmgr_gui/` (`winutil.py`, `widgets.py`, `dialogs/`), leaving `WSLManager` and `main()` in `wslmgr.py`. Existing names such as `wslmgr.SnapshotManagerDialog` remain importable. Behavior is unchanged; confirmation prompts were moved as-is (#69-#74).
+- Narrowed broad `except Exception` handling in the GUI. Failures swallowed while collecting per-distribution resource usage and IP addresses are now logged at debug level (#66).
+- CI and docs now also byte-compile `wsl_core` and `wslmgr_gui` (#69).
 
 ### Fixed
 - GUI WSL Containers Inspect now uses the container `Id` field instead of the `-` placeholder (#63).
