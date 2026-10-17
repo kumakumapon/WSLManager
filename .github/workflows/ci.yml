@@ -129,6 +129,10 @@ jobs:
             Write-Error "expected exit code 2 for an invalid command, got $LASTEXITCODE"
             exit 1
           }
+          # ここまで来たら検証はすべて成功。最後に実行したネイティブコマンドは「わざと失敗させた」
+          # 呼び出し (終了コード 2) なので、その終了コードを Actions のシェルが拾ってステップを
+          # 失敗扱いにしないよう、明示的に 0 で終わる。失敗時は上で exit 1 している。
+          exit 0
 
       - name: Upload CLI Build Artifact
         uses: actions/upload-artifact@v4
