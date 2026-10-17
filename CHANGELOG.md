@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-10-18
+
 ### Added
 - WSL 3.0.1 / WSL Containers (WSLc) support, read-only: `doctor` (`--format table|json|csv`), `container system-info` / `list` / `inspect` CLI commands, and a **Tools → WSL Containers…** GUI view. Container lifecycle and network mutations are intentionally not provided (#61, #62).
 - Multilingual support (Japanese / English): automatic system-language detection, GUI language menu, and CLI `--language {auto,ja,en}` (#2, #57, #59).
