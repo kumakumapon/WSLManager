@@ -7,9 +7,7 @@ Windows 10/11 + WSL2 環境での使用を前提としています。
 
 from __future__ import annotations
 
-import concurrent.futures
 import functools
-import logging
 import os
 import subprocess
 import sys
@@ -38,15 +36,13 @@ from wslmgr_gui.dialogs.transfer import TransferProgressDialog
 from wslmgr_gui.dialogs.wsl_config import WslConfigDialog
 from wslmgr_gui.dialogs.wsl_update import WslUpdateConfirmDialog
 from wslmgr_gui.dialogs.wsl_version import WslVersionDialog
+from wslmgr_gui.distro_data import get_distros
 from wslmgr_gui.widgets import TreeviewSorter
 from wslmgr_gui.winutil import (
     CREATE_NEW_CONSOLE,
     CREATE_NO_WINDOW,
     _get_distro_vhdx_path,
-    _get_distro_vhdx_sizes,
 )
-
-logger = logging.getLogger(__name__)
 
 
 class WSLManager(OperationLogMixin, ResourceHistoryMixin, SettingsMixin, tk.Tk):
@@ -54,16 +50,6 @@ class WSLManager(OperationLogMixin, ResourceHistoryMixin, SettingsMixin, tk.Tk):
 
     # 状態の日本語表示マッピング
     STATE_JP: ClassVar[dict[str, str]] = {"Running": "実行中", "Stopped": "停止中"}
-
-    # リソース使用量(CPU/メモリ)取得のタイムアウト秒数。
-    # VM 初期化直後や、ログインシェルの起動が重い/プロセス数が多い
-    # ディストリビューションでは 2 秒では応答が返らないことがあるため、
-    # 余裕を持たせた値にしている。
-    RESOURCE_QUERY_TIMEOUT = 8.0
-
-    # IP アドレス取得のタイムアウト秒数。理由は RESOURCE_QUERY_TIMEOUT と同様
-    # (VM 初期化直後 / ログインシェルが重い / プロセス数が多い場合に備える)。
-    IP_QUERY_TIMEOUT = 8.0
 
     def __init__(self) -> None:
         super().__init__()
@@ -430,124 +416,6 @@ class WSLManager(OperationLogMixin, ResourceHistoryMixin, SettingsMixin, tk.Tk):
         )
         self._statusbar.pack(fill=tk.X, pady=(8, 0))
 
-    # ── ディストリビューション情報取得 ─────────────────────────────────────
-
-    def _get_distro_resource_usage(self, name: str) -> tuple[str, str]:
-        """指定ディストリビューションのCPU使用率(%)とメモリ使用量(MB)を返します。"""
-        try:
-            result = subprocess.run(
-                [
-                    "wsl",
-                    "-d",
-                    name,
-                    "--",
-                    "sh",
-                    "-lc",
-                    (
-                        "ps -eo pcpu=,rss= | "
-                        "awk '{cpu+=$1; mem+=$2} END {printf \"%.1f %.1f\", cpu, mem/1024}'"
-                    ),
-                ],
-                capture_output=True,
-                creationflags=CREATE_NO_WINDOW,
-                timeout=self.RESOURCE_QUERY_TIMEOUT,
-            )
-        except (OSError, subprocess.TimeoutExpired):
-            return "-", "-"
-
-        if result.returncode != 0:
-            return "-", "-"
-
-        output = wsl_core.decode_wsl_output(result.stdout).strip()
-        return wsl_core.parse_resource_usage(output)
-
-    def _get_distro_ip(self, name: str) -> str:
-        """指定ディストリビューションの IP アドレスを返します。"""
-        try:
-            result = subprocess.run(
-                ["wsl", "-d", name, "--", "hostname", "-I"],
-                capture_output=True,
-                creationflags=CREATE_NO_WINDOW,
-                timeout=self.IP_QUERY_TIMEOUT,
-            )
-        except (OSError, subprocess.TimeoutExpired):
-            return "-"
-        if result.returncode != 0:
-            return "-"
-        output = wsl_core.decode_wsl_output(result.stdout).strip()
-        ips = wsl_core.parse_ip_addresses(output)
-        return ips[0] if ips else "-"
-
-    def _get_distros(self) -> tuple[list[dict], str | None]:
-        """``wsl --list --verbose`` を解析し、必要に応じてリソース情報も取得します。
-
-        Returns:
-            (distros, error_message) のタプル。
-            成功時は distros にリストが入り error_message は None。
-            失敗時は distros は空リストで error_message にメッセージが入ります。
-        """
-        try:
-            result = subprocess.run(
-                ["wsl", "--list", "--verbose"],
-                capture_output=True,
-                creationflags=CREATE_NO_WINDOW,
-                timeout=15.0,
-            )
-        except subprocess.TimeoutExpired:
-            return [], "WSL の応答がタイムアウトしました。"
-        except FileNotFoundError:
-            return [], "wsl.exe が見つかりません。WSL2 がインストールされているか確認してください。"
-        except OSError as e:
-            return [], f"WSL の実行に失敗しました: {e}"
-
-        if result.returncode != 0:
-            stderr = wsl_core.decode_wsl_output(result.stderr).strip()
-            return [], stderr or "ディストリビューション一覧の取得に失敗しました。"
-
-        output = wsl_core.decode_wsl_output(result.stdout)
-        distros: list[dict] = wsl_core.parse_distro_list(output)
-
-        # レジストリから仮想ディスク (ext4.vhdx) のサイズを取得する
-        disk_sizes = _get_distro_vhdx_sizes()
-        for d in distros:
-            size = disk_sizes.get(d["name"])
-            if size is not None:
-                d["disk"] = f"{size:.1f}"
-
-        # Running のディストロのリソース使用量を並列取得する
-        running_distros = [d for d in distros if d["state"] == "Running"]
-        if running_distros:
-            with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
-                future_to_distro = {
-                    executor.submit(self._get_distro_resource_usage, d["name"]): d
-                    for d in running_distros
-                }
-                for future in concurrent.futures.as_completed(future_to_distro):
-                    distro = future_to_distro[future]
-                    try:
-                        cpu, memory = future.result()
-                    except Exception:
-                        # 1 ディストロの取得失敗で一覧更新全体を止めない。原因はデバッグログに残す。
-                        logger.debug(
-                            "リソース使用量の取得に失敗: %s", distro["name"], exc_info=True
-                        )
-                        cpu, memory = "-", "-"
-                    distro["cpu"] = cpu
-                    distro["memory"] = memory
-
-                ip_future_to_distro = {
-                    executor.submit(self._get_distro_ip, d["name"]): d for d in running_distros
-                }
-                for ip_future in concurrent.futures.as_completed(ip_future_to_distro):
-                    distro = ip_future_to_distro[ip_future]
-                    try:
-                        distro["ip"] = ip_future.result()
-                    except Exception:
-                        logger.debug("IP アドレスの取得に失敗: %s", distro["name"], exc_info=True)
-                        distro["ip"] = "-"
-
-        return distros, None
-
     # ── ツリービュー更新 ──────────────────────────────────────────────────
 
     def _refresh(self) -> None:
@@ -560,7 +428,7 @@ class WSLManager(OperationLogMixin, ResourceHistoryMixin, SettingsMixin, tk.Tk):
         self._set_status("更新中…")
 
         def _run() -> None:
-            distros, err = self._get_distros()
+            distros, err = get_distros()
             self._call_soon_safe(lambda: self._apply_refresh_result(distros, err, selected))
 
         threading.Thread(target=_run, daemon=True).start()
