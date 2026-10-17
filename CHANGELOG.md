@@ -15,11 +15,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `start_wslmanager.bat` launcher that prefers `dist\WSLManager.exe` and falls back to `.venv` or the Python Launcher (#55).
 - Static type checking with `mypy` (pinned, run in CI) for `wsl_core`, `wslmgr_gui`, `wslmgr.py` and `wslmgr_cli.py`; `platform = "win32"` is set so Windows-only APIs such as `winreg` are typed on any OS (#68, #76).
 - Automated tests for the GUI confirmation prompts of destructive operations: stop, shutdown, unregister (two-step), WSL version conversion, snapshot deletion, export overwrite, import, snapshot restore, VHDX compaction / sparse, WSL update, transfer cancel, and quitting with a running transfer (#67, #75).
+- Tests that guard the `WSLManager` split: structure checks (Tk last in the MRO, mixins define no `__init__`, no method is defined twice, and the members the dialogs rely on stay on `WSLManager`) (#78), and behavior tests for the operation log, settings / theme / language / auto refresh (#79) and the distribution data fetching (#80).
 
 ### Changed
 - Split `wsl_core.py` into a responsibility-based `wsl_core/` package; the top-level `wsl_core` module remains a backward-compatible shim (#30, #53).
 - `container list` now parses NDJSON output (multi-line, empty, CRLF/BOM) and reports malformed output instead of showing 0 items. Containers are listed with `ID / Names / Image / Status / HealthStatus / CreatedAt` and inspected by full ID; an existing session name is always passed explicitly to avoid creating a default WSLc session (#64).
-- Split `wslmgr.py` into the `wslmgr_gui` package: Windows helpers, `TreeviewSorter` and all 14 dialogs moved to `wslmgr_gui/` (`winutil.py`, `widgets.py`, `dialogs/`), leaving `WSLManager` and `main()` in `wslmgr.py`. Existing names such as `wslmgr.SnapshotManagerDialog` remain importable. Behavior is unchanged; confirmation prompts were moved as-is (#69-#74).
+- Split `wslmgr.py` (4,766 lines) into the `wslmgr_gui` package, leaving 1,753 lines. Behavior is unchanged, and confirmation prompts were moved as-is. Existing names such as `wslmgr.SnapshotManagerDialog` remain importable.
+  - Windows helpers, `TreeviewSorter` and all 14 dialogs moved to `wslmgr_gui/` (`winutil.py`, `widgets.py`, `dialogs/`) (#69-#74).
+  - `WSLManager` is now assembled from mixins in `wslmgr_gui/app/`: `ResourceHistoryMixin` (resource history graph, #78), `OperationLogMixin` (operation log) and `SettingsMixin` (auto refresh, theme, language, settings persistence) (#79). `AppBase` declares the members the mixins use for type checking; at runtime it derives from `object`, so the MRO is unchanged.
+  - Distribution list / CPU / memory / IP fetching became plain functions in `wslmgr_gui/distro_data.py` (`get_distros`, `get_distro_ip`, `get_distro_resource_usage`) (#80).
+  - `WSLManager` keeps `__init__`, UI construction, the refresh core and the operations that show confirmation prompts (stop / shutdown, unregister, export / import, version conversion, snapshots, mount, WSL update, quit).
 - Narrowed broad `except Exception` handling in the GUI. Failures swallowed while collecting per-distribution resource usage and IP addresses are now logged at debug level (#66).
 - CI and docs now also byte-compile `wsl_core` and `wslmgr_gui` (#69).
 
