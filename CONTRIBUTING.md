@@ -49,10 +49,17 @@ mypy
 | モジュール | 役割 |
 | --- | --- |
 | `wsl_core.py` | パース・検証・設定・ログ・スナップショットなどのコアロジック。GUI/CLI から独立しており、テスト対象の中心。 |
-| `wslmgr.py` | tkinter による GUI 本体。`wsl_core` のロジックを呼び出す。`import` 時に副作用が起きないよう `__name__` ガードを維持する。 |
+| `wslmgr.py` | tkinter による GUI 本体 (`WSLManager` と `main()`)。`wsl_core` のロジックを呼び出す。`WSLManager` は `wslmgr_gui/app/` の Mixin を継承する。`import` 時に副作用が起きないよう `__name__` ガードを維持する。 |
+| `wslmgr_gui/` | `wslmgr.py` から分割した GUI 部品。`winutil.py` (Windows 定数・レジストリ)、`widgets.py` (共通ウィジェット)、`distro_data.py` (ディストロ一覧・CPU・メモリ・IP の取得関数)、`dialogs/` (各ダイアログ)、`app/` (`WSLManager` の Mixin と型チェック用の基底 `AppBase`)。実行時に `wslmgr` を import しない (`python wslmgr.py` 実行時に二重ロードされるため。型注釈用の `if TYPE_CHECKING:` 内のみ可)。 |
 | `wslmgr_cli.py` | argparse ベースの CLI。`wsl_core` のロジックを呼び出す。破壊的操作 (terminate/unregister/import/export 等) は確認プロンプトを維持する。 |
 
 新しいロジックを追加する際は、可能な限り `wsl_core.py` に副作用の少ない関数として実装し、GUI/CLI 側は呼び出しに徹してください。詳細な設計制約は [`AGENTS.md`](AGENTS.md) の「アーキテクチャ」「変更禁止領域」を参照してください。
+
+GUI のメソッドを `wslmgr_gui/` へ移すときの注意:
+
+- Mixin (`wslmgr_gui/app/`) は `__init__` を持たず、メソッド名を `WSLManager` や他の Mixin と重複させないでください。同名のメソッドは継承順で後勝ちになり、片方が黙って無効になります (`tests/test_wslmgr_structure.py` が検査します)。
+- `messagebox` などを使うメソッドを別モジュールへ移したら、テストの `patch("wslmgr.messagebox")` を移動先モジュール (例: `patch("wslmgr_gui.app.operation_log.messagebox")`) に更新してください。`wslmgr` 側に名前が残っていると、パッチが空振りしても例外にならず、「確認なしで実行される退行」を見逃す偽陽性になります。拒否側のテストには `askyesno.assert_called_once()` のような到達確認も入れてください。
+- 移動は、メソッド本体を変えないコピー移動にし、`ast.dump` が移動前後で一致することを確認してください。
 
 ## PyInstaller ビルド手順の概要
 
