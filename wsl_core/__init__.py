@@ -169,7 +169,7 @@ from .validation import (
     validate_wslconf_bool,
 )
 
-__version__ = "1.0.0"
+__version__ = "1.1.0"
 
 __all__ = [
     "CURRENT_SCHEMA_VERSION",
