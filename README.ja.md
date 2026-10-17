@@ -186,6 +186,35 @@ Python なしで動くコンソール用の exe なので、出力・リダイ�
 - `snapshot schedule create` は、インストールされた `wslmgr.exe` 自身を絶対パスで Task Scheduler に登録します。exe を移動・アンインストールする場合は、先に `snapshot schedule delete` でタスクを削除してください。
 - このビルドの `wslmgr.exe` と、リポジトリ直下の `wslmgr.bat` (Python スクリプトを実行するランチャーで、Python が必要) を混同しないでください。
 
+#### Windows インストーラ
+
+`installer/WSLManager.iss` は、`WSLManager-Setup-<version>.exe` をビルドする [Inno Setup](https://jrsoftware.org/isinfo.php) 6.3 以降のスクリプトです。先に `dist\WSLManager.exe` と `dist\wslmgr.exe` をビルドしてから、`pyproject.toml` のバージョン (数値の `X.Y.Z` だけ) を渡してコンパイルします。
+
+```powershell
+iscc /DAppVersion=1.0.0 installer\WSLManager.iss
+```
+
+```text
+dist\installer\WSLManager-Setup-1.0.0.exe
+```
+
+CI は push と pull request のたびにインストーラをコンパイルし、`WSLManager-installer` という artifact として保存します。インストーラの動作:
+
+- **既定はユーザー単位**です。管理者権限は不要で、`%LOCALAPPDATA%\Programs\WSL Manager` に入ります。インストール時のダイアログで、全ユーザー向け (`Program Files`、管理者権限が必要) に切り替えられます。
+- `WSLManager.exe` (GUI) と `wslmgr.exe` (コマンドライン) を入れ、スタートメニューにショートカットを作ります。デスクトップのショートカットと**コマンドライン用ツールを PATH に追加**する選択肢は任意で、**既定はオフ**です。PATH への追加先はユーザーの `PATH` (全ユーザー向けのときはシステムの `PATH`) で、アンインストール時に除去されるのは、インストール先のエントリだけです。すでに開いているターミナルには反映されません。
+- WSL Manager が起動している間は、上書きインストールもアンインストールもできません。先に終了してください。実行中の `wslmgr.exe` は、エクスポートや定期スナップショットの最中かもしれないため、インストーラが勝手に閉じることはしません。ファイルが使用中のときは、数回再試行してから中止し (インストーラの終了コード 5。`wslmgr.exe` の終了コードとは無関係です)、インストール済みのファイルには手を付けません。コマンドが終わるのを待って、もう一度実行してください。
+- **アンインストールしてもデータは残ります。** 設定とログ (`%APPDATA%\WSLManager`)、スナップショット (`%USERPROFILE%\WSLSnapshots`) は、スナップショットが WSL ディストリビューションのバックアップなので、決して削除しません。
+- 定期スナップショットのタスクも削除しません。タスクはインストールされた `wslmgr.exe` をフルパスで指しているので、WSL Manager を移動またはアンインストールする前に、インストール先で `wslmgr.exe snapshot schedule delete` を実行して削除してください。
+- インストーラは英語と日本語に対応しています。コード署名はしていないため、実行時に Windows SmartScreen の警告が出ることがあります。
+
+サイレントインストール (スクリプト向け):
+
+```powershell
+.\WSLManager-Setup-1.0.0.exe /VERYSILENT /SUPPRESSMSGBOXES /NORESTART /CURRENTUSER /DIR="C:\Tools\WSLManager" /TASKS=addtopath_user
+```
+
+全ユーザー向けにするときは、`/CURRENTUSER` の代わりに `/ALLUSERS` (と `/TASKS=addtopath_system`) を使います。全ユーザー向けでは、既定の `Program Files` のままにしてください。一般のユーザーが書き込めるフォルダを `/DIR` に指定して `addtopath_system` と組み合わせると、そのフォルダがすべてのユーザーのシステム `PATH` に入ってしまいます。サイレントのアンインストールは、インストール先の `unins000.exe /VERYSILENT /SUPPRESSMSGBOXES` です (インストーラと同じく、WSL Manager の起動中は止まります)。
+
 ## 実装仕様
 
 ### モジュール構成

@@ -198,6 +198,35 @@ It is a console executable that does not need Python, so output, redirection and
 - `snapshot schedule create` registers the installed `wslmgr.exe` itself in Task Scheduler, with its absolute path. If you move or uninstall the executable, delete the task first with `snapshot schedule delete`.
 - Do not confuse `wslmgr.exe` (this build) with `wslmgr.bat` in the repository root, which is a launcher that runs the Python script and needs Python.
 
+#### Windows installer
+
+`installer/WSLManager.iss` is an [Inno Setup](https://jrsoftware.org/isinfo.php) 6.3+ script that builds `WSLManager-Setup-<version>.exe`. Build `dist\WSLManager.exe` and `dist\wslmgr.exe` first, then compile with the version from `pyproject.toml` (it must be a plain `X.Y.Z`):
+
+```powershell
+iscc /DAppVersion=1.0.0 installer\WSLManager.iss
+```
+
+```text
+dist\installer\WSLManager-Setup-1.0.0.exe
+```
+
+CI compiles the installer on every push and pull request and uploads it as the `WSLManager-installer` artifact. What the installer does:
+
+- **Per-user by default.** No administrator rights are needed and the files go to `%LOCALAPPDATA%\Programs\WSL Manager`. The install dialog can switch to an all-users install (`Program Files`, needs administrator rights).
+- Installs `WSLManager.exe` (GUI) and `wslmgr.exe` (command line) and adds a Start menu shortcut. A desktop shortcut and **Add the command-line tool to PATH** are optional and **off by default**. The PATH entry goes to your user `PATH`, or to the system `PATH` for an all-users install, and only the entry for the install folder is removed again on uninstall. A terminal that is already open does not see the change.
+- Refuses to install over, or uninstall, a running WSL Manager. Close it first. It does not close a running `wslmgr.exe` on its own, because that may be in the middle of an export or a scheduled snapshot: if a file is in use, Setup retries a few times and then stops (Setup's exit code 5, which is unrelated to the exit codes of `wslmgr.exe`) with the installed files untouched. Wait for the command to finish and run Setup again.
+- **Uninstalling keeps your data**: settings and logs (`%APPDATA%\WSLManager`) and snapshots (`%USERPROFILE%\WSLSnapshots`) are never removed, because snapshots are backups of your WSL distributions.
+- Scheduled snapshot tasks are not removed either. They point at the installed `wslmgr.exe` by its full path, so delete them with `wslmgr.exe snapshot schedule delete` (run it from the install folder) before you move or uninstall WSL Manager.
+- The installer is available in English and Japanese. It is not code-signed, so Windows SmartScreen may warn when you run it.
+
+Silent installation (for scripts):
+
+```powershell
+.\WSLManager-Setup-1.0.0.exe /VERYSILENT /SUPPRESSMSGBOXES /NORESTART /CURRENTUSER /DIR="C:\Tools\WSLManager" /TASKS=addtopath_user
+```
+
+Use `/ALLUSERS` instead of `/CURRENTUSER` (and `/TASKS=addtopath_system`) for an all-users install. For an all-users install keep the default `Program Files` folder: do not combine `addtopath_system` with a `/DIR` that ordinary users can write to, because that folder would then be on the system `PATH` for everyone. To uninstall silently, run `unins000.exe /VERYSILENT /SUPPRESSMSGBOXES` from the install folder (it stops, like Setup, while WSL Manager is running).
+
 ## Implementation Notes
 
 ### Modules

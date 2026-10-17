@@ -71,6 +71,8 @@ python -m venv .venv
 
 コマンドライン用の exe (`dist\wslmgr.exe`、コンソール付き) は別の spec からビルドします: `.\.venv\Scripts\python.exe -m PyInstaller --clean WSLManagerCLI.spec`。tkinter を含まず、`pyinstaller_hooks/` も使いません。
 
+インストーラは、先に 2 つの exe をビルドしてから Inno Setup 6.3 以降 (`iscc`) でビルドします: `iscc /DAppVersion=<pyproject.toml の version> installer\WSLManager.iss`。出力は `dist\installer\WSLManager-Setup-<version>.exe` です。`AppId` (`installer/WSLManager.iss`) は一度公開したら変更しないでください (アップグレードとアンインストールの識別子です)。アンインストール時にユーザーデータ (設定・ログ・スナップショット) を削除する処理を足さないでください。
+
 生成される GUI の実行ファイルは `dist\WSLManager.exe` です。`WSLManager.spec` と `pyinstaller_hooks/` はビルドの信頼性を保つための調整を含んでいるため、変更する場合はビルド検証を必ず行ってください。詳細は [`README.md`](README.md) の "Build An Executable" セクションを参照してください。
 
 ## Issue / Pull Request
