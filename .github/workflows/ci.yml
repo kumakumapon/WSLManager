@@ -140,6 +140,60 @@ jobs:
           name: wslmgr-cli-exe
           path: dist/wslmgr.exe
 
+      # インストーラ (Inno Setup)。PR でも毎回コンパイルして、構文エラーを merge 前に検出する。
+      # windows-latest に Inno Setup が入っていればそれを使い、無ければ Chocolatey で版を固定して入れる。
+      - name: Locate Inno Setup
+        id: iscc
+        run: |
+          $installed = @(
+            "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe",
+            "$env:ProgramFiles\Inno Setup 6\ISCC.exe"
+          )
+          $iscc = (@($env:ISCC) + $installed) | Where-Object { $_ -and (Test-Path $_) } | Select-Object -First 1
+          if (-not $iscc) {
+            Write-Host "Inno Setup is not preinstalled; installing 6.7.1 with Chocolatey"
+            choco install innosetup --version=6.7.1 --no-progress -y
+            if ($LASTEXITCODE -ne 0) {
+              Write-Error "choco install innosetup failed with exit code $LASTEXITCODE"
+              exit 1
+            }
+            $iscc = $installed | Where-Object { Test-Path $_ } | Select-Object -First 1
+          }
+          if (-not $iscc) {
+            Write-Error "ISCC.exe was not found"
+            exit 1
+          }
+          Write-Host "Using $iscc"
+          "path=$iscc" >> $env:GITHUB_OUTPUT
+          exit 0
+
+      - name: Build installer (Inno Setup)
+        run: |
+          $version = (Select-String -Path pyproject.toml -Pattern '^version\s*=\s*"([^"]+)"').Matches[0].Groups[1].Value
+          # インストーラの VersionInfoVersion は数値 X.Y.Z だけを受け付ける
+          if ($version -notmatch '^\d+\.\d+\.\d+$') {
+            Write-Error "The installer needs a numeric X.Y.Z version, but pyproject.toml says '$version'"
+            exit 1
+          }
+          & "${{ steps.iscc.outputs.path }}" "/DAppVersion=$version" installer\WSLManager.iss
+          if ($LASTEXITCODE -ne 0) {
+            Write-Error "iscc failed with exit code $LASTEXITCODE"
+            exit 1
+          }
+          $setup = "dist\installer\WSLManager-Setup-$version.exe"
+          if (-not (Test-Path $setup)) {
+            Write-Error "$setup was not created"
+            exit 1
+          }
+          Write-Host ("{0} ({1:N1} MB)" -f $setup, ((Get-Item $setup).Length / 1MB))
+          exit 0
+
+      - name: Upload Installer Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: WSLManager-installer
+          path: dist/installer/WSLManager-Setup-*.exe
+
   release:
     name: GitHub Release
     needs: [test, lint, build]

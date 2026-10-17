@@ -30,6 +30,7 @@
 | `wslmgr_cli.py` | コマンドラインインターフェース | 破壊的操作（terminate/unregister/import/export 等）は確認プロンプトを維持する |
 | `tests/` | `wsl_core` / CLI（`test_wslmgr_cli.py`）/ GUI（それ以外の `test_wslmgr_*.py`）の単体テスト。GUI は実ウィンドウを作らず、`MagicMock` の `self` に対してメソッドを呼び、ダイアログ・スレッド・`subprocess` をモックする | ロジック変更時は対応するテストを追加・更新する。実際の `wsl.exe` や本物のダイアログを起動するテストを書かない |
 | `pyinstaller_hooks/` | PyInstaller ビルド用フック（GUI 用） | exe ビルド手順に影響するため変更は慎重に |
+| `installer/` | Inno Setup のインストーラ定義（`WSLManager.iss` と、英語・日本語の追加メッセージ `CustomMessages.*.isl`） | `AppId` は変更しない。アンインストールでユーザーデータ（設定・ログ・スナップショット）を削除しない。`.iss` は ASCII のみ（日本語は UTF-8 BOM 付きの `.isl` に置く）。PATH への追加は任意で既定オフ |
 | `WSLManager.spec` / `WSLManagerCLI.spec` | PyInstaller のビルド定義（GUI の `WSLManager.exe` / コンソール付き CLI の `wslmgr.exe`） | CLI 用は tkinter を除外し、`pyinstaller_hooks/` を使わない。`.gitignore` の `!…spec` 例外が必要 |
 | `docs/` | ドキュメント（レビュー記録等） | 実装と乖離しないよう更新する |
 
@@ -64,7 +65,7 @@
 ## デプロイ上の注意
 
 - 環境変数・Secret を必要とする外部サービス連携はない。
-- 配布物は `PyInstaller` でビルドした `dist/WSLManager.exe`（GUI）と `dist/wslmgr.exe`（CLI）。ビルド手順を変更する場合は `WSLManager.spec` / `WSLManagerCLI.spec` と `pyinstaller_hooks/` を確認する。
+- 配布物は `PyInstaller` でビルドした `dist/WSLManager.exe`（GUI）と `dist/wslmgr.exe`（CLI）、およびそれらを同梱する Inno Setup のインストーラ `dist/installer/WSLManager-Setup-<version>.exe`。ビルド手順を変更する場合は `WSLManager.spec` / `WSLManagerCLI.spec` と `pyinstaller_hooks/` を確認する。
 - 本番相当の WSL 環境に対して破壊的操作を伴うコマンドを検証目的で実行しない。
 
 ## プロジェクト固有の完了条件
