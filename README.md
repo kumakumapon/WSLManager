@@ -227,6 +227,15 @@ Silent installation (for scripts):
 
 Use `/ALLUSERS` instead of `/CURRENTUSER` (and `/TASKS=addtopath_system`) for an all-users install. For an all-users install keep the default `Program Files` folder: do not combine `addtopath_system` with a `/DIR` that ordinary users can write to, because that folder would then be on the system `PATH` for everyone. To uninstall silently, run `unins000.exe /VERYSILENT /SUPPRESSMSGBOXES` from the install folder (it stops, like Setup, while WSL Manager is running).
 
+Releases and downloads: pushing a tag `vX.Y.Z` that matches the version in `pyproject.toml` (and `wsl_core.__version__`) makes CI publish a GitHub Release with `WSLManager-Setup-X.Y.Z.exe`, the standalone `WSLManager.exe` (GUI) and `wslmgr.exe` (command line), and `SHA256SUMS.txt`. The files are not code-signed, so the checksums only help you notice a damaged or swapped download. Compare them with the file you downloaded:
+
+```powershell
+Get-FileHash .\WSLManager-Setup-1.0.0.exe -Algorithm SHA256
+Get-Content .\SHA256SUMS.txt
+```
+
+CI also installs the installer for real on every run (`installer\verify-installer.ps1`: silent install, upgrade, uninstall, the PATH and desktop-shortcut tasks, and a file in use). You can run it yourself with `pwsh -File installer\verify-installer.ps1 -Setup <Setup.exe> -InstallDir <temporary folder>`. It refuses to run on a machine where WSL Manager is already installed (it uses the same AppId and would replace that installation) and deletes `-InstallDir`, so it only accepts an empty folder under your temporary folder unless you pass `-Force`. It never starts WSL Manager or touches WSL or your data; it changes your user `PATH` only while its PATH checks run and restores the original value and type exactly.
+
 ## Implementation Notes
 
 ### Modules

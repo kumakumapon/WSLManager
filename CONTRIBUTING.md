@@ -73,6 +73,8 @@ python -m venv .venv
 
 インストーラは、先に 2 つの exe をビルドしてから Inno Setup 6.3 以降 (`iscc`) でビルドします: `iscc /DAppVersion=<pyproject.toml の version> installer\WSLManager.iss`。出力は `dist\installer\WSLManager-Setup-<version>.exe` です。`AppId` (`installer/WSLManager.iss`) は一度公開したら変更しないでください (アップグレードとアンインストールの識別子です)。アンインストール時にユーザーデータ (設定・ログ・スナップショット) を削除する処理を足さないでください。
 
+リリースは、`pyproject.toml` と `wsl_core/__init__.py` の `version` を同じ数値 `X.Y.Z` に更新し (`tests/test_packaging.py` が一致を検査します)、CHANGELOG を整えてから、`vX.Y.Z` のタグをプッシュします。CI の `package` ジョブが、`WSLManager-Setup-X.Y.Z.exe`・`WSLManager.exe`・`wslmgr.exe` を揃えて `SHA256SUMS.txt` を作り (タグが無い PR や main への push でも毎回動き、`release-files` という artifact で中身を確認できます)、`release` ジョブがタグのときだけ公開します。タグがバージョンと違うと、`package` ジョブが失敗します。インストーラは CI の `build` ジョブが毎回実際にインストールして検証します (`installer/verify-installer.ps1`)。手元で実行するとユーザー `PATH` を一時的に変更します (最後に完全に元へ戻しますが、実行中のシェルや Explorer には変更が通知されません)。WSL Manager が実際にインストールされている環境では、同じ AppId を使うため、実行を拒否します。
+
 生成される GUI の実行ファイルは `dist\WSLManager.exe` です。`WSLManager.spec` と `pyinstaller_hooks/` はビルドの信頼性を保つための調整を含んでいるため、変更する場合はビルド検証を必ず行ってください。詳細は [`README.md`](README.md) の "Build An Executable" セクションを参照してください。
 
 ## Issue / Pull Request

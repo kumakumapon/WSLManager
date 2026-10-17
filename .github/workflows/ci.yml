@@ -6,6 +6,10 @@ on:
     tags: ['v*']
   pull_request:
 
+# Least privilege for every job; the release job below asks for contents: write itself.
+permissions:
+  contents: read
+
 jobs:
   test:
     name: Test (${{ matrix.os }}, py${{ matrix.python-version }})
@@ -188,31 +192,116 @@ jobs:
           Write-Host ("{0} ({1:N1} MB)" -f $setup, ((Get-Item $setup).Length / 1MB))
           exit 0
 
+      # 実際にサイレントでインストール → 上書き → アンインストールして、ファイル・ショートカット・
+      # アンインストール情報・PATH の追加と除去・使用中ファイルでの中止を確認する。
+      # GUI は起動せず、WSL にも触れない。ユーザー PATH は検証前後で完全に元へ戻す。
+      - name: Test installer (silent install / upgrade / uninstall)
+        # A Setup stuck on an unexpected dialog would otherwise hang the job.
+        timeout-minutes: 10
+        run: |
+          $version = (Select-String -Path pyproject.toml -Pattern '^version\s*=\s*"([^"]+)"').Matches[0].Groups[1].Value
+          pwsh -NoProfile -File installer\verify-installer.ps1 `
+            -Setup "dist\installer\WSLManager-Setup-$version.exe" `
+            -InstallDir "$env:RUNNER_TEMP\wslm-install" `
+            -ExpectedVersion $version
+          if ($LASTEXITCODE -ne 0) {
+            Write-Error "installer verification failed ($LASTEXITCODE check(s) failed)"
+            exit 1
+          }
+          exit 0
+
       - name: Upload Installer Artifact
         uses: actions/upload-artifact@v4
         with:
           name: WSLManager-installer
           path: dist/installer/WSLManager-Setup-*.exe
 
-  release:
-    name: GitHub Release
-    needs: [test, lint, build]
-    if: startsWith(github.ref, 'refs/tags/v')
+  # Release に添付するファイルを組み立てて検証する。タグが無くても (PR や main への push でも) 毎回動かし、
+  # 実際に公開する release ジョブでしか試せない部分を最小にする。
+  package:
+    name: Package release files
+    needs: [build]
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
     steps:
       - uses: actions/checkout@v4
 
-      - name: Download Build Artifact
+      - name: Download GUI executable
         uses: actions/download-artifact@v4
         with:
           name: WSLManager-exe
           path: dist
 
+      - name: Download CLI executable
+        uses: actions/download-artifact@v4
+        with:
+          name: wslmgr-cli-exe
+          path: dist
+
+      - name: Download installer
+        uses: actions/download-artifact@v4
+        with:
+          name: WSLManager-installer
+          path: dist
+
+      - name: Check and checksum the release files
+        run: |
+          version=$(sed -n 's/^version *= *"\([^"]*\)".*/\1/p' pyproject.toml | head -n 1)
+          if ! [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::pyproject.toml needs a numeric X.Y.Z version, but says '$version'"
+            exit 1
+          fi
+          # A tag must match the version, or the Setup file name and the tag would disagree.
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            tag="${GITHUB_REF_NAME#v}"
+            if [ "$tag" != "$version" ]; then
+              echo "::error::tag '$GITHUB_REF_NAME' does not match the version $version in pyproject.toml"
+              exit 1
+            fi
+          fi
+          cd dist
+          for f in "WSLManager-Setup-$version.exe" WSLManager.exe wslmgr.exe; do
+            if [ ! -s "$f" ]; then
+              echo "::error::missing or empty release file: $f"
+              ls -la
+              exit 1
+            fi
+          done
+          sha256sum "WSLManager-Setup-$version.exe" WSLManager.exe wslmgr.exe > SHA256SUMS.txt
+          sha256sum -c SHA256SUMS.txt
+          cat SHA256SUMS.txt
+
+      - name: Upload release files
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-files
+          path: |
+            dist/WSLManager-Setup-*.exe
+            dist/WSLManager.exe
+            dist/wslmgr.exe
+            dist/SHA256SUMS.txt
+          if-no-files-found: error
+
+  release:
+    name: GitHub Release
+    needs: [test, lint, build, package]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download release files
+        uses: actions/download-artifact@v4
+        with:
+          name: release-files
+          path: release
+
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
-          files: dist/WSLManager.exe
+          files: |
+            release/WSLManager-Setup-*.exe
+            release/WSLManager.exe
+            release/wslmgr.exe
+            release/SHA256SUMS.txt
+          fail_on_unmatched_files: true
           generate_release_notes: true
-
