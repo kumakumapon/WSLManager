@@ -69,7 +69,9 @@ python -m venv .venv
 .\.venv\Scripts\python.exe -m PyInstaller --clean WSLManager.spec
 ```
 
-生成される実行ファイルは `dist\WSLManager.exe` です。`WSLManager.spec` と `pyinstaller_hooks/` はビルドの信頼性を保つための調整を含んでいるため、変更する場合はビルド検証を必ず行ってください。詳細は [`README.md`](README.md) の "Build An Executable" セクションを参照してください。
+コマンドライン用の exe (`dist\wslmgr.exe`、コンソール付き) は別の spec からビルドします: `.\.venv\Scripts\python.exe -m PyInstaller --clean WSLManagerCLI.spec`。tkinter を含まず、`pyinstaller_hooks/` も使いません。
+
+生成される GUI の実行ファイルは `dist\WSLManager.exe` です。`WSLManager.spec` と `pyinstaller_hooks/` はビルドの信頼性を保つための調整を含んでいるため、変更する場合はビルド検証を必ず行ってください。詳細は [`README.md`](README.md) の "Build An Executable" セクションを参照してください。
 
 ## Issue / Pull Request
 

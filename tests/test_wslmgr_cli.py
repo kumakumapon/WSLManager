@@ -2079,6 +2079,54 @@ class TestSnapshotSchedule(unittest.TestCase):
         self.assertIn("--keep 7", command)
         self.assertIn("--yes", command)
 
+    def test_scheduled_command_runs_the_script_when_not_frozen(self):
+        args = argparse.Namespace(name="Ubuntu", dir="/snapshots", keep=7)
+        with (
+            patch.object(wslmgr_cli.sys, "executable", r"C:\Python\python.exe"),
+            patch.object(wslmgr_cli.sys, "frozen", False, create=True),
+        ):
+            command = wslmgr_cli._build_scheduled_snapshot_command(args)
+        # Python で実行しているときは、従来どおり「インタプリタ + スクリプト」の形
+        self.assertTrue(command.startswith(r"C:\Python\python.exe "), command)
+        self.assertIn("wslmgr_cli.py snapshot create Ubuntu", command)
+
+    def test_scheduled_command_runs_the_exe_directly_when_frozen(self):
+        # PyInstaller の onefile では __file__ が終了時に消える一時展開先を指す。
+        # 登録したタスクが壊れないよう、スクリプトのパスは含めず exe だけで呼ぶ。
+        exe = r"C:\Program Files\WSL Manager\wslmgr.exe"
+        args = argparse.Namespace(name="Ubuntu Main", dir="/snapshots", keep=7)
+        with (
+            patch.object(wslmgr_cli.sys, "executable", exe),
+            patch.object(wslmgr_cli.sys, "frozen", True, create=True),
+        ):
+            command = wslmgr_cli._build_scheduled_snapshot_command(args)
+        self.assertTrue(
+            command.startswith('"' + exe + '" snapshot create "Ubuntu Main" --dir '), command
+        )
+        self.assertNotIn(".py", command)
+        self.assertNotIn("_MEI", command)
+        for expected in ("--keep 7", "--yes", "--quiet"):
+            self.assertIn(expected, command)
+
+    def test_frozen_command_is_registered_as_a_single_task_argument(self):
+        exe = r"C:\Program Files\WSL Manager\wslmgr.exe"
+        args = argparse.Namespace(
+            name="Ubuntu", dir="/snapshots", keep=3, time="03:00", yes=True, quiet=True
+        )
+        completed = MagicMock(returncode=0, stdout="", stderr="")
+        with (
+            patch.object(wslmgr_cli.sys, "platform", "win32"),
+            patch.object(wslmgr_cli.sys, "executable", exe),
+            patch.object(wslmgr_cli.sys, "frozen", True, create=True),
+            patch("wslmgr_cli.subprocess.run", return_value=completed) as mock_run,
+            patch("sys.stdout", io.StringIO()),
+        ):
+            wslmgr_cli.cmd_snapshot_schedule_create(args)
+        command = mock_run.call_args[0][0]
+        task_command = command[command.index("/tr") + 1]
+        self.assertTrue(task_command.startswith('"' + exe + '" snapshot create'), task_command)
+        self.assertNotIn(".py", task_command)
+
     def test_schedule_create_invokes_schtasks(self):
         args = argparse.Namespace(
             name="Ubuntu", dir="/snapshots", keep=3, time="03:00", yes=True, quiet=True

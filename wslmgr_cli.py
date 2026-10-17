@@ -1399,7 +1399,12 @@ def _scheduled_task_name(distro_name: str) -> str:
 
 def _build_scheduled_snapshot_command(args: argparse.Namespace) -> str:
     """Task Scheduler に登録する、自己完結したスナップショットコマンドを構築します。"""
-    command = [sys.executable, os.path.abspath(__file__), "snapshot", "create", args.name]
+    if getattr(sys, "frozen", False):
+        # PyInstaller の onefile では __file__ が終了時に消える一時展開先を指すため、
+        # スクリプトのパスは含めず、インストールされた exe だけで呼び出す。
+        command = [sys.executable, "snapshot", "create", args.name]
+    else:
+        command = [sys.executable, os.path.abspath(__file__), "snapshot", "create", args.name]
     command.extend(
         ["--dir", os.path.abspath(args.dir), "--keep", str(args.keep), "--yes", "--quiet"]
     )

@@ -71,7 +71,7 @@ On Windows, `wslmgr.bat` in the repository root is a CLI launcher: it finds Pyth
 argument you pass, and returns its exit code unchanged (0 success, 1 error, 2 bad
 arguments, 3 cancelled, 4 WSL failure, 5 partial failure), so it is safe to use from
 scripts. Add the repository folder to `PATH` to run it from anywhere as `wslmgr`.
-`dist\WSLManager.exe` is a windowed GUI build and cannot be used as a command-line tool.
+`dist\WSLManager.exe` is a windowed GUI build and cannot be used as a command-line tool; build `dist\wslmgr.exe` instead (see "Command-line executable" below).
 Wrap arguments that contain `&`, `|` or `^` in double quotes. If `py -3` fails because no Python 3 is
 installed, create a `.venv` in the repository folder.
 
@@ -178,6 +178,25 @@ dist\WSLManager.exe
 ```
 
 The checked-in `WSLManager.spec` and `pyinstaller_hooks/` directory are intentional. They make builds more reliable in conda/miniforge environments where unrelated package hooks or Tcl/Tk detection can break PyInstaller analysis.
+
+#### Command-line executable
+
+`dist\WSLManager.exe` is a windowed GUI build, so it prints nothing to a terminal. The command-line tool is built separately from `WSLManagerCLI.spec`:
+
+```powershell
+.\.venv\Scripts\python.exe -m PyInstaller --clean WSLManagerCLI.spec
+```
+
+```text
+dist\wslmgr.exe
+```
+
+It is a console executable that does not need Python, so output, redirection and exit codes behave like any other command-line tool (0 success, 1 error, 2 bad arguments, 3 cancelled, 4 WSL failure, 5 partial failure). It does not include tkinter and does not use `pyinstaller_hooks/`.
+
+- Startup takes about 0.6 seconds because a one-file executable unpacks itself on every run (running `python wslmgr_cli.py` directly takes about 0.15 seconds).
+- When output is redirected to a file or pipe, text is encoded with the Windows ANSI code page (for example cp932 on Japanese Windows). On a system whose code page cannot represent Japanese, messages that contain Japanese can fail to encode. `PYTHONIOENCODING` is ignored by the one-file executable. This is the same limitation as the Python script and is tracked as a separate issue.
+- `snapshot schedule create` registers the installed `wslmgr.exe` itself in Task Scheduler, with its absolute path. If you move or uninstall the executable, delete the task first with `snapshot schedule delete`.
+- Do not confuse `wslmgr.exe` (this build) with `wslmgr.bat` in the repository root, which is a launcher that runs the Python script and needs Python.
 
 ## Implementation Notes
 

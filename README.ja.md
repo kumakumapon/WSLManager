@@ -65,7 +65,7 @@ Python Launcher を使用します。
 
 ### CLI を使う
 
-Windows ではリポジトリ直下の `wslmgr.bat` が CLI ランチャーです。Python を `.venv`、Python Launcher (`py -3`)、`python` の順に探して `wslmgr_cli.py` を実行し、渡した引数をすべてそのまま渡して、終了コードも変えずに返します (0 成功、1 エラー、2 引数エラー、3 取消、4 WSL の失敗、5 一部失敗)。スクリプトからも安全に使えます。リポジトリのフォルダを `PATH` に追加すれば、どこからでも `wslmgr` として実行できます。`dist\WSLManager.exe` はウィンドウ専用の GUI ビルドなので、コマンドラインツールとしては使えません。
+Windows ではリポジトリ直下の `wslmgr.bat` が CLI ランチャーです。Python を `.venv`、Python Launcher (`py -3`)、`python` の順に探して `wslmgr_cli.py` を実行し、渡した引数をすべてそのまま渡して、終了コードも変えずに返します (0 成功、1 エラー、2 引数エラー、3 取消、4 WSL の失敗、5 一部失敗)。スクリプトからも安全に使えます。リポジトリのフォルダを `PATH` に追加すれば、どこからでも `wslmgr` として実行できます。`dist\WSLManager.exe` はウィンドウ専用の GUI ビルドなので、コマンドラインツールとしては使えません。代わりに `dist\wslmgr.exe` をビルドしてください (後述の「コマンドライン用 exe」)。
 `&`、`|`、`^` を含む引数は二重引用符で囲んでください。Python 3 が未導入で `py -3` が失敗する場合は、リポジトリのフォルダに `.venv` を作成してください。
 
 ```powershell
@@ -166,6 +166,25 @@ dist\WSLManager.exe
 ```
 
 `WSLManager.spec` と `pyinstaller_hooks/` は意図的に同梱しています。conda / miniforge 環境では、無関係なパッケージの PyInstaller hook や Tcl/Tk 検出の問題で解析が失敗することがあるため、これらを使ってビルドを安定させています。
+
+#### コマンドライン用 exe
+
+`dist\WSLManager.exe` はウィンドウ専用の GUI ビルドなので、ターミナルには何も出力しません。コマンドラインツールは `WSLManagerCLI.spec` から別にビルドします。
+
+```powershell
+.\.venv\Scripts\python.exe -m PyInstaller --clean WSLManagerCLI.spec
+```
+
+```text
+dist\wslmgr.exe
+```
+
+Python なしで動くコンソール用の exe なので、出力・リダイレクト・終了コード (0 成功、1 エラー、2 引数エラー、3 取消、4 WSL の失敗、5 一部失敗) が通常のコマンドラインツールと同じように動きます。tkinter は含まれず、`pyinstaller_hooks/` も使いません。
+
+- onefile の exe は実行のたびに展開されるため、起動に約 0.6 秒かかります (`python wslmgr_cli.py` を直接実行すると約 0.15 秒です)。
+- 出力をファイルやパイプへリダイレクトすると、Windows の ANSI コードページ (日本語 Windows では cp932) でエンコードされます。日本語を表現できないコードページの環境では、日本語を含むメッセージのエンコードに失敗することがあります。onefile の exe は `PYTHONIOENCODING` を無視します。Python スクリプトと同じ制約で、別の Issue として扱います。
+- `snapshot schedule create` は、インストールされた `wslmgr.exe` 自身を絶対パスで Task Scheduler に登録します。exe を移動・アンインストールする場合は、先に `snapshot schedule delete` でタスクを削除してください。
+- このビルドの `wslmgr.exe` と、リポジトリ直下の `wslmgr.bat` (Python スクリプトを実行するランチャーで、Python が必要) を混同しないでください。
 
 ## 実装仕様
 

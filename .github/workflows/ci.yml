@@ -101,6 +101,41 @@ jobs:
           name: WSLManager-exe
           path: dist/WSLManager.exe
 
+      # コマンドライン用 exe (console 付き)。GUI とは別の spec で、pyinstaller_hooks/ は使わない
+      - name: Build CLI with PyInstaller
+        run: pyinstaller --clean WSLManagerCLI.spec
+
+      - name: Verify CLI executable artifact
+        run: |
+          if (-not (Test-Path "dist\wslmgr.exe")) {
+            Write-Error "dist\wslmgr.exe was not created"
+            exit 1
+          }
+          $expected = (Select-String -Path pyproject.toml -Pattern '^version\s*=\s*"([^"]+)"').Matches[0].Groups[1].Value
+          # 出力が複数行でも文字列として判定する (配列のままだと -notmatch の結果がずれる)
+          $out = (& dist\wslmgr.exe --version | Out-String).Trim()
+          if ($LASTEXITCODE -ne 0) {
+            Write-Error "wslmgr.exe --version exited with $LASTEXITCODE"
+            exit 1
+          }
+          Write-Host $out
+          if ($out -notmatch [regex]::Escape($expected)) {
+            Write-Error "wslmgr.exe reports '$out' but pyproject.toml says $expected"
+            exit 1
+          }
+          # argparse の引数エラーは終了コード 2。終了コードが伝播することを確認する
+          & dist\wslmgr.exe nosuchcommand 2>$null
+          if ($LASTEXITCODE -ne 2) {
+            Write-Error "expected exit code 2 for an invalid command, got $LASTEXITCODE"
+            exit 1
+          }
+
+      - name: Upload CLI Build Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: wslmgr-cli-exe
+          path: dist/wslmgr.exe
+
   release:
     name: GitHub Release
     needs: [test, lint, build]

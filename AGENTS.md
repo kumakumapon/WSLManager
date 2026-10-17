@@ -29,7 +29,8 @@
 | `wslmgr_gui/` | `wslmgr.py` から分割した GUI 部品。`winutil.py`（Windows 定数・レジストリ）、`widgets.py`（共通ウィジェット）、`distro_data.py`（ディストロ一覧・CPU・メモリ・IP の取得関数）、`dialogs/`（14 個のダイアログ）、`app/`（`WSLManager` の Mixin: リソース履歴グラフ・操作ログ・設定、と型チェック用の基底 `AppBase`） | 実行時に `wslmgr` を import しない（`python wslmgr.py` 実行時の二重ロード防止。型注釈用の `if TYPE_CHECKING:` ブロック内のみ可）。依存は `wslmgr.py` → `wslmgr_gui` の一方向。Mixin は `__init__` を持たず、メソッド名を `WSLManager` や他の Mixin と重複させない（MRO で後勝ちになる。`tests/test_wslmgr_structure.py` が検査）。確認プロンプトを持つメソッドを移すときは、テストのパッチ先も移動先モジュールに更新する |
 | `wslmgr_cli.py` | コマンドラインインターフェース | 破壊的操作（terminate/unregister/import/export 等）は確認プロンプトを維持する |
 | `tests/` | `wsl_core` / CLI（`test_wslmgr_cli.py`）/ GUI（それ以外の `test_wslmgr_*.py`）の単体テスト。GUI は実ウィンドウを作らず、`MagicMock` の `self` に対してメソッドを呼び、ダイアログ・スレッド・`subprocess` をモックする | ロジック変更時は対応するテストを追加・更新する。実際の `wsl.exe` や本物のダイアログを起動するテストを書かない |
-| `pyinstaller_hooks/` | PyInstaller ビルド用フック | exe ビルド手順に影響するため変更は慎重に |
+| `pyinstaller_hooks/` | PyInstaller ビルド用フック（GUI 用） | exe ビルド手順に影響するため変更は慎重に |
+| `WSLManager.spec` / `WSLManagerCLI.spec` | PyInstaller のビルド定義（GUI の `WSLManager.exe` / コンソール付き CLI の `wslmgr.exe`） | CLI 用は tkinter を除外し、`pyinstaller_hooks/` を使わない。`.gitignore` の `!…spec` 例外が必要 |
 | `docs/` | ドキュメント（レビュー記録等） | 実装と乖離しないよう更新する |
 
 ## アーキテクチャ
@@ -63,7 +64,7 @@
 ## デプロイ上の注意
 
 - 環境変数・Secret を必要とする外部サービス連携はない。
-- 配布物は `PyInstaller` でビルドした `dist/WSLManager.exe`。ビルド手順を変更する場合は `WSLManager.spec` と `pyinstaller_hooks/` を確認する。
+- 配布物は `PyInstaller` でビルドした `dist/WSLManager.exe`（GUI）と `dist/wslmgr.exe`（CLI）。ビルド手順を変更する場合は `WSLManager.spec` / `WSLManagerCLI.spec` と `pyinstaller_hooks/` を確認する。
 - 本番相当の WSL 環境に対して破壊的操作を伴うコマンドを検証目的で実行しない。
 
 ## プロジェクト固有の完了条件
