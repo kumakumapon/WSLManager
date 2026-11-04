@@ -6,6 +6,8 @@ from __future__ import annotations
 
 import re
 
+from .i18n import translate
+
 # WSL ディストロ名はレジストリキー名・\\wsl.localhost\<name> パス・
 # エクスポートファイル名として使われるため、Windows の予約デバイス名は
 # 大文字小文字を区別せず使用禁止とする。
@@ -20,7 +22,7 @@ _LINUX_USERNAME_RE = re.compile(r"^[a-z_][a-z0-9_-]*$")
 _HOSTNAME_LABEL_RE = re.compile(r"^[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?$")
 
 
-def validate_distro_name(name: str) -> tuple[bool, str]:
+def validate_distro_name(name: str, language: str = "ja") -> tuple[bool, str]:
     """WSL ディストリビューション名を検証して (有効かどうか, 理由) のタプルを返します。
 
     ディストロ名はレジストリキー名・``\\\\wsl.localhost\\<name>`` パス・
@@ -40,25 +42,30 @@ def validate_distro_name(name: str) -> tuple[bool, str]:
     - 制御文字 (0x20 未満の文字) を含む場合は無効
 
     有効な場合は (True, "") を返します。
-    無効な場合は (False, 理由の日本語文字列) を返します。
+    無効な場合は (False, 理由) を返します。理由は ``language`` (既定は日本語。
+    CLI と既存の呼び出し元の互換のため) の文言です。GUI は表示言語を渡します。
     """
+
+    def _reason(key: str, **values: object) -> tuple[bool, str]:
+        return False, translate(f"validation.distro_name.{key}", language, **values)
+
     if not name or not name.strip():
-        return False, "ディストリビューション名を入力してください"
+        return _reason("empty")
     invalid_chars = set(r'/\:*?"<>|&;%^()')
     found = [c for c in name if c in invalid_chars]
     if found:
-        return False, f"使用できない文字が含まれています: {''.join(sorted(set(found)))}"
+        return _reason("invalid_chars", chars="".join(sorted(set(found))))
     if len(name) > 64:
-        return False, "ディストリビューション名は64文字以内にしてください"
+        return _reason("too_long")
     stem = name.split(".", 1)[0]
     if name.upper() in _WINDOWS_RESERVED_NAMES or stem.upper() in _WINDOWS_RESERVED_NAMES:
-        return False, "Windows の予約デバイス名は使用できません"
+        return _reason("reserved")
     if name.endswith(".") or name[-1].isspace():
-        return False, "名前の末尾にドットや空白は使用できません"
+        return _reason("trailing")
     if name[0].isspace():
-        return False, "名前の先頭に空白は使用できません"
+        return _reason("leading_space")
     if any(ord(c) < 0x20 for c in name):
-        return False, "制御文字は使用できません"
+        return _reason("control")
     return True, ""
 
 
@@ -81,7 +88,9 @@ def default_clone_name(base_name: str, existing: list[str]) -> str:
         n += 1
 
 
-def validate_clone_name(name: str, existing: list[str]) -> tuple[bool, str]:
+def validate_clone_name(
+    name: str, existing: list[str], language: str = "ja"
+) -> tuple[bool, str]:
     """複製先ディストリビューション名を検証して (有効かどうか, 理由) のタプルを返します。
 
     まず :func:`validate_distro_name` による検証を行い、無効であればその
@@ -89,14 +98,14 @@ def validate_clone_name(name: str, existing: list[str]) -> tuple[bool, str]:
     (casefold) 比較して重複していないかを確認します。
 
     有効な場合は (True, "") を返します。
-    無効な場合は (False, 理由の日本語文字列) を返します。
+    無効な場合は (False, 理由) を返します (``language`` は :func:`validate_distro_name` と同じ)。
     """
-    valid, reason = validate_distro_name(name)
+    valid, reason = validate_distro_name(name, language=language)
     if not valid:
         return False, reason
     existing_casefold = {existing_name.casefold() for existing_name in existing}
     if name.casefold() in existing_casefold:
-        return False, "同名のディストリビューションが既に存在します。"
+        return False, translate("validation.distro_name.duplicate", language)
     return True, ""
 
 

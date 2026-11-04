@@ -20,8 +20,8 @@ DATA_MODULE = "wslmgr_gui.distro_data"
 
 # ── 呼び出しの窓口 ────────────────────────────────────────────────────────
 # テスト本体は下の 3 つだけを使う。取得処理の置き場所が変わったときは、ここだけ差し替える。
-def get_distros() -> tuple[list[dict], str | None]:
-    return distro_data.get_distros()
+def get_distros(language: str = "ja") -> tuple[list[dict], str | None]:
+    return distro_data.get_distros(language)
 
 
 def get_usage(name: str) -> tuple[str, str]:
@@ -67,6 +67,51 @@ def _fake_wsl(
 
 
 class ListDistrosTests(unittest.TestCase):
+    def setUp(self) -> None:
+        # 実行環境のレジストリ (Windows の CI ランナー) に左右されないよう、既定では空にする
+        patcher = patch(f"{DATA_MODULE}._get_distro_base_paths", return_value={})
+        self.base_paths = patcher.start()
+        self.addCleanup(patcher.stop)
+
+    @patch("subprocess.run")
+    def test_no_installed_distributions_is_an_empty_list_not_an_error(
+        self, run: MagicMock
+    ) -> None:
+        # 何も登録されていないと wsl.exe は失敗の終了コードと案内文を返す
+        message = "Windows Subsystem for Linux has no installed distributions.\r\n"
+        run.return_value = _completed(stdout=message.encode("utf-16-le"), returncode=0xFFFFFFFF)
+
+        distros, error = get_distros()
+
+        self.assertEqual(distros, [])
+        self.assertIsNone(error)
+
+    @patch("subprocess.run")
+    def test_error_text_can_come_from_stdout(self, run: MagicMock) -> None:
+        run.return_value = _completed(stdout="service failed".encode("utf-16-le"), returncode=1)
+
+        _distros, error = get_distros()
+
+        self.assertEqual(error, "service failed")
+
+    @patch("subprocess.run", side_effect=FileNotFoundError())
+    def test_messages_follow_the_requested_language(self, _run: MagicMock) -> None:
+        _distros, error = get_distros("en")
+
+        self.assertEqual(error, "wsl.exe was not found. Check that WSL is installed.")
+
+    def test_install_location_comes_from_the_registry(self) -> None:
+        self.base_paths.return_value = {"Ubuntu": "C:\\WSL\\Ubuntu"}
+        with (
+            patch("subprocess.run", side_effect=_fake_wsl()),
+            patch(f"{DATA_MODULE}._get_distro_vhdx_sizes", return_value={}),
+        ):
+            distros, _error = get_distros()
+
+        by_name = {d["name"]: d for d in distros}
+        self.assertEqual(by_name["Ubuntu"]["location"], "C:\\WSL\\Ubuntu")
+        self.assertNotIn("location", by_name["Debian"])
+
     @patch("subprocess.run", side_effect=subprocess.TimeoutExpired("wsl", 15.0))
     def test_timeout_reports_message(self, _run: MagicMock) -> None:
         distros, error = get_distros()

@@ -24,7 +24,14 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "sort_desc": False,      # ソートが降順かどうか
     "snapshot_dir": None,    # スナップショット保存先 (None はデフォルト)
     "language": "auto",     # 表示言語 (auto, ja, en)
+    "auto_refresh_interval": 5,  # 自動更新の間隔 (秒、AUTO_REFRESH_INTERVALS のいずれか)
+    "detail_panel": True,    # メイン画面の詳細パネルを表示するか
+    "last_export_dir": None, # 前回エクスポートしたフォルダ (None は未保存)
 }
+
+# 自動更新の間隔として選べる秒数 (GUI の「表示 → 自動更新の間隔」の選択肢)。
+# 実行中のディストリビューションごとに wsl.exe を起動するため、短すぎる値は用意しない。
+AUTO_REFRESH_INTERVALS: tuple[int, ...] = (5, 10, 30, 60)
 
 _GEOMETRY_RE = re.compile(r"^\d+x\d+([+-]-?\d+[+-]-?\d+)?$")
 PARTIAL_WRITE_SUFFIX = ".wslmgr-partial"
@@ -107,6 +114,22 @@ def normalize_settings(data: Any) -> dict[str, Any]:
         result["snapshot_dir"] = snapshot_dir
 
     result["language"] = normalize_language(data.get("language"))
+
+    interval = data.get("auto_refresh_interval")
+    if (
+        isinstance(interval, int)
+        and not isinstance(interval, bool)
+        and interval in AUTO_REFRESH_INTERVALS
+    ):
+        result["auto_refresh_interval"] = interval
+
+    detail_panel = data.get("detail_panel")
+    if isinstance(detail_panel, bool):
+        result["detail_panel"] = detail_panel
+
+    last_export_dir = data.get("last_export_dir")
+    if isinstance(last_export_dir, str) and last_export_dir:
+        result["last_export_dir"] = last_export_dir
 
     return result
 

@@ -285,6 +285,19 @@ class TestCmdList(unittest.TestCase):
         return proc
 
     @patch("wslmgr_cli.subprocess.run")
+    def test_no_installed_distributions_prints_an_empty_list(self, mock_run):
+        """未登録のとき wsl.exe は失敗を返すが、エラーではなく空の一覧として扱う。"""
+        mock_run.return_value = self._make_completed_process(
+            "Windows Subsystem for Linux has no installed distributions.\r\n",
+            returncode=0xFFFFFFFF,
+        )
+        args = argparse.Namespace(format="json")
+        buf = io.StringIO()
+        with patch("sys.stdout", buf):
+            wslmgr_cli.cmd_list(args)  # sys.exit しない
+        self.assertEqual(json.loads(buf.getvalue()), [])
+
+    @patch("wslmgr_cli.subprocess.run")
     def test_table_format_calls_parse_distro_list(self, mock_run):
         """table フォーマットで wsl_core.parse_distro_list の結果が出力される。"""
         mock_run.return_value = self._make_completed_process(self.TYPICAL_OUTPUT)

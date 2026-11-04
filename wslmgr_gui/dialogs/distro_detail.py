@@ -10,6 +10,7 @@ import tkinter as tk
 from tkinter import ttk
 
 import wsl_core
+from wslmgr_gui.ui_queue import post_to_ui
 from wslmgr_gui.winutil import CREATE_NO_WINDOW, _get_distro_vhdx_path
 
 
@@ -165,9 +166,9 @@ class DistroDetailDialog(tk.Toplevel):
                 data = _run()
             except Exception as exc:
                 err_text = str(exc)
-                self.after(0, lambda: self._on_error(err_text))
+                post_to_ui(self, lambda: self._on_error(err_text))
                 return
-            self.after(0, lambda: self._apply(data))
+            post_to_ui(self, lambda: self._apply(data))
 
         threading.Thread(target=_run_and_apply, daemon=True).start()
 

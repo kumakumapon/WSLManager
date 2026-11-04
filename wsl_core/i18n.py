@@ -64,60 +64,77 @@ _MESSAGES: Mapping[str, Mapping[str, str]] = {
     "gui.common.error": {"ja": "エラー", "en": "Error"},
     "gui.common.warning": {"ja": "警告", "en": "Warning"},
     "gui.common.info": {"ja": "情報", "en": "Information"},
-    "gui.common.filter": {"ja": "🔍 フィルタ:", "en": "🔍 Filter:"},
-    "gui.common.filter_clear": {"ja": "✕", "en": "✕"},
-    "gui.common.refresh": {"ja": "🔄  更新", "en": "🔄  Refresh"},
+    "gui.common.filter": {"ja": "フィルタ:", "en": "Filter:"},
+    "gui.common.filter_clear": {"ja": "×", "en": "×"},
+    "gui.common.refresh": {"ja": "更新", "en": "Refresh"},
     "gui.common.name": {"ja": "名前:", "en": "Name:"},
     "gui.common.success": {"ja": "成功", "en": "Success"},
     # ── メインメニュー ──
     "gui.menu.file": {"ja": "ファイル", "en": "File"},
     "gui.menu.distribution": {"ja": "ディストリビューション", "en": "Distribution"},
+    "gui.menu.wsl": {"ja": "WSL", "en": "WSL"},
+    "gui.menu.view": {"ja": "表示", "en": "View"},
     "gui.menu.tools": {"ja": "ツール", "en": "Tools"},
     "gui.menu.help": {"ja": "ヘルプ", "en": "Help"},
     "gui.menu.language": {"ja": "言語", "en": "Language"},
-    # ── アクション ──
+    # ── アクション (メニュー) ──
     "gui.action.import": {"ja": "インポート...", "en": "Import..."},
     "gui.action.export": {"ja": "エクスポート...", "en": "Export..."},
     "gui.action.exit": {"ja": "終了", "en": "Exit"},
-    "gui.action.start_terminal": {"ja": "起動 / ターミナル", "en": "Start / Terminal"},
+    "gui.action.start_terminal": {"ja": "ターミナルを開く", "en": "Open terminal"},
+    "gui.action.start": {"ja": "起動 (バックグラウンド)", "en": "Start (in background)"},
     "gui.action.stop": {"ja": "停止", "en": "Stop"},
-    "gui.action.shutdown": {"ja": "全停止", "en": "Shut down all"},
-    "gui.action.set_default": {"ja": "デフォルトに設定", "en": "Set as default"},
-    "gui.action.convert": {"ja": "WSL1/WSL2 変換", "en": "Convert WSL1/WSL2"},
+    "gui.action.shutdown": {"ja": "WSL を全停止...", "en": "Shut down WSL..."},
+    "gui.action.set_default": {"ja": "既定に設定", "en": "Set as default"},
+    "gui.action.convert": {"ja": "WSL1/WSL2 変換...", "en": "Convert WSL1/WSL2..."},
     "gui.action.install": {"ja": "インストール...", "en": "Install..."},
-    "gui.action.unregister": {"ja": "アンインストール...", "en": "Unregister..."},
+    "gui.action.unregister": {"ja": "登録解除 (削除)...", "en": "Unregister (delete)..."},
     "gui.action.details": {"ja": "詳細情報...", "en": "Details..."},
-    "gui.action.processes": {"ja": "プロセス一覧", "en": "Processes"},
+    "gui.action.processes": {"ja": "プロセス一覧...", "en": "Processes..."},
     "gui.action.explorer": {"ja": "エクスプローラーで開く", "en": "Open in Explorer"},
+    "gui.action.copy_ip": {"ja": "IP アドレスをコピー", "en": "Copy IP address"},
     "gui.action.optimize": {"ja": "ディスク最適化...", "en": "Optimize disk..."},
+    "gui.action.snapshot": {"ja": "スナップショットを作成...", "en": "Create snapshot..."},
     "gui.action.snapshots": {"ja": "スナップショット管理...", "en": "Manage snapshots..."},
     "gui.action.mount": {"ja": "ディスクのマウント...", "en": "Mount disk..."},
     "gui.action.unmount": {"ja": "ディスクのアンマウント...", "en": "Unmount disk..."},
-    "gui.action.wsl_config": {"ja": "WSL 設定 (.wslconfig)", "en": "WSL settings (.wslconfig)"},
+    "gui.action.containers": {"ja": "WSL Containers...", "en": "WSL Containers..."},
+    "gui.action.wsl_config": {
+        "ja": "WSL 全体の設定 (.wslconfig)...",
+        "en": "Global WSL settings (.wslconfig)...",
+    },
     "gui.action.distro_conf": {
         "ja": "ディストリビューション設定 (wsl.conf)...",
         "en": "Distribution settings (wsl.conf)...",
     },
-    "gui.action.clone": {"ja": "クローン (複製)...", "en": "Clone..."},
+    "gui.action.clone": {"ja": "複製...", "en": "Clone..."},
     "gui.action.log": {"ja": "操作ログ...", "en": "Operation log..."},
     "gui.action.theme": {"ja": "テーマ", "en": "Theme"},
-    "gui.action.wsl_version": {"ja": "WSL バージョン情報...", "en": "WSL version..."},
-    "gui.action.update_wsl": {"ja": "WSL を更新", "en": "Update WSL"},
-    "gui.action.about": {"ja": "このアプリについて...", "en": "About..."},
+    "gui.action.refresh": {"ja": "最新の情報に更新", "en": "Refresh"},
+    "gui.action.wsl_version": {"ja": "WSL のバージョン情報...", "en": "WSL version..."},
+    "gui.action.update_wsl": {"ja": "WSL を更新...", "en": "Update WSL..."},
+    "gui.action.shortcuts": {"ja": "キーボード ショートカット", "en": "Keyboard shortcuts"},
+    "gui.action.cli_help": {
+        "ja": "コマンドライン版 (wslmgr)...",
+        "en": "Command-line tool (wslmgr)...",
+    },
+    "gui.action.project_page": {"ja": "GitHub のページを開く", "en": "Open the GitHub page"},
+    "gui.action.about": {"ja": "WSL Manager について", "en": "About WSL Manager"},
+    # ── 表示メニュー ──
+    "gui.view.detail_panel": {"ja": "詳細パネル", "en": "Detail panel"},
+    "gui.view.history": {"ja": "リソース履歴グラフ", "en": "Resource history chart"},
+    "gui.view.interval": {"ja": "自動更新の間隔", "en": "Auto refresh interval"},
+    "gui.view.interval_seconds": {"ja": "{seconds} 秒", "en": "{seconds} seconds"},
     # ── ツールバー ──
-    "gui.toolbar.start": {"ja": "▶  起動", "en": "▶  Start"},
-    "gui.toolbar.stop": {"ja": "■  停止", "en": "■  Stop"},
-    "gui.toolbar.shutdown": {"ja": "⬛  全停止", "en": "⬛  Shut down"},
-    "gui.toolbar.terminal": {"ja": "🖥  ターミナル", "en": "🖥  Terminal"},
-    "gui.toolbar.processes": {"ja": "📋  プロセス", "en": "📋  Processes"},
-    "gui.toolbar.refresh": {"ja": "🔄  更新", "en": "🔄  Refresh"},
-    "gui.toolbar.install": {"ja": "📦  インストール", "en": "📦  Install"},
-    "gui.toolbar.import": {"ja": "📥  インポート", "en": "📥  Import"},
-    "gui.toolbar.export": {"ja": "📤  エクスポート", "en": "📤  Export"},
-    "gui.toolbar.wsl_config": {"ja": "⚙  WSL設定", "en": "⚙  WSL settings"},
+    "gui.toolbar.start": {"ja": "▶ 起動", "en": "▶ Start"},
+    "gui.toolbar.stop": {"ja": "■ 停止", "en": "■ Stop"},
+    "gui.toolbar.terminal": {"ja": "ターミナル", "en": "Terminal"},
+    "gui.toolbar.explorer": {"ja": "エクスプローラー", "en": "Explorer"},
+    "gui.toolbar.add": {"ja": "＋ 追加", "en": "+ Add"},
+    "gui.toolbar.snapshots": {"ja": "スナップショット", "en": "Snapshots"},
+    "gui.toolbar.refresh": {"ja": "↻ 更新", "en": "↻ Refresh"},
+    "gui.toolbar.search": {"ja": "検索:", "en": "Search:"},
     "gui.auto_refresh": {"ja": "自動更新", "en": "Auto refresh"},
-    "gui.history.show": {"ja": "📈 履歴を表示", "en": "📈 Show history"},
-    "gui.history.hide": {"ja": "📈 履歴を隠す", "en": "📈 Hide history"},
     # ── リソース履歴パネル ──
     "gui.history.title": {
         "ja": "リソース履歴（直近30分）",
@@ -125,30 +142,100 @@ _MESSAGES: Mapping[str, Mapping[str, str]] = {
     },
     "gui.history.cpu": {"ja": "CPU 使用率", "en": "CPU usage"},
     "gui.history.memory": {"ja": "メモリ使用量", "en": "Memory usage"},
+    "gui.history.empty": {
+        "ja": "有効な履歴データはありません",
+        "en": "No history data yet",
+    },
+    "chart.now": {"ja": "現在", "en": "now"},
+    "chart.minutes_ago": {"ja": "-{minutes}分", "en": "-{minutes} min"},
     # ── テーブル列ヘッダー ──
-    "gui.column.name": {"ja": "ディストリビューション名", "en": "Distribution"},
+    "gui.column.default": {"ja": "既定", "en": "Default"},
+    "gui.column.name": {"ja": "ディストリビューション", "en": "Distribution"},
     "gui.column.state": {"ja": "状態", "en": "State"},
-    "gui.column.version": {"ja": "バージョン", "en": "Version"},
-    "gui.column.cpu": {"ja": "CPU(%)", "en": "CPU(%)"},
-    "gui.column.memory": {"ja": "メモリ(MB)", "en": "Memory (MB)"},
-    "gui.column.disk": {"ja": "ディスク(GB)", "en": "Disk (GB)"},
-    "gui.column.ip": {"ja": "IPアドレス", "en": "IP address"},
+    "gui.column.version": {"ja": "WSL", "en": "WSL"},
+    "gui.column.cpu": {"ja": "CPU (%)", "en": "CPU (%)"},
+    "gui.column.memory": {"ja": "メモリ (MB)", "en": "Memory (MB)"},
+    "gui.column.disk": {"ja": "ディスク (GB)", "en": "Disk (GB)"},
+    "gui.column.ip": {"ja": "IP アドレス", "en": "IP address"},
     # ── 状態 ──
     "gui.state.running": {"ja": "実行中", "en": "Running"},
     "gui.state.stopped": {"ja": "停止中", "en": "Stopped"},
+    # ── 詳細パネル ──
+    "gui.panel.placeholder": {
+        "ja": "一覧からディストリビューションを選択すると、ここに情報と操作が表示されます。",
+        "en": "Select a distribution in the list to see its details and actions here.",
+    },
+    "gui.panel.badge_default": {"ja": "★ 既定", "en": "★ Default"},
+    "gui.panel.memory": {"ja": "メモリ", "en": "Memory"},
+    "gui.panel.disk": {"ja": "ディスク", "en": "Disk"},
+    "gui.panel.location": {"ja": "場所", "en": "Location"},
+    "gui.panel.copy": {"ja": "コピー", "en": "Copy"},
+    "gui.panel.terminal": {"ja": "ターミナルを開く", "en": "Open terminal"},
+    "gui.panel.start": {"ja": "▶ 起動", "en": "▶ Start"},
+    "gui.panel.stop": {"ja": "■ 停止", "en": "■ Stop"},
+    "gui.panel.explorer": {"ja": "エクスプローラー", "en": "Explorer"},
+    "gui.panel.processes": {"ja": "プロセス", "en": "Processes"},
+    "gui.panel.section_backup": {"ja": "バックアップ", "en": "Backup"},
+    "gui.panel.snapshot": {"ja": "スナップショット", "en": "Snapshot"},
+    "gui.panel.export": {"ja": "エクスポート...", "en": "Export..."},
+    "gui.panel.clone": {"ja": "複製...", "en": "Clone..."},
+    "gui.panel.section_manage": {"ja": "設定・管理", "en": "Settings"},
+    "gui.panel.set_default": {"ja": "既定に設定", "en": "Set as default"},
+    "gui.panel.convert": {"ja": "WSL1/2 変換...", "en": "Convert WSL1/2..."},
+    "gui.panel.distro_conf": {"ja": "wsl.conf...", "en": "wsl.conf..."},
+    "gui.panel.optimize": {"ja": "ディスク最適化...", "en": "Optimize disk..."},
+    "gui.panel.details": {"ja": "詳細情報...", "en": "Details..."},
+    "gui.panel.section_danger": {"ja": "削除", "en": "Delete"},
+    "gui.panel.unregister": {"ja": "登録解除 (削除)...", "en": "Unregister (delete)..."},
+    # ── 一覧が空のとき ──
+    "gui.empty.loading": {"ja": "読み込み中…", "en": "Loading…"},
+    "gui.empty.none_title": {
+        "ja": "ディストリビューションがありません",
+        "en": "No distributions yet",
+    },
+    "gui.empty.none_hint": {
+        "ja": "公式のディストリビューションをインストールするか、"
+        "バックアップ (tar / vhdx) をインポートしてください。",
+        "en": "Install an official distribution, or import a backup (tar / vhdx).",
+    },
+    "gui.empty.error_title": {
+        "ja": "ディストリビューションの一覧を取得できませんでした",
+        "en": "Could not get the list of distributions",
+    },
+    "gui.empty.error_hint": {
+        "ja": "WSL がインストールされていない場合は、管理者の PowerShell で "
+        "「wsl --install」を実行してから再試行してください。",
+        "en": "If WSL is not installed, run 'wsl --install' in an administrator "
+        "PowerShell, then try again.",
+    },
+    "gui.empty.retry": {"ja": "再試行", "en": "Try again"},
+    "gui.empty.no_match": {
+        "ja": "「{text}」に一致するディストリビューションはありません",
+        "en": "No distributions match '{text}'",
+    },
+    "gui.empty.clear_filter": {"ja": "検索をクリア", "en": "Clear search"},
     # ── ステータス・メッセージ ──
     "gui.status.ready": {"ja": "準備完了", "en": "Ready"},
-    "gui.status.refreshing": {
-        "ja": "ディストリビューション情報を更新中...",
-        "en": "Refreshing distribution list...",
-    },
+    "gui.status.refreshing": {"ja": "更新中…", "en": "Refreshing…"},
     "gui.status.refreshed": {
         "ja": "ディストリビューション情報を更新しました。",
         "en": "Distribution list refreshed.",
     },
     "gui.status.refresh_failed": {
-        "ja": "ディストリビューション情報の更新に失敗しました。",
-        "en": "Failed to refresh distribution list.",
+        "ja": "一覧の取得に失敗しました: {error}",
+        "en": "Failed to get the list: {error}",
+    },
+    "gui.status.updated_at": {"ja": "最終更新 {time}", "en": "Updated {time}"},
+    "gui.status.summary": {
+        "ja": "{count} 件 (実行中 {running})",
+        "en": "{count} distribution(s), {running} running",
+    },
+    "gui.status.filtered": {"ja": "表示 {shown} 件", "en": "{shown} shown"},
+    "gui.status.log_warning": {
+        "ja": "警告: 操作ログの書き込みに問題が発生しています"
+        "（キュー溢れによる破棄: {dropped} 件 / 書き込み失敗: {errors} 件）",
+        "en": "Warning: problems writing the operation log "
+        "(dropped: {dropped}, write errors: {errors})",
     },
     "gui.status.theme_changed": {
         "ja": "テーマを「{theme}」に変更しました。",
@@ -158,27 +245,42 @@ _MESSAGES: Mapping[str, Mapping[str, str]] = {
         "ja": "テーマ「{theme}」の適用に失敗しました。",
         "en": "Failed to apply theme '{theme}'.",
     },
-    "gui.language_changed": {
-        "ja": "言語設定を保存しました。変更は次回の起動時に反映されます。",
-        "en": "Language preference saved. It will be applied next time the app starts.",
+    "gui.status.interval_changed": {
+        "ja": "自動更新の間隔を {seconds} 秒にしました。",
+        "en": "Auto refresh interval set to {seconds} seconds.",
     },
-    # ── 確認ダイアログ・メッセージ ──
+    "gui.language_changed": {
+        "ja": "表示言語を切り替えました。",
+        "en": "Display language changed.",
+    },
+    # ── 確認ダイアログ ──
     "gui.confirm.stop": {
         "ja": "「{name}」を停止しますか？\n（未保存の作業内容は失われる可能性があります）",
         "en": "Stop '{name}'?\n(Unsaved work may be lost)",
     },
     "gui.confirm.shutdown": {
-        "ja": "実行中のすべての WSL2 ディストリビューションを停止しますか？\n"
+        "ja": "実行中のすべての WSL ディストリビューションを停止しますか？\n"
         "（未保存の作業内容は失われる可能性があります）",
-        "en": "Shut down all running WSL2 distributions?\n(Unsaved work may be lost)",
+        "en": "Shut down all running WSL distributions?\n(Unsaved work may be lost)",
     },
     "gui.confirm.unregister": {
-        "ja": "ディストリビューション「{name}」をアンインストール（登録解除）しますか？\n\n"
+        "ja": "ディストリビューション「{name}」を登録解除（削除）しますか？\n\n"
         "警告: ディストリビューション内のすべてのデータが完全に削除されます。\n"
-        "この操作は取り消せません。",
-        "en": "Unregister distribution '{name}'?\n\n"
+        "この操作は取り消せません。必要なら先にスナップショットを作成してください。",
+        "en": "Unregister (delete) distribution '{name}'?\n\n"
         "WARNING: All data in this distribution will be permanently deleted.\n"
-        "This operation cannot be undone.",
+        "This operation cannot be undone. Create a snapshot first if needed.",
+    },
+    "gui.confirm.unregister_retype": {
+        "ja": "誤操作防止のため、削除するディストリビューション名を\n"
+        "正確に入力してください: {name}",
+        "en": "To prevent mistakes, please re-enter the exact distribution name:\n{name}",
+    },
+    "gui.confirm.unregister_partial": {
+        "ja": "処理を中断したため、不完全な登録が残っている可能性があります。\n"
+        "「{name}」の登録を解除しますか？",
+        "en": "The operation was interrupted, so an incomplete registration may remain.\n"
+        "Unregister '{name}'?",
     },
     "gui.confirm.convert": {
         "ja": "ディストリビューション「{name}」を WSL{target} に変換しますか？\n"
@@ -186,6 +288,41 @@ _MESSAGES: Mapping[str, Mapping[str, str]] = {
         "en": "Convert distribution '{name}' to WSL{target}?\n"
         "(This conversion may take several minutes)",
     },
+    "gui.confirm.convert_from": {
+        "ja": "「{name}」を WSL{current} から WSL{target} に変換しますか？\n"
+        "（変換には数分かかる場合があります）",
+        "en": "Convert '{name}' from WSL{current} to WSL{target}?\n"
+        "(This conversion may take several minutes)",
+    },
+    "gui.confirm.overwrite": {
+        "ja": "既存のファイルを上書きしますか？\n{path}",
+        "en": "Overwrite the existing file?\n{path}",
+    },
+    "gui.confirm.import": {
+        "ja": "次の内容でインポートします。\n\n名前: {name}\nイメージ: {image}\n"
+        "インストール先: {folder}\nバージョン: WSL{version}",
+        "en": "Import with the following settings?\n\nName: {name}\nImage: {image}\n"
+        "Install location: {folder}\nVersion: WSL{version}",
+    },
+    "gui.confirm.clone": {
+        "ja": "次の内容で複製します。\n\n複製元: {name}\n複製先の名前: {new_name}\n"
+        "複製先フォルダ: {folder}\n\n複製中は一時 tar ファイルが複製先フォルダに作成され、"
+        "完了後に削除されます。",
+        "en": "Clone with the following settings?\n\nSource: {name}\nNew name: {new_name}\n"
+        "Destination folder: {folder}\n\nA temporary tar file is created in the destination "
+        "folder and deleted when the clone finishes.",
+    },
+    "gui.confirm.install": {
+        "ja": "「{name}」をインストールしますか？\n（ダウンロードに数分かかる場合があります）",
+        "en": "Install '{name}'?\n(The download may take several minutes)",
+    },
+    "gui.confirm.quit_running": {
+        "ja": "実行中の処理が {count} 件あります。中断して終了しますか？\n"
+        "中断すると、処理中だったファイルが不完全な状態で残る場合があります。",
+        "en": "{count} operation(s) are still running. Cancel them and quit?\n"
+        "Files that were being written may be left incomplete.",
+    },
+    # ── 結果メッセージ ──
     "gui.msg.select_distro": {
         "ja": "ディストリビューションを選択してください。",
         "en": "Please select a distribution.",
@@ -194,41 +331,509 @@ _MESSAGES: Mapping[str, Mapping[str, str]] = {
         "ja": "「{name}」は既に WSL{version} です。",
         "en": "'{name}' is already WSL{version}.",
     },
+    "gui.msg.exit_code": {"ja": "終了コード {code}", "en": "exit code {code}"},
+    "gui.msg.timeout": {
+        "ja": "WSL の応答がタイムアウトしました。",
+        "en": "WSL did not respond in time.",
+    },
+    "gui.msg.command_failed": {"ja": "WSL の操作に失敗しました。", "en": "The WSL command failed."},
+    "gui.msg.already_running": {
+        "ja": "「{name}」は既に実行中です。",
+        "en": "'{name}' is already running.",
+    },
+    "gui.msg.starting": {"ja": "「{name}」を起動中…", "en": "Starting '{name}'…"},
+    "gui.msg.started": {"ja": "「{name}」を起動しました。", "en": "Started '{name}'."},
     "gui.msg.start_failed": {
-        "ja": "「{name}」の起動に失敗しました:\n{error}",
-        "en": "Failed to start '{name}':\n{error}",
+        "ja": "「{name}」の起動に失敗しました。",
+        "en": "Failed to start '{name}'.",
     },
+    "gui.msg.stopping": {"ja": "「{name}」を停止中…", "en": "Stopping '{name}'…"},
+    "gui.msg.stopped": {"ja": "「{name}」を停止しました。", "en": "Stopped '{name}'."},
     "gui.msg.stop_failed": {
-        "ja": "「{name}」の停止に失敗しました:\n{error}",
-        "en": "Failed to stop '{name}':\n{error}",
+        "ja": "「{name}」の停止に失敗しました。",
+        "en": "Failed to stop '{name}'.",
     },
+    "gui.msg.shutting_down": {"ja": "WSL を全停止中…", "en": "Shutting down WSL…"},
+    "gui.msg.shutdown_done": {"ja": "WSL を全停止しました。", "en": "WSL has been shut down."},
     "gui.msg.shutdown_failed": {
-        "ja": "WSL の全停止に失敗しました:\n{error}",
-        "en": "Failed to shut down all distributions:\n{error}",
+        "ja": "WSL の全停止に失敗しました。",
+        "en": "Failed to shut down WSL.",
+    },
+    "gui.msg.setting_default": {
+        "ja": "「{name}」を既定に設定中…",
+        "en": "Setting '{name}' as default…",
     },
     "gui.msg.set_default_success": {
-        "ja": "「{name}」をデフォルトのディストリビューションに設定しました。",
+        "ja": "「{name}」を既定のディストリビューションに設定しました。",
         "en": "Set '{name}' as the default distribution.",
     },
     "gui.msg.set_default_failed": {
-        "ja": "デフォルト設定に失敗しました:\n{error}",
-        "en": "Failed to set default:\n{error}",
+        "ja": "「{name}」を既定に設定できませんでした。",
+        "en": "Failed to set '{name}' as default.",
+    },
+    "gui.msg.terminal_bad_name": {
+        "ja": "「{name}」はターミナル起動時に使用できない名前です: {reason}",
+        "en": "'{name}' cannot be used to open a terminal: {reason}",
+    },
+    "gui.msg.terminal_opened": {
+        "ja": "「{name}」のターミナルを開きました ({app})。",
+        "en": "Opened a terminal for '{name}' ({app}).",
+    },
+    "gui.msg.terminal_failed": {
+        "ja": "ターミナルを開けませんでした。",
+        "en": "Could not open a terminal.",
+    },
+    "gui.msg.processes_need_running": {
+        "ja": "「{name}」は停止中です。起動してからプロセスを確認してください。",
+        "en": "'{name}' is stopped. Please start it before checking processes.",
+    },
+    "gui.msg.folder_failed": {
+        "ja": "フォルダを作成できませんでした: {path}",
+        "en": "Could not create the folder: {path}",
+    },
+    "gui.msg.move_failed": {
+        "ja": "一時ファイルを保存先へ移動できませんでした。",
+        "en": "Could not move the temporary file to the destination.",
+    },
+    "gui.msg.exporting": {"ja": "「{name}」をエクスポート中…", "en": "Exporting '{name}'…"},
+    "gui.msg.exported": {
+        "ja": "「{name}」をエクスポートしました: {path}",
+        "en": "Exported '{name}': {path}",
+    },
+    "gui.msg.export_cancelled": {
+        "ja": "「{name}」のエクスポートをキャンセルしました。",
+        "en": "Cancelled the export of '{name}'.",
+    },
+    "gui.msg.export_failed": {
+        "ja": "「{name}」のエクスポートに失敗しました。",
+        "en": "Failed to export '{name}'.",
+    },
+    "gui.msg.importing": {"ja": "「{name}」をインポート中…", "en": "Importing '{name}'…"},
+    "gui.msg.imported": {"ja": "「{name}」をインポートしました。", "en": "Imported '{name}'."},
+    "gui.msg.import_cancelled": {
+        "ja": "「{name}」のインポートをキャンセルしました。",
+        "en": "Cancelled the import of '{name}'.",
+    },
+    "gui.msg.import_failed": {
+        "ja": "「{name}」のインポートに失敗しました。",
+        "en": "Failed to import '{name}'.",
+    },
+    "gui.msg.clone_step": {
+        "ja": "「{name}」を複製中… ({step})",
+        "en": "Cloning '{name}'… ({step})",
+    },
+    "gui.msg.clone_done": {
+        "ja": "「{name}」を「{new_name}」として複製しました。",
+        "en": "Cloned '{name}' as '{new_name}'.",
+    },
+    "gui.msg.clone_cancelled": {
+        "ja": "「{name}」の複製をキャンセルしました。",
+        "en": "Cancelled cloning '{name}'.",
+    },
+    "gui.msg.snapshot_creating": {
+        "ja": "「{name}」のスナップショットを作成中…",
+        "en": "Creating a snapshot of '{name}'…",
+    },
+    "gui.msg.snapshot_created": {
+        "ja": "「{name}」のスナップショットを作成しました。",
+        "en": "Created a snapshot of '{name}'.",
+    },
+    "gui.msg.snapshot_cancelled": {
+        "ja": "「{name}」のスナップショット作成をキャンセルしました。",
+        "en": "Cancelled the snapshot of '{name}'.",
+    },
+    "gui.msg.snapshot_failed": {
+        "ja": "「{name}」のスナップショット作成に失敗しました。",
+        "en": "Failed to create a snapshot of '{name}'.",
+    },
+    "gui.msg.snapshot_meta_failed": {
+        "ja": "「{name}」のスナップショットを作成しましたが、メタデータの保存に失敗しました。",
+        "en": "Created a snapshot of '{name}', but its metadata could not be saved.",
+    },
+    "gui.msg.online_loading": {
+        "ja": "インストール可能な一覧を取得中…",
+        "en": "Getting the list of installable distributions…",
+    },
+    "gui.msg.online_timeout": {
+        "ja": "オンライン一覧の取得がタイムアウトしました。",
+        "en": "Timed out getting the online list.",
+    },
+    "gui.msg.online_failed": {
+        "ja": "インストール可能な一覧の取得に失敗しました。",
+        "en": "Failed to get the list of installable distributions.",
+    },
+    "gui.msg.wsl_missing": {
+        "ja": "wsl.exe が見つかりません。WSL がインストールされているか確認してください。",
+        "en": "wsl.exe was not found. Check that WSL is installed.",
+    },
+    "gui.msg.list_failed": {
+        "ja": "ディストリビューション一覧の取得に失敗しました。",
+        "en": "Failed to get the list of distributions.",
+    },
+    "gui.msg.wsl_failed": {
+        "ja": "WSL の実行に失敗しました: {error}",
+        "en": "Failed to run WSL: {error}",
+    },
+    "gui.msg.installing": {"ja": "「{name}」をインストール中…", "en": "Installing '{name}'…"},
+    "gui.msg.installed": {
+        "ja": "「{name}」をインストールしました。"
+        "初回起動時にユーザー作成などの初期設定が始まります。",
+        "en": "Installed '{name}'. Initial setup (creating a user) starts on the first launch.",
+    },
+    "gui.msg.install_cancelled": {
+        "ja": "インストールをキャンセルしました。",
+        "en": "Installation cancelled.",
+    },
+    "gui.msg.install_failed": {
+        "ja": "「{name}」のインストールに失敗しました。",
+        "en": "Failed to install '{name}'.",
+    },
+    "gui.msg.unregistering": {
+        "ja": "「{name}」を登録解除中…",
+        "en": "Unregistering '{name}'…",
+    },
+    "gui.msg.unregister_mismatch": {
+        "ja": "入力された名前が一致しないため、登録解除を中止しました。",
+        "en": "Unregistration cancelled because the entered name did not match.",
+    },
+    "gui.msg.unregister_success": {
+        "ja": "「{name}」を登録解除しました。",
+        "en": "Unregistered '{name}'.",
+    },
+    "gui.msg.unregister_failed": {
+        "ja": "「{name}」の登録解除に失敗しました。",
+        "en": "Failed to unregister '{name}'.",
+    },
+    "gui.msg.wslconfig_saved": {
+        "ja": ".wslconfig を保存しました。反映には WSL の全停止が必要です。",
+        "en": "Saved .wslconfig. Shut down WSL to apply the changes.",
+    },
+    "gui.msg.distroconf_saved": {
+        "ja": "「{name}」の wsl.conf を保存しました。",
+        "en": "Saved wsl.conf for '{name}'.",
+    },
+    "gui.msg.vhdx_missing": {
+        "ja": "「{name}」の仮想ディスク (ext4.vhdx) が見つかりません。\n"
+        "WSL1 か、ディスク情報を取得できない構成の可能性があります。",
+        "en": "The virtual disk (ext4.vhdx) of '{name}' was not found.\n"
+        "It may be WSL1, or its disk information is unavailable.",
+    },
+    "gui.msg.explorer_opened": {
+        "ja": "「{name}」をエクスプローラーで開きました。",
+        "en": "Opened '{name}' in Explorer.",
+    },
+    "gui.msg.explorer_failed": {
+        "ja": "エクスプローラーを開けませんでした。",
+        "en": "Could not open Explorer.",
+    },
+    "gui.msg.ip_copied": {
+        "ja": "IP アドレスをコピーしました: {ip}",
+        "en": "Copied the IP address: {ip}",
+    },
+    "gui.msg.ip_unavailable": {
+        "ja": "IP アドレスを取得できていません。",
+        "en": "The IP address is not available.",
+    },
+    "gui.msg.converting": {
+        "ja": "「{name}」を WSL{version} に変換中…",
+        "en": "Converting '{name}' to WSL{version}…",
     },
     "gui.msg.convert_success": {
         "ja": "「{name}」を WSL{version} に変換しました。",
         "en": "Converted '{name}' to WSL{version}.",
     },
+    "gui.msg.convert_cancelled": {
+        "ja": "「{name}」の WSL バージョン変換を中断しました。",
+        "en": "Cancelled WSL version conversion for '{name}'.",
+    },
     "gui.msg.convert_failed": {
-        "ja": "変換に失敗しました:\n{error}",
-        "en": "Conversion failed:\n{error}",
+        "ja": "「{name}」の WSL バージョン変換に失敗しました。",
+        "en": "Failed to convert '{name}'.",
     },
-    "gui.msg.unregister_success": {
-        "ja": "「{name}」をアンインストールしました。",
-        "en": "Unregistered '{name}'.",
+    "gui.msg.mounting": {"ja": "「{disk}」をマウント中…", "en": "Mounting '{disk}'…"},
+    "gui.msg.mounted": {"ja": "「{disk}」をマウントしました。", "en": "Mounted '{disk}'."},
+    "gui.msg.mount_failed": {
+        "ja": "「{disk}」のマウントに失敗しました。",
+        "en": "Failed to mount '{disk}'.",
     },
-    "gui.msg.unregister_failed": {
-        "ja": "アンインストールに失敗しました:\n{error}",
-        "en": "Failed to unregister:\n{error}",
+    "gui.msg.all_disks": {"ja": "すべてのマウントディスク", "en": "all mounted disks"},
+    "gui.msg.unmounting": {"ja": "「{disk}」をアンマウント中…", "en": "Unmounting '{disk}'…"},
+    "gui.msg.unmounted": {
+        "ja": "「{disk}」をアンマウントしました。",
+        "en": "Unmounted '{disk}'.",
+    },
+    "gui.msg.unmount_failed": {
+        "ja": "「{disk}」のアンマウントに失敗しました。",
+        "en": "Failed to unmount '{disk}'.",
+    },
+    "gui.msg.admin_hint": {
+        "ja": "管理者権限が必要な場合があります。",
+        "en": "Administrator privileges may be required.",
+    },
+    "gui.msg.updating": {
+        "ja": "WSL を更新しています…（数分かかる場合があります）",
+        "en": "Updating WSL… (this may take a few minutes)",
+    },
+    "gui.msg.update_done": {"ja": "WSL の更新が完了しました。", "en": "WSL has been updated."},
+    "gui.msg.update_cancelled": {
+        "ja": "WSL の更新をキャンセルしました。",
+        "en": "Cancelled the WSL update.",
+    },
+    "gui.msg.update_failed": {"ja": "WSL の更新に失敗しました。", "en": "Failed to update WSL."},
+    "gui.msg.browser_failed": {
+        "ja": "ブラウザーを開けませんでした。",
+        "en": "Could not open the browser.",
+    },
+    "gui.msg.windows_only": {
+        "ja": "WSL Manager は Windows 環境でのみ動作します。\nWindows 10/11 上で実行してください。",
+        "en": "WSL Manager runs on Windows only.\nPlease run it on Windows 10/11.",
+    },
+    # ── 入力フォーム (エクスポート・インポート・複製) ──
+    "gui.form.distro": {"ja": "ディストリビューション:", "en": "Distribution:"},
+    "gui.form.browse": {"ja": "参照...", "en": "Browse..."},
+    "gui.form.browse_dir": {"ja": "フォルダーを選択", "en": "Choose a folder"},
+    "gui.form.install_dir": {"ja": "インストール先:", "en": "Install location:"},
+    "gui.form.install_dir_hint": {
+        "ja": "仮想ディスク (ext4.vhdx) がこのフォルダーに作られます。無ければ作成します。",
+        "en": "The virtual disk (ext4.vhdx) is created in this folder. "
+        "It is created if it does not exist.",
+    },
+    "gui.export.title": {"ja": "エクスポート - {name}", "en": "Export - {name}"},
+    "gui.export.ok": {"ja": "エクスポート", "en": "Export"},
+    "gui.export.format": {"ja": "形式:", "en": "Format:"},
+    "gui.export.format_tar": {
+        "ja": "tar (標準。ほかの PC・WSL1 にもインポートできます)",
+        "en": "tar (standard; can be imported on other PCs and WSL1)",
+    },
+    "gui.export.format_vhd": {
+        "ja": "VHDX (仮想ディスクのまま。WSL2 専用)",
+        "en": "VHDX (keeps the virtual disk; WSL2 only)",
+    },
+    "gui.export.destination": {"ja": "保存先:", "en": "Save to:"},
+    "gui.export.browse_title": {"ja": "エクスポート先を選択", "en": "Choose where to export"},
+    "gui.export.hint": {
+        "ja": "途中で中断しても既存のファイルは壊れません (完了後に置き換えます)。",
+        "en": "An existing file is not damaged if the export is interrupted "
+        "(it is replaced only when the export finishes).",
+    },
+    "gui.import.title": {"ja": "インポート", "en": "Import"},
+    "gui.import.ok": {"ja": "インポート", "en": "Import"},
+    "gui.import.image": {"ja": "イメージ:", "en": "Image:"},
+    "gui.import.image_types": {"ja": "WSL イメージ", "en": "WSL images"},
+    "gui.import.browse_image": {
+        "ja": "インポートするイメージを選択",
+        "en": "Choose an image to import",
+    },
+    "gui.import.version": {"ja": "WSL バージョン:", "en": "WSL version:"},
+    "gui.import.wsl2": {"ja": "WSL 2 (推奨)", "en": "WSL 2 (recommended)"},
+    "gui.import.vhd_hint": {
+        "ja": "VHDX イメージは WSL 2 としてインポートされます。",
+        "en": "VHDX images are imported as WSL 2.",
+    },
+    "gui.clone.title": {"ja": "複製 - {name}", "en": "Clone - {name}"},
+    "gui.clone.ok": {"ja": "複製", "en": "Clone"},
+    "gui.clone.source": {"ja": "複製元:", "en": "Source:"},
+    "gui.clone.new_name": {"ja": "新しい名前:", "en": "New name:"},
+    "gui.clone.hint": {
+        "ja": "エクスポートとインポートを順に行います。"
+        "大きなディストリビューションは時間がかかります。",
+        "en": "Exports and then imports the distribution. Large distributions take a while.",
+    },
+    "form.error.name_invalid": {"ja": "名前: {reason}", "en": "Name: {reason}"},
+    "form.error.name_exists": {
+        "ja": "「{name}」という名前のディストリビューションは既にあります。",
+        "en": "A distribution named '{name}' already exists.",
+    },
+    "form.error.image_required": {
+        "ja": "インポートするイメージを選択してください。",
+        "en": "Choose an image to import.",
+    },
+    "form.error.image_missing": {
+        "ja": "イメージが見つかりません: {path}",
+        "en": "The image was not found: {path}",
+    },
+    "form.error.folder_required": {
+        "ja": "インストール先フォルダーを指定してください。",
+        "en": "Choose an install location.",
+    },
+    "form.error.folder_not_dir": {
+        "ja": "インストール先がフォルダーではありません: {path}",
+        "en": "The install location is not a folder: {path}",
+    },
+    "form.error.folder_has_vhdx": {
+        "ja": "インストール先には既に仮想ディスク (ext4.vhdx) があります。"
+        "別のフォルダーを選んでください: {path}",
+        "en": "The install location already contains a virtual disk (ext4.vhdx). "
+        "Choose another folder: {path}",
+    },
+    "form.error.destination_required": {
+        "ja": "保存先を指定してください。",
+        "en": "Choose where to save the export.",
+    },
+    "validation.distro_name.empty": {
+        "ja": "ディストリビューション名を入力してください",
+        "en": "Enter a distribution name",
+    },
+    "validation.distro_name.invalid_chars": {
+        "ja": "使用できない文字が含まれています: {chars}",
+        "en": "Contains characters that cannot be used: {chars}",
+    },
+    "validation.distro_name.too_long": {
+        "ja": "ディストリビューション名は64文字以内にしてください",
+        "en": "Use 64 characters or fewer",
+    },
+    "validation.distro_name.reserved": {
+        "ja": "Windows の予約デバイス名は使用できません",
+        "en": "Windows reserved device names cannot be used",
+    },
+    "validation.distro_name.trailing": {
+        "ja": "名前の末尾にドットや空白は使用できません",
+        "en": "The name cannot end with a dot or a space",
+    },
+    "validation.distro_name.leading_space": {
+        "ja": "名前の先頭に空白は使用できません",
+        "en": "The name cannot start with a space",
+    },
+    "validation.distro_name.control": {
+        "ja": "制御文字は使用できません",
+        "en": "Control characters cannot be used",
+    },
+    "validation.distro_name.duplicate": {
+        "ja": "同名のディストリビューションが既に存在します。",
+        "en": "A distribution with the same name already exists.",
+    },
+    # ── 進捗ダイアログ ──
+    "gui.transfer.starting": {"ja": "開始しています…", "en": "Starting…"},
+    "gui.transfer.cancelling": {"ja": "キャンセルしています…", "en": "Cancelling…"},
+    "gui.transfer.elapsed": {"ja": "経過 {time}", "en": "Elapsed {time}"},
+    "gui.transfer.written": {"ja": "{size} 書き込み済み", "en": "{size} written"},
+    "gui.transfer.remaining": {"ja": "残り約 {time}", "en": "About {time} left"},
+    "gui.transfer.cancel_prompt": {
+        "ja": "処理をキャンセルしますか？",
+        "en": "Cancel the operation?",
+    },
+    "gui.transfer.export_title": {"ja": "エクスポート", "en": "Export"},
+    "gui.transfer.export_message": {
+        "ja": "「{name}」をエクスポートしています…",
+        "en": "Exporting '{name}'…",
+    },
+    "gui.transfer.import_title": {"ja": "インポート", "en": "Import"},
+    "gui.transfer.import_message": {
+        "ja": "「{name}」をインポートしています…",
+        "en": "Importing '{name}'…",
+    },
+    "gui.transfer.snapshot_title": {"ja": "スナップショット作成", "en": "Create snapshot"},
+    "gui.transfer.snapshot_message": {
+        "ja": "「{name}」のスナップショットを作成しています…",
+        "en": "Creating a snapshot of '{name}'…",
+    },
+    "gui.transfer.clone_title": {"ja": "複製", "en": "Clone"},
+    "gui.transfer.clone_export": {
+        "ja": "「{name}」をエクスポートしています… (1/2)",
+        "en": "Exporting '{name}'… (1/2)",
+    },
+    "gui.transfer.clone_import": {
+        "ja": "「{name}」としてインポートしています… (2/2)",
+        "en": "Importing as '{name}'… (2/2)",
+    },
+    "gui.transfer.install_title": {"ja": "インストール", "en": "Install"},
+    "gui.transfer.install_message": {
+        "ja": "「{name}」をダウンロードしてインストールしています…",
+        "en": "Downloading and installing '{name}'…",
+    },
+    "gui.transfer.install_cancel": {
+        "ja": "インストールをキャンセルしますか？",
+        "en": "Cancel the installation?",
+    },
+    "gui.transfer.convert_title": {"ja": "WSL バージョン変換", "en": "WSL version conversion"},
+    "gui.transfer.convert_message": {
+        "ja": "「{name}」を WSL{version} に変換しています…",
+        "en": "Converting '{name}' to WSL{version}…",
+    },
+    "gui.transfer.convert_cancel": {
+        "ja": "変換をキャンセルしますか？\n変換の中断はディストリビューションが不完全な状態で"
+        "残る可能性があります。",
+        "en": "Cancel the conversion?\nInterrupting it may leave the distribution "
+        "in an incomplete state.",
+    },
+    "gui.transfer.update_cancel": {
+        "ja": "WSL の更新をキャンセルしますか？",
+        "en": "Cancel the WSL update?",
+    },
+    # ── スナップショット作成 ──
+    "gui.snapshot.create_title": {"ja": "スナップショット作成", "en": "Create snapshot"},
+    "gui.snapshot.create_prompt": {
+        "ja": "「{name}」のスナップショットを作成します。\n保存先: {folder}\n\nコメント (任意):",
+        "en": "Create a snapshot of '{name}'.\nSaved to: {folder}\n\nComment (optional):",
+    },
+    # ── ヘルプ ──
+    "gui.help.shortcuts": {
+        "ja": "Enter / ダブルクリック\tターミナルを開く\n"
+        "Ctrl+Shift+S\t起動 (バックグラウンド)\n"
+        "Delete\t停止\n"
+        "F5 / Ctrl+R\t最新の情報に更新\n"
+        "Ctrl+F\t検索\n"
+        "Ctrl+N\tインストール\n"
+        "Ctrl+I\tインポート\n"
+        "Ctrl+E\tエクスポート\n"
+        "Ctrl+S\tスナップショットを作成\n"
+        "Ctrl+D\t詳細情報\n"
+        "Ctrl+P\tプロセス一覧\n"
+        "Ctrl+,\tWSL 全体の設定\n"
+        "Ctrl+L\t操作ログ\n"
+        "Ctrl+Shift+Q\tWSL を全停止\n"
+        "Shift+F10\t右クリックメニュー",
+        "en": "Enter / double-click\tOpen terminal\n"
+        "Ctrl+Shift+S\tStart in background\n"
+        "Delete\tStop\n"
+        "F5 / Ctrl+R\tRefresh\n"
+        "Ctrl+F\tSearch\n"
+        "Ctrl+N\tInstall\n"
+        "Ctrl+I\tImport\n"
+        "Ctrl+E\tExport\n"
+        "Ctrl+S\tCreate snapshot\n"
+        "Ctrl+D\tDetails\n"
+        "Ctrl+P\tProcesses\n"
+        "Ctrl+,\tGlobal WSL settings\n"
+        "Ctrl+L\tOperation log\n"
+        "Ctrl+Shift+Q\tShut down WSL\n"
+        "Shift+F10\tContext menu",
+    },
+    "gui.help.cli": {
+        "ja": "コマンドライン版 wslmgr.exe を使うと、同じ操作をスクリプトや"
+        "タスク スケジューラから実行できます。\n\n"
+        "場所: {location}\n\n例:\n  wslmgr list\n  wslmgr snapshot create Ubuntu\n"
+        "  wslmgr --help\n\nインストーラで「PATH に追加」を選ぶと、どのフォルダーからでも"
+        "「wslmgr」で実行できます。",
+        "en": "The command-line tool wslmgr.exe runs the same operations from scripts "
+        "and Task Scheduler.\n\nLocation: {location}\n\nExamples:\n  wslmgr list\n"
+        "  wslmgr snapshot create Ubuntu\n  wslmgr --help\n\nChoose 'Add to PATH' in the "
+        "installer to run 'wslmgr' from any folder.",
+    },
+    "gui.help.cli_not_found": {
+        "ja": "(このフォルダーには見つかりません。"
+        "インストーラ版またはポータブル版の ZIP に含まれています)",
+        "en": "(not found next to this app; it is included in the installer and the portable ZIP)",
+    },
+    "gui.about.title": {"ja": "WSL Manager について", "en": "About WSL Manager"},
+    "gui.about.body": {
+        "ja": "WSL Manager v{version}\n\nWSL ディストリビューション管理ツール\n"
+        "Windows 10/11 + WSL\n\n{url}",
+        "en": "WSL Manager v{version}\n\nA manager for WSL distributions\n"
+        "Windows 10/11 + WSL\n\n{url}",
+    },
+    # ── WSL バージョン情報 ──
+    "gui.version.wsl": {"ja": "WSL バージョン", "en": "WSL version"},
+    "gui.version.kernel": {"ja": "カーネル バージョン", "en": "Kernel version"},
+    "gui.version.wslg": {"ja": "WSLg バージョン", "en": "WSLg version"},
+    "gui.version.msrdc": {"ja": "MSRDC バージョン", "en": "MSRDC version"},
+    "gui.version.direct3d": {"ja": "Direct3D バージョン", "en": "Direct3D version"},
+    "gui.version.dxcore": {"ja": "DXCore バージョン", "en": "DXCore version"},
+    "gui.version.windows": {"ja": "Windows バージョン", "en": "Windows version"},
+    "gui.version.other": {"ja": "【その他の情報】", "en": "[Other information]"},
+    "gui.version.unavailable": {
+        "ja": "WSL のバージョン情報を取得できませんでした。",
+        "en": "Could not get WSL version information.",
     },
     # ── プロセスウィンドウ ──
     "gui.process.title": {"ja": "プロセス一覧 - {name}", "en": "Process List - {name}"},
@@ -315,23 +920,21 @@ _MESSAGES: Mapping[str, Mapping[str, str]] = {
     # ── スナップショット管理 ──
     "gui.snapshot.title": {"ja": "スナップショット管理", "en": "Snapshot Management"},
     # ── 右クリックコンテキストメニュー ──
-    "gui.context.terminal": {"ja": "🖥 ターミナルを開く", "en": "🖥 Open Terminal"},
-    "gui.context.details": {"ja": "ℹ  詳細情報", "en": "ℹ  Details"},
-    "gui.context.processes": {"ja": "📋 プロセス一覧", "en": "📋 Process List"},
-    "gui.context.explorer": {"ja": "📂 エクスプローラーで開く", "en": "📂 Open in Explorer"},
-    "gui.context.copy_ip": {"ja": "📋 IPアドレスをコピー", "en": "📋 Copy IP Address"},
-    "gui.context.stop": {"ja": "■ 停止", "en": "■ Stop"},
-    "gui.context.set_default": {"ja": "★ デフォルトに設定", "en": "★ Set as Default"},
-    "gui.context.convert": {"ja": "🔁 WSL1/WSL2 に変換", "en": "🔁 Convert WSL1/WSL2"},
-    "gui.context.optimize": {"ja": "🗜 ディスク最適化", "en": "🗜 Disk Optimization"},
-    "gui.context.distro_conf": {
-        "ja": "⚙ ディストロ設定 (wsl.conf)",
-        "en": "⚙ Distro Settings (wsl.conf)",
-    },
-    "gui.context.clone": {"ja": "📑 複製", "en": "📑 Clone"},
-    "gui.context.snapshot": {"ja": "📸 スナップショットを作成", "en": "📸 Create Snapshot"},
-    "gui.context.export": {"ja": "📤 エクスポート", "en": "📤 Export"},
-    "gui.context.unregister": {"ja": "🗑 アンインストール", "en": "🗑 Unregister"},
+    "gui.context.terminal": {"ja": "ターミナルを開く", "en": "Open terminal"},
+    "gui.context.start": {"ja": "起動 (バックグラウンド)", "en": "Start (in background)"},
+    "gui.context.details": {"ja": "詳細情報...", "en": "Details..."},
+    "gui.context.processes": {"ja": "プロセス一覧...", "en": "Processes..."},
+    "gui.context.explorer": {"ja": "エクスプローラーで開く", "en": "Open in Explorer"},
+    "gui.context.copy_ip": {"ja": "IP アドレスをコピー", "en": "Copy IP address"},
+    "gui.context.stop": {"ja": "停止", "en": "Stop"},
+    "gui.context.set_default": {"ja": "既定に設定", "en": "Set as default"},
+    "gui.context.convert": {"ja": "WSL1/WSL2 変換...", "en": "Convert WSL1/WSL2..."},
+    "gui.context.optimize": {"ja": "ディスク最適化...", "en": "Optimize disk..."},
+    "gui.context.distro_conf": {"ja": "wsl.conf を編集...", "en": "Edit wsl.conf..."},
+    "gui.context.clone": {"ja": "複製...", "en": "Clone..."},
+    "gui.context.snapshot": {"ja": "スナップショットを作成...", "en": "Create snapshot..."},
+    "gui.context.export": {"ja": "エクスポート...", "en": "Export..."},
+    "gui.context.unregister": {"ja": "登録解除 (削除)...", "en": "Unregister (delete)..."},
     # ── CLI メッセージ ──
     "cli.description": {
         "ja": "WSL Manager - コマンドラインインターフェース",

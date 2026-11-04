@@ -1,6 +1,6 @@
 # WSL Manager
 
-[![CI](https://github.com/kumakumapon/WSLMgr/actions/workflows/ci.yml/badge.svg)](https://github.com/kumakumapon/WSLMgr/actions/workflows/ci.yml)
+[![CI](https://github.com/kumakumapon/WSLManager/actions/workflows/ci.yml/badge.svg)](https://github.com/kumakumapon/WSLManager/actions/workflows/ci.yml)
 
 English | [日本語](README.ja.md)
 
@@ -10,15 +10,15 @@ English | [日本語](README.ja.md)
 
 ## Overview
 
-WSL Manager is a Windows desktop utility for managing WSL distributions from a Python/tkinter GUI. It also includes a command-line interface for common operations and keeps most parsing, validation, configuration, logging, and snapshot logic in a testable core module.
+WSL Manager is a Windows desktop app for managing WSL distributions: see them all in one list, start and stop them, open a terminal or Explorer, back them up and restore them, and edit their settings, without typing `wsl.exe` commands. It ships as ready-to-run executables (no Python needed) and also includes a command-line tool (`wslmgr.exe`) for scripts and Task Scheduler.
 
 Key capabilities:
 
-- List WSL distributions with state, WSL version, default marker, resource usage, IP address, and disk size.
+- List WSL distributions with state, WSL version, default marker, resource usage, IP address, disk size and install location.
 - View 30-minute CPU and memory history graphs, with timestamps and exact values on hover.
-- Start distributions, open terminals, terminate one distribution, or shut down all WSL instances.
+- Start distributions in the background or in a terminal (Windows Terminal when available, otherwise `cmd.exe`), stop one distribution, or shut down WSL.
 - Set the default distribution and convert between WSL1 and WSL2.
-- Install, unregister, import, export, clone, snapshot, restore, and delete distributions.
+- Install, unregister, import (tar or VHDX), export (tar or VHDX), clone, snapshot, restore, and delete distributions, with progress and cancel for long operations.
 - Inspect and terminate processes inside a running distribution.
 - Open a distribution in Explorer via `\\wsl.localhost\<name>`.
 - Edit global `%USERPROFILE%\.wslconfig` and per-distribution `/etc/wsl.conf` settings.
@@ -26,19 +26,78 @@ Key capabilities:
 - View WSL version/update information and run `wsl --update`.
 - Diagnose WSL 3.0.1 / WSL Containers availability and inspect containers in a read-only GUI or CLI view.
 - Manage `netsh interface portproxy` forwarding rules from the CLI.
-- Persist app settings and operation logs.
+- Japanese and English interface (switch at any time from **View → Language**).
+
+## Download
+
+Get the files from the [latest release](https://github.com/kumakumapon/WSLManager/releases/latest). Pick one:
+
+| File | Choose it when |
+|------|----------------|
+| `WSLManager-Setup-X.Y.Z.exe` | **Recommended.** Installs the app (GUI and `wslmgr.exe`) with a Start menu shortcut and an uninstaller. No administrator rights needed. Optionally adds the command-line tool to `PATH`. |
+| `WSLManager-X.Y.Z-portable.zip` | You do not want to install anything. Unzip it anywhere and run `WSLManager.exe`. Contains `wslmgr.exe`, README and LICENSE too. |
+| `WSLManager.exe` | You only want the GUI as one file. |
+| `wslmgr.exe` | You only want the command-line tool as one file. |
+| `SHA256SUMS.txt` | Checksums of the files above. |
+
+None of the executables need Python. They are not code-signed, so Windows SmartScreen may show a warning the first time ("More info" → "Run anyway"). Settings and logs are stored in `%APPDATA%\WSLManager` and snapshots in `%USERPROFILE%\WSLSnapshots`, whichever file you use.
 
 ## Requirements
 
-- Windows 10 or Windows 11
-- WSL installed and configured
-- Python 3.10 or newer
-- No runtime dependencies outside the Python standard library
-- PyInstaller only when building `dist\WSLManager.exe`
+- Windows 10 or Windows 11 with WSL installed (`wsl --install` in an administrator PowerShell)
+- To run from source or build the executables: Python 3.10 or newer (standard library only)
 
 ## Usage
 
-### Run The GUI
+### The GUI
+
+Start **WSL Manager** from the Start menu (installer), or run `WSLManager.exe`.
+
+```text
++---------------------------------------------------------------------------+
+| File  Distribution  WSL  View  Help                                       |
+| [> Start] [# Stop] [Terminal] [Explorer] | [+ Add v] [Snapshots]  Search: [___] [Refresh] |
++--------------------------------------------------+------------------------+
+| Default  Distribution   State      WSL  CPU ...  | Ubuntu-24.04           |
+|    *     Ubuntu-24.04   * Running  WSL2  3.2     | (Running) (WSL 2) (*)  |
+|          Debian         o Stopped  WSL2  -       | CPU / Memory / Disk    |
+|                                                  | IP [Copy]  Location    |
+|                                                  | [Open terminal]        |
+|                                                  | [Start] [Stop] ...     |
+|                                                  | Backup / Settings /    |
+|                                                  | Delete                 |
++--------------------------------------------------+------------------------+
+| Ready                         2 distribution(s), 1 running   Updated 12:34 |
++---------------------------------------------------------------------------+
+```
+
+- **List (left):** every installed distribution. Click a column heading to sort, type in **Search** (Ctrl+F) to filter. Double-click a row or press Enter to open a terminal; press Delete to stop it; right-click (or Shift+F10) for every action.
+- **Detail panel (right):** the selected distribution's state, resources, IP address (with a Copy button) and install location, plus buttons for all of its actions, grouped into *Backup*, *Settings* and *Delete*. Hide it from **View → Detail panel**.
+- **Buttons follow the state:** actions that cannot be used are greyed out (for example *Start* for a running distribution, *Processes* for a stopped one, *Set as default* for the default one).
+- **Toolbar:** *Start* boots the distribution in the background without opening a window; *Terminal* opens a shell; **+ Add** installs an official distribution or imports a backup.
+- **Forms instead of question chains:** export, import and clone each open one form with sensible defaults (file name with today's date, install folder `%USERPROFILE%\WSL\<name>`), choose tar or VHDX with radio buttons, and show input problems right in the form. Importing a `.vhdx` passes `--vhd` automatically.
+- **Feedback:** the status bar shows a busy indicator while WSL works, the number of distributions and the last refresh time. Failures are also shown in an error dialog together with the message from `wsl.exe`, so they are not missed.
+- **Empty list:** when nothing is installed the list offers *Install* and *Import*; when WSL is missing it explains how to install it and offers *Try again*.
+- **View menu:** detail panel, resource history chart, auto refresh and its interval (5/10/30/60 s), theme, language (applied immediately), operation log.
+- Destructive actions (stop, shut down, unregister, import, export overwrite, version conversion, VHDX compaction, snapshot deletion) still ask for confirmation; unregistering asks you to type the distribution name.
+
+Keyboard shortcuts (also in **Help → Keyboard shortcuts**, F1):
+
+| Key | Action |
+|-----|--------|
+| Enter / double-click | Open a terminal |
+| Ctrl+Shift+S | Start in the background |
+| Delete | Stop |
+| F5 / Ctrl+R | Refresh |
+| Ctrl+F | Search |
+| Ctrl+N / Ctrl+I / Ctrl+E | Install / Import / Export |
+| Ctrl+S | Create a snapshot |
+| Ctrl+D / Ctrl+P | Details / Processes |
+| Ctrl+, | Global WSL settings (`.wslconfig`) |
+| Ctrl+L | Operation log |
+| Ctrl+Shift+Q | Shut down WSL |
+
+### Run From Source
 
 ```powershell
 python wslmgr.py
@@ -48,25 +107,16 @@ On Windows, you can also double-click `start_wslmanager.bat`. It launches
 `dist\WSLManager.exe` when available, otherwise it uses the local `.venv` or
 the Python Launcher.
 
-The main window shows installed distributions. Select a row, then use the toolbar, menu bar, double-click action, or right-click context menu to manage it.
-
-The interface follows the system language (Japanese or English) by default. Use
-**Tools → Language** to save an explicit language preference; it is applied the
-next time the GUI starts.
-
-Common GUI workflows:
-
-- Refresh the distribution list or enable automatic refresh.
-- Start a distribution by opening it in Windows Terminal when available, otherwise `cmd.exe`.
-- Stop a selected distribution or shut down all WSL instances.
-- Open process details for a running distribution and send `SIGTERM` or `SIGKILL`.
-- Export, import, clone, snapshot, restore, or unregister a distribution.
-- Edit `.wslconfig` or per-distribution `wsl.conf` settings.
-- Compact or enable sparse mode for a WSL2 VHDX disk.
-
 ### Run The CLI
 
-On Windows, `wslmgr.bat` in the repository root is a CLI launcher: it finds Python
+The installer and the portable ZIP include `wslmgr.exe`, a console executable that needs no Python (choose **Add the command-line tool to PATH** in the installer to run `wslmgr` from any folder). **Help → Command-line tool** in the GUI shows where it is.
+
+```powershell
+wslmgr list --format json
+wslmgr snapshot create Ubuntu --comment "before upgrade"
+```
+
+When running from source, `wslmgr.bat` in the repository root is a CLI launcher: it finds Python
 (`.venv`, then the Python Launcher, then `python`), runs `wslmgr_cli.py` with every
 argument you pass, and returns its exit code unchanged (0 success, 1 error, 2 bad
 arguments, 3 cancelled, 4 WSL failure, 5 partial failure), so it is safe to use from
@@ -163,35 +213,33 @@ localized top-level/list help and standard list output. Override it per invocati
 
 **Breaking change:** prior to this scheme, every failure exited with code `1`. Scripts that only check for "exit code != 0 means failure" are unaffected, but scripts that specifically check `exit code == 1` to distinguish failure types should be updated to check the new codes above.
 
-### Build An Executable
+### Build The Executables
+
+One command builds every distribution file (Windows, Python 3.10+):
 
 ```powershell
-python -m venv .venv
-.\.venv\Scripts\python.exe -m pip install pyinstaller
-.\.venv\Scripts\python.exe -m PyInstaller --clean WSLManager.spec
+powershell -ExecutionPolicy Bypass -File build.ps1
 ```
 
-The executable is written to:
+It creates (or reuses) `.venv`, installs a pinned PyInstaller, runs the unit tests, and writes to `dist\`:
 
 ```text
-dist\WSLManager.exe
+dist\WSLManager.exe                          GUI (one file, no Python needed)
+dist\wslmgr.exe                              command-line tool
+dist\installer\WSLManager-Setup-X.Y.Z.exe     installer (when Inno Setup 6.3+ is installed)
+dist\WSLManager-X.Y.Z-portable.zip           both executables + README + LICENSE
+dist\SHA256SUMS.txt                          checksums
 ```
 
-The checked-in `WSLManager.spec` and `pyinstaller_hooks/` directory are intentional. They make builds more reliable in conda/miniforge environments where unrelated package hooks or Tcl/Tk detection can break PyInstaller analysis.
+Options: `-SkipTests`, `-SkipInstaller`, `-RequireInstaller` (fail instead of skipping when Inno Setup is missing; install it with `winget install JRSoftware.InnoSetup`), `-Python <python.exe>`, `-Iscc <ISCC.exe>`. CI runs the same script, so local builds match release builds.
+
+Both executables carry the application icon (`assets/wslmanager.ico`) and Windows version information (product name and version in Explorer's file properties), generated from `wsl_core.__version__`. UPX is not used, to reduce antivirus false positives.
+
+The checked-in `WSLManager.spec` and `pyinstaller_hooks/` directory are intentional. They make builds more reliable in conda/miniforge environments where unrelated package hooks or Tcl/Tk detection can break PyInstaller analysis. To run PyInstaller by hand: `python -m PyInstaller --clean WSLManager.spec` (GUI) and `python -m PyInstaller --clean WSLManagerCLI.spec` (CLI).
 
 #### Command-line executable
 
-`dist\WSLManager.exe` is a windowed GUI build, so it prints nothing to a terminal. The command-line tool is built separately from `WSLManagerCLI.spec`:
-
-```powershell
-.\.venv\Scripts\python.exe -m PyInstaller --clean WSLManagerCLI.spec
-```
-
-```text
-dist\wslmgr.exe
-```
-
-It is a console executable that does not need Python, so output, redirection and exit codes behave like any other command-line tool (0 success, 1 error, 2 bad arguments, 3 cancelled, 4 WSL failure, 5 partial failure). It does not include tkinter and does not use `pyinstaller_hooks/`.
+`dist\WSLManager.exe` is a windowed GUI build, so it prints nothing to a terminal. The command-line tool `dist\wslmgr.exe` is built separately from `WSLManagerCLI.spec`. It is a console executable that does not need Python, so output, redirection and exit codes behave like any other command-line tool (0 success, 1 error, 2 bad arguments, 3 cancelled, 4 WSL failure, 5 partial failure). It does not include tkinter and does not use `pyinstaller_hooks/`.
 
 - Startup takes about 0.6 seconds because a one-file executable unpacks itself on every run (running `python wslmgr_cli.py` directly takes about 0.15 seconds).
 - When output is redirected to a file or pipe, text is encoded with the Windows ANSI code page (for example cp932 on Japanese Windows). On a system whose code page cannot represent Japanese, messages that contain Japanese can fail to encode. `PYTHONIOENCODING` is ignored by the one-file executable. This is the same limitation as the Python script and is tracked as a separate issue.
@@ -200,7 +248,7 @@ It is a console executable that does not need Python, so output, redirection and
 
 #### Windows installer
 
-`installer/WSLManager.iss` is an [Inno Setup](https://jrsoftware.org/isinfo.php) 6.3+ script that builds `WSLManager-Setup-<version>.exe`. Build `dist\WSLManager.exe` and `dist\wslmgr.exe` first, then compile with the version from `pyproject.toml` (it must be a plain `X.Y.Z`):
+`installer/WSLManager.iss` is an [Inno Setup](https://jrsoftware.org/isinfo.php) 6.3+ script that builds `WSLManager-Setup-<version>.exe` (`build.ps1` runs it for you). To compile it by hand, build `dist\WSLManager.exe` and `dist\wslmgr.exe` first, then pass the version from `pyproject.toml` (it must be a plain `X.Y.Z`):
 
 ```powershell
 iscc /DAppVersion=1.0.0 installer\WSLManager.iss
@@ -227,7 +275,7 @@ Silent installation (for scripts):
 
 Use `/ALLUSERS` instead of `/CURRENTUSER` (and `/TASKS=addtopath_system`) for an all-users install. For an all-users install keep the default `Program Files` folder: do not combine `addtopath_system` with a `/DIR` that ordinary users can write to, because that folder would then be on the system `PATH` for everyone. To uninstall silently, run `unins000.exe /VERYSILENT /SUPPRESSMSGBOXES` from the install folder (it stops, like Setup, while WSL Manager is running).
 
-Releases and downloads: pushing a tag `vX.Y.Z` that matches the version in `pyproject.toml` (and `wsl_core.__version__`) makes CI publish a GitHub Release with `WSLManager-Setup-X.Y.Z.exe`, the standalone `WSLManager.exe` (GUI) and `wslmgr.exe` (command line), and `SHA256SUMS.txt`. The files are not code-signed, so the checksums only help you notice a damaged or swapped download. Compare them with the file you downloaded:
+Releases and downloads: pushing a tag `vX.Y.Z` that matches the version in `pyproject.toml` (and `wsl_core.__version__`) makes CI publish a GitHub Release with `WSLManager-Setup-X.Y.Z.exe`, `WSLManager-X.Y.Z-portable.zip`, the standalone `WSLManager.exe` (GUI) and `wslmgr.exe` (command line), and `SHA256SUMS.txt`. The files are not code-signed, so the checksums only help you notice a damaged or swapped download. Compare them with the file you downloaded:
 
 ```powershell
 Get-FileHash .\WSLManager-Setup-1.0.0.exe -Algorithm SHA256
@@ -242,20 +290,24 @@ CI also installs the installer for real on every run (`installer\verify-installe
 
 | File | Responsibility |
 |------|----------------|
-| `wslmgr.py` | tkinter GUI, dialogs, background command execution, UI state, and user confirmations |
-| `wslmgr_gui/` | GUI building blocks split out of `wslmgr.py` (Windows constants, registry helpers, shared widgets) |
+| `wslmgr.py` | tkinter main window (`WSLManager`): toolbar, list, detail panel, status bar, menus, and every action with its confirmations |
+| `wslmgr_gui/` | GUI building blocks: `detail_panel.py`, `style.py` (shared styles and colors), `ui_queue.py` (hands results from worker threads to the Tk main thread), `resources.py` (bundled icon, locating `wslmgr.exe`), `dialogs/` (forms and dialogs), `app/` (mixins of the main window), Windows constants and registry helpers |
 | `wslmgr_cli.py` | argparse-based command-line interface for scriptable WSL operations |
-| `wsl_core.py` | Pure parsing, formatting, validation, settings, log, snapshot, and progress helpers |
-| `tests/` | unittest coverage for the core module and CLI behavior |
-| `WSLManager.spec` | PyInstaller build definition |
+| `wsl_core/` | Pure logic: parsing, formatting, validation, settings, logs, snapshots, progress, translations, and which actions are available for a distribution |
+| `tests/` | unittest coverage for the core package, the CLI, and the GUI (with mocks; no real windows) |
+| `WSLManager.spec` / `WSLManagerCLI.spec` | PyInstaller build definitions (GUI / CLI) |
 | `pyinstaller_hooks/` | Local PyInstaller hooks for tkinter/Tcl/Tk packaging |
+| `tools/pyinstaller_support.py` | Version information for the executables, shared by both spec files |
+| `assets/` | Application icon (`.ico` for the executables and the installer, `.png` for the window) |
+| `build.ps1` | One-command build of the executables, installer, portable ZIP and checksums |
+| `installer/` | Inno Setup script and its verification script |
 
 ### Architecture
 
 - GUI code is Windows-focused and uses `tkinter`, `ttk`, `subprocess`, and `winreg`.
 - Core logic avoids GUI, registry, and subprocess dependencies where practical so it can be tested on non-Windows CI.
 - WSL command output is decoded by `wsl_core.decode_wsl_output()` to handle UTF-16 LE, UTF-8, CP932, and fallback encodings.
-- Long-running operations run in background workers to keep the GUI responsive.
+- Long-running operations run in background workers to keep the GUI responsive. Workers never touch Tk widgets: they post results to a queue that the main thread drains (`wslmgr_gui/ui_queue.py`).
 - Destructive actions use confirmation dialogs or explicit CLI commands rather than automatic execution.
 - Settings are normalized before use, and `.wslconfig` / `wsl.conf` editors preserve unknown keys where possible.
 
@@ -284,19 +336,19 @@ The app wraps existing Windows commands instead of using a service or daemon:
 - Snapshot restore imports into a new distribution name instead of overwriting the source distribution.
 - `snapshot prune --keep N` shows deletion candidates by default; it removes old tar/metadata pairs only with `--yes`, keeping the newest N snapshots per distribution.
 - On Windows, `snapshot schedule create <name> --time HH:MM --keep N` registers a daily Task Scheduler job. Registration and removal both require confirmation; the created job explicitly carries `--yes` because its retention deletion was approved during registration. Use `snapshot schedule list` or `delete <name>` to manage it.
-- Operation logs are serialized as structured records and rotated by helper functions in `wsl_core.py`.
+- Operation logs are serialized as structured records and rotated by helper functions in `wsl_core/logging.py`.
 
 ### Packaging
 
-PyInstaller builds should use `WSLManager.spec`, not a raw `pyinstaller wslmgr.py` command. The spec collects conda/miniforge DLLs when present, and the local hooks make tkinter data files available as `_tcl_data` and `_tk_data` for PyInstaller's runtime hook.
+Use `build.ps1` (or the spec files), not a raw `pyinstaller wslmgr.py` command. The GUI spec collects conda/miniforge DLLs when present, bundles the window icon, and the local hooks make tkinter data files available as `_tcl_data` and `_tk_data` for PyInstaller's runtime hook.
 
 ### Testing
 
 Run the test suite:
 
 ```powershell
-python -m py_compile wslmgr.py wslmgr_cli.py wsl_core.py
-python -m compileall -q wsl_core wslmgr_gui
+python -m py_compile wslmgr.py wslmgr_cli.py
+python -m compileall -q wsl_core wslmgr_gui tools
 python -m unittest discover -s tests -v
 ```
 
@@ -304,7 +356,7 @@ Linux/macOS can run most non-GUI checks with `python3`.
 
 ### CI
 
-GitHub Actions runs compile checks and unit tests on Ubuntu and Windows across supported Python versions. Windows jobs also smoke-test importing the GUI module.
+GitHub Actions runs compile checks and unit tests on Ubuntu and Windows across supported Python versions, ruff and mypy, and on Windows builds every distribution file with `build.ps1`, checks the executables' version information, installs and uninstalls the installer for real, and checks the portable ZIP.
 
 ## License
 

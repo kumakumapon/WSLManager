@@ -215,6 +215,7 @@ class SettingsTests(unittest.TestCase):
 
     def test_schedule_auto_refresh_refreshes_and_reschedules(self) -> None:
         manager = _make_manager()
+        manager._auto_refresh_ms = 5000
         manager.after.return_value = "job-2"
 
         wslmgr.WSLManager._schedule_auto_refresh(manager)
@@ -222,6 +223,40 @@ class SettingsTests(unittest.TestCase):
         manager._refresh.assert_called_once()
         manager.after.assert_called_once_with(5000, manager._schedule_auto_refresh)
         self.assertEqual(manager._refresh_job, "job-2")
+
+    def test_set_interval_reschedules_a_running_auto_refresh(self) -> None:
+        manager = _make_manager()
+        manager._settings = {}
+        manager._refresh_job = "job-1"
+        manager.after.return_value = "job-3"
+
+        wslmgr.WSLManager._set_auto_refresh_interval(manager, 30)
+
+        self.assertEqual(manager._settings["auto_refresh_interval"], 30)
+        self.assertEqual(manager._auto_refresh_ms, 30000)
+        manager.after_cancel.assert_called_once_with("job-1")
+        manager.after.assert_called_once_with(30000, manager._schedule_auto_refresh)
+        self.assertEqual(manager._refresh_job, "job-3")
+        manager._save_settings.assert_called_once()
+
+    def test_set_interval_while_paused_only_saves(self) -> None:
+        manager = _make_manager()
+        manager._settings = {}
+
+        wslmgr.WSLManager._set_auto_refresh_interval(manager, 10)
+
+        manager.after.assert_not_called()
+        manager.after_cancel.assert_not_called()
+        self.assertEqual(manager._settings["auto_refresh_interval"], 10)
+
+    def test_set_interval_ignores_values_that_are_not_offered(self) -> None:
+        manager = _make_manager()
+        manager._settings = {}
+
+        wslmgr.WSLManager._set_auto_refresh_interval(manager, 1)
+
+        self.assertEqual(manager._settings, {})
+        manager._save_settings.assert_not_called()
 
     @patch("tkinter.ttk.Style")
     def test_change_theme_applies_saves_and_reports(self, style: MagicMock) -> None:
@@ -231,6 +266,7 @@ class SettingsTests(unittest.TestCase):
 
         style.return_value.theme_use.assert_called_once_with("clam")
         self.assertEqual(manager._current_theme, "clam")
+        manager._reapply_styles.assert_called_once()  # テーマ変更で失われるスタイルを登録し直す
         manager._save_settings.assert_called_once()
         self.assertIn("clam", manager._set_status.call_args.args[0])
 
@@ -253,6 +289,8 @@ class SettingsTests(unittest.TestCase):
         wslmgr.WSLManager._change_language(manager, "en")
 
         self.assertEqual(manager._settings["language"], "en")
+        self.assertEqual(manager._language, "en")
+        manager._rebuild_ui.assert_called_once()  # 再起動せずにその場で反映する
         manager._save_settings.assert_called_once()
         manager._set_status.assert_called_once_with(
             wsl_core.translate("gui.language_changed", "en")
@@ -272,7 +310,13 @@ class SettingsTests(unittest.TestCase):
         manager._current_theme = "clam"
         manager._auto_refresh_var.get.return_value = True
         manager.geometry.return_value = "900x600+10+20"
-        manager._settings = {"snapshot_dir": "C:/snap", "language": "ja"}
+        manager._settings = {
+            "snapshot_dir": "C:/snap",
+            "language": "ja",
+            "auto_refresh_interval": 30,
+            "detail_panel": False,
+            "last_export_dir": "C:/exports",
+        }
         manager._settings_path = "C:/cfg/settings.json"
 
         with patch.object(wsl_core, "save_settings") as save:
@@ -288,6 +332,9 @@ class SettingsTests(unittest.TestCase):
                 "sort_desc": True,
                 "snapshot_dir": "C:/snap",
                 "language": "ja",
+                "auto_refresh_interval": 30,
+                "detail_panel": False,
+                "last_export_dir": "C:/exports",
             },
         )
 

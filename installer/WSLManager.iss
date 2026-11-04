@@ -71,6 +71,8 @@ OutputBaseFilename=WSLManager-Setup-{#AppVersion}
 Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern
+; The same icon as the executables (assets\wslmanager.ico)
+SetupIconFile=..\assets\wslmanager.ico
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl,CustomMessages.en.isl"

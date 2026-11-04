@@ -10,6 +10,7 @@ import tkinter as tk
 from tkinter import messagebox, ttk
 
 import wsl_core
+from wslmgr_gui.ui_queue import post_to_ui
 from wslmgr_gui.winutil import CREATE_NO_WINDOW
 
 
@@ -184,7 +185,7 @@ class DiskOptimizeDialog(tk.Toplevel):
                     self._set_status_safe(f"スパース化に失敗しました: {err or '不明なエラー'}")
                 self._set_busy(False)
 
-            self.after(0, _done)
+            post_to_ui(self, _done)
 
         threading.Thread(target=_run, daemon=True).start()
 
@@ -247,7 +248,7 @@ class DiskOptimizeDialog(tk.Toplevel):
                     )
                 self._set_busy(False)
 
-            self.after(0, _done)
+            post_to_ui(self, _done)
 
         threading.Thread(target=_run, daemon=True).start()
 

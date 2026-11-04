@@ -7,6 +7,8 @@ import time
 from dataclasses import dataclass
 from typing import Any
 
+from .i18n import translate
+
 
 @dataclass
 class ResourceSample:
@@ -258,6 +260,7 @@ def prepare_chart_layout(
     time_window: float | None = None,
     distro_colors: dict[str, str] | None = None,
     margins: tuple[float, float, float, float] = (45.0, 15.0, 20.0, 25.0),
+    language: str = "ja",
 ) -> ChartLayout:
     if metric not in {"cpu", "memory"}:
         raise ValueError(f"Unknown metric: {metric}")
@@ -323,7 +326,11 @@ def prepare_chart_layout(
     x_ticks = [
         ChartAxisTick(
             plot_x0 + i / 3 * (plot_x1 - plot_x0),
-            "現在" if i == 3 else f"-{round(window * (3 - i) / 3 / 60)}分",
+            translate("chart.now", language)
+            if i == 3
+            else translate(
+                "chart.minutes_ago", language, minutes=round(window * (3 - i) / 3 / 60)
+            ),
             t_min + window * i / 3,
         )
         for i in range(4)

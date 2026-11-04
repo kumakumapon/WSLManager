@@ -28,7 +28,7 @@ body:
         - GUI (wslmgr.py)
         - CLI (wslmgr_cli.py)
         - 両方
-        - コアロジックのみ (wsl_core.py)
+        - コアロジックのみ (wsl_core/)
     validations:
       required: true
 

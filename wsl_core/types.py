@@ -19,6 +19,7 @@ class DistroInfo(TypedDict, total=False):
     memory: str
     disk: str
     ip: str
+    location: str
 
 
 class ProcessInfo(TypedDict):
@@ -53,6 +54,10 @@ class Settings(TypedDict, total=False):
     sort_column: str | None
     sort_desc: bool
     snapshot_dir: str | None
+    language: str
+    auto_refresh_interval: int
+    detail_panel: bool
+    last_export_dir: str | None
 
 
 class SnapshotMetadata(TypedDict, total=False):

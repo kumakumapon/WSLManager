@@ -1,7 +1,22 @@
 # -*- mode: python ; coding: utf-8 -*-
+#
+# PyInstaller spec for the GUI build (dist\WSLManager.exe): one windowed executable that
+# needs no Python. The command-line build is WSLManagerCLI.spec.
+#
+# The local hooks in pyinstaller_hooks/ collect Tcl/Tk reliably (also from conda/miniforge).
+# The icon and the Windows version information (Explorer > Properties > Details) come from
+# assets/ and tools/pyinstaller_support.py; the version is read from wsl_core/__init__.py.
 
-from pathlib import Path
+import importlib.util
+import os
 import sys
+from pathlib import Path
+
+_support_spec = importlib.util.spec_from_file_location(
+    'wslmgr_pyinstaller_support', os.path.join(SPECPATH, 'tools', 'pyinstaller_support.py')
+)
+support = importlib.util.module_from_spec(_support_spec)
+_support_spec.loader.exec_module(support)
 
 conda_bin = Path(sys.base_prefix) / 'Library' / 'bin'
 conda_binaries = [
@@ -14,7 +29,8 @@ a = Analysis(
     ['wslmgr.py'],
     pathex=[],
     binaries=conda_binaries,
-    datas=[],
+    # The window icon is loaded at runtime (wslmgr_gui/resources.py looks in sys._MEIPASS).
+    datas=[('assets/wslmanager.ico', 'assets'), ('assets/wslmanager.png', 'assets')],
     hiddenimports=['tkinter', 'tkinter.filedialog', 'tkinter.messagebox', 'tkinter.simpledialog', 'tkinter.ttk'],
     hookspath=['pyinstaller_hooks'],
     hooksconfig={},
@@ -35,7 +51,8 @@ exe = EXE(
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
-    upx=True,
+    # UPX is off on purpose: it makes antivirus false positives more likely.
+    upx=False,
     upx_exclude=[],
     runtime_tmpdir=None,
     console=False,
@@ -44,4 +61,8 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
+    icon='assets/wslmanager.ico',
+    version=support.build_version_info(
+        SPECPATH, description='WSL Manager', internal_name='WSLManager'
+    ),
 )

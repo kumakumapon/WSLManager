@@ -3,7 +3,7 @@ wslmgr_cli - WSL Manager のコマンドラインインターフェース
 
 GUI (wslmgr.py) を使わずに、コマンドラインから WSL2 ディストリビューションの
 一覧表示・起動・停止・エクスポート/インポート・設定確認などを行うためのツールです。
-標準ライブラリのみに依存し、テキスト解析には wsl_core.py の純粋関数を再利用します。
+標準ライブラリのみに依存し、テキスト解析には wsl_core パッケージの純粋関数を再利用します。
 """
 
 from __future__ import annotations
@@ -277,12 +277,14 @@ def cmd_container_inspect(args: argparse.Namespace) -> None:
 def cmd_list(args: argparse.Namespace) -> None:
     """``wsl --list --verbose`` の結果を表示します。"""
     returncode, stdout, stderr = _run_wsl_command(["--list", "--verbose"], timeout=15.0)
-    if returncode != 0:
+    # 1 つも登録されていないときも wsl.exe は失敗を返す。これはエラーではなく空の一覧。
+    no_distros = returncode != 0 and wsl_core.is_no_distributions_message(f"{stdout}\n{stderr}")
+    if returncode != 0 and not no_distros:
         msg = stderr.strip() or _t(args, "cli.list_error")
         print(f"{_t(args, 'cli.error')}: {msg}", file=sys.stderr)
         sys.exit(ExitCode.WSL_ERROR)
 
-    distros = wsl_core.parse_distro_list(stdout)
+    distros = [] if no_distros else wsl_core.parse_distro_list(stdout)
 
     fetch_ip = getattr(args, "with_ip", False) or getattr(args, "all_info", False)
     fetch_disk = getattr(args, "with_disk", False) or getattr(args, "all_info", False)
