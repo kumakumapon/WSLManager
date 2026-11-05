@@ -525,8 +525,9 @@ def cmd_import(args: argparse.Namespace) -> None:
 
     if not getattr(args, "quiet", False):
         print(f"「{name}」を「{install_path}」にインポート中…")
+    # .vhd / .vhdx は --vhd を付けないと tar として読まれて失敗する (バージョンは指定しない)
     returncode, _stdout, stderr = _run_wsl_command(
-        ["--import", name, install_path, image_path], timeout=600.0
+        wsl_core.build_import_args(name, install_path, image_path, ""), timeout=600.0
     )
     if returncode == 0:
         _log_cli_operation("インポート", name, image_path)

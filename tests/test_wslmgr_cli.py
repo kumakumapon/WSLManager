@@ -655,6 +655,24 @@ class TestCmdImport(unittest.TestCase):
         )
 
     @patch("wslmgr_cli.subprocess.run")
+    def test_vhdx_image_is_imported_with_the_vhd_flag(self, mock_run):
+        """.vhdx は --vhd を付けて渡す (付けないと wsl --import が tar として読んで失敗する)。"""
+        proc = MagicMock()
+        proc.returncode = 0
+        proc.stdout = b""
+        proc.stderr = b""
+        mock_run.return_value = proc
+        args = argparse.Namespace(
+            name="NewDistro", install_path="C:\\wsl\\NewDistro", image_path="C:\\disk.VHDX"
+        )
+        with patch("sys.stdout", io.StringIO()):
+            wslmgr_cli.cmd_import(args)
+        self.assertEqual(
+            mock_run.call_args[0][0],
+            ["wsl", "--import", "NewDistro", "C:\\wsl\\NewDistro", "C:\\disk.VHDX", "--vhd"],
+        )
+
+    @patch("wslmgr_cli.subprocess.run")
     def test_existing_vhdx_requires_confirmation(self, mock_run):
         """インストール先に既に ext4.vhdx がある場合、--yes なしでは確認プロンプトを表示する。"""
         with tempfile.TemporaryDirectory() as install_dir:

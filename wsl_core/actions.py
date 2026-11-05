@@ -8,6 +8,7 @@ GUI (tkinter) に依存しない純粋関数だけを置きます。メイン画
 
 from __future__ import annotations
 
+import ntpath
 import os
 from collections.abc import Callable, Iterable, Mapping
 from datetime import date
@@ -69,9 +70,15 @@ def action_availability(distro: Mapping[str, object] | None) -> dict[str, bool]:
         - IP のコピーは IP アドレスを取得できているときだけ有効。
         - それ以外 (ターミナル、エクスプローラー、バックアップ系、登録解除など) は
           選択していれば有効。停止中でも WSL が自動で起動するため。
+        - Installing / Converting など処理中の状態では、詳細の表示だけを有効にする。
     """
     if distro is None:
         return dict.fromkeys(DISTRO_ACTIONS, False)
+    if distro.get("state") not in ("Running", "Stopped"):
+        # Installing / Converting / Uninstalling などの途中では、詳細の表示だけにする
+        availability = dict.fromkeys(DISTRO_ACTIONS, False)
+        availability["details"] = True
+        return availability
     running = _is_running(distro)
     version = str(distro.get("version") or "")
     availability = dict.fromkeys(DISTRO_ACTIONS, True)
@@ -170,6 +177,14 @@ def replace_export_extension(path: str, vhd: bool) -> str:
 FormError = tuple[str, dict[str, str]]
 
 
+def _is_absolute(path: str) -> bool:
+    """Windows のパス (``C:\\...``) か、実行中の OS の絶対パスなら True。
+
+    相対パスを許すと、exe の作業フォルダー (起動方法で変わる) に書き込まれてしまう。
+    """
+    return os.path.isabs(path) or ntpath.isabs(path)
+
+
 def _name_errors(name: str, existing: Iterable[str], language: str) -> list[FormError]:
     valid, reason = validate_distro_name(name, language=language)
     if not valid:
@@ -224,6 +239,8 @@ def validate_clone_form(
 def _install_dir_errors(install_dir: str, listdir: Callable[[str], list[str]]) -> list[FormError]:
     if not install_dir.strip():
         return [("form.error.folder_required", {})]
+    if not _is_absolute(install_dir):
+        return [("form.error.path_not_absolute", {"path": install_dir})]
     try:
         entries = listdir(install_dir)
     except FileNotFoundError:
@@ -239,8 +256,19 @@ def _install_dir_errors(install_dir: str, listdir: Callable[[str], list[str]]) -
     return []
 
 
-def validate_export_form(destination: str) -> list[FormError]:
-    """エクスポートフォームの入力を検証します (保存先の指定だけを確認します)。"""
+def validate_export_form(
+    destination: str, *, isdir: Callable[[str], bool] = os.path.isdir
+) -> list[FormError]:
+    """エクスポートフォームの入力を検証します。
+
+    保存先は絶対パスで、保存先のフォルダーが既にあること (``wsl --export`` は
+    フォルダーを作らない)。
+    """
     if not destination.strip():
         return [("form.error.destination_required", {})]
+    if not _is_absolute(destination):
+        return [("form.error.path_not_absolute", {"path": destination})]
+    folder = os.path.dirname(destination)
+    if folder and not isdir(folder):
+        return [("form.error.destination_folder_missing", {"path": folder})]
     return []

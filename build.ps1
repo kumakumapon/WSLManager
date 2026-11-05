@@ -165,7 +165,7 @@ function Write-Checksums([string]$Directory, [string[]]$Names) {
     [System.IO.File]::WriteAllText($path, (($lines -join "`n") + "`n"), [System.Text.Encoding]::ASCII)
 }
 
-Push-Location $Root
+Push-Location -LiteralPath $Root
 try {
     $version = Get-AppVersion
     Write-Host "WSL Manager $version"

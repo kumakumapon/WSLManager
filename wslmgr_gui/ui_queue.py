@@ -70,14 +70,17 @@ class UiQueue:
 
     def _drain(self) -> None:
         self._job = None
+        # 次の確認を先に予約する。コールバックがモーダルダイアログ (messagebox や
+        # wait_window) を開くと、閉じるまでこの関数に戻らない。そのあいだもネストした
+        # イベントループが次の確認を実行し、ほかの結果 (別の処理の完了など) を反映できる。
+        if not self._closed:
+            self._schedule()
         for _ in range(MAX_CALLBACKS_PER_TICK):
             try:
                 widget, fn = self._queue.get_nowait()
             except queue.Empty:
                 break
             self._run(widget, fn)
-        if not self._closed:
-            self._schedule()
 
     def _run(self, widget: tk.Misc | None, fn: Callable[[], None]) -> None:
         try:

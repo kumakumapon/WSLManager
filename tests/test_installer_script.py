@@ -257,6 +257,18 @@ class InstallerCiTests(unittest.TestCase):
         self.assertIn("numeric X.Y.Z", build_script)
         self.assertIn("installer\\WSLManager.iss", build_script)
 
+    def test_shortcuts_use_the_app_user_model_id_of_the_gui(self) -> None:
+        # ピン留めしたショートカットと起動中のウィンドウを、タスクバーで 1 つにまとめる
+        iss = ISS.read_text(encoding="ascii")
+        gui = (ROOT / "wslmgr.py").read_text(encoding="utf-8")
+        app_id = _define(iss, "AppUserModelId")
+
+        self.assertIn(f'SetCurrentProcessExplicitAppUserModelID("{app_id}")', gui)
+        icons = _code_lines(_section(iss, "Icons"))
+        self.assertTrue(icons)
+        for line in icons:
+            self.assertIn('AppUserModelID: "{#AppUserModelId}"', line)
+
     def test_installer_has_the_application_icon(self) -> None:
         iss = ISS.read_text(encoding="ascii")
 

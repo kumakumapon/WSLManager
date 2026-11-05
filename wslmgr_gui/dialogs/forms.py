@@ -183,7 +183,10 @@ class ExportDialog(FormDialog):
             wsl_core.translate("gui.export.ok", getattr(parent, "_language", "auto")),
         )
         self._name = name
-        directory = initial_dir or os.path.expanduser("~")
+        # 前回のフォルダーが消えていれば (外付けドライブを外した等) ホームから始める
+        directory = (
+            initial_dir if initial_dir and os.path.isdir(initial_dir) else os.path.expanduser("~")
+        )
         self._vhd_var = tk.BooleanVar(value=False)
         self._path_var = tk.StringVar(
             value=os.path.join(directory, wsl_core.suggest_export_filename(name, vhd=False))

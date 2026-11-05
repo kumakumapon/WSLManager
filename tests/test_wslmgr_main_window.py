@@ -78,6 +78,24 @@ class UiQueueTests(unittest.TestCase):
         self.assertEqual(calls, ["a", "b"])
         self.assertEqual(len(root.scheduled), 1)  # 次の確認を予約し直す
 
+    def test_a_modal_callback_does_not_block_later_results(self) -> None:
+        # コールバックがモーダルダイアログを開いても (ネストしたイベントループ)、
+        # 次の確認は予約済みなので、ほかの結果は反映され続ける
+        root = _FakeRoot()
+        queue = ui_queue.UiQueue(root)  # type: ignore[arg-type]
+        calls: list[str] = []
+
+        def modal() -> None:
+            queue.post(None, lambda: calls.append("while the dialog is open"))
+            root.run_next()  # ダイアログ表示中に Tk が次の確認を実行する
+            calls.append("dialog closed")
+
+        queue.post(None, modal)
+        root.run_next()
+
+        self.assertEqual(calls, ["while the dialog is open", "dialog closed"])
+        self.assertEqual(len(root.scheduled), 1)  # 予約は常に 1 つだけ
+
     def test_callbacks_for_destroyed_widgets_are_dropped(self) -> None:
         root = _FakeRoot()
         queue = ui_queue.UiQueue(root)  # type: ignore[arg-type]
@@ -269,10 +287,11 @@ class RunWslCommandTests(unittest.TestCase):
 
 @unittest.skipIf(wslmgr is None, f"wslmgr を import できません: {_IMPORT_ERROR}")
 class RefreshResultTests(unittest.TestCase):
-    def test_error_clears_the_list_and_reports(self) -> None:
+    def test_error_without_a_previous_list_shows_the_error_state(self) -> None:
         app = _make_app()
         app._refresh_pending = False
-        app._all_distros = [{"name": "old"}]
+        app._refresh_error = None
+        app._all_distros = []
 
         wslmgr.WSLManager._apply_refresh_result(app, [], "wsl.exe was not found.", None)
 
@@ -280,6 +299,21 @@ class RefreshResultTests(unittest.TestCase):
         self.assertEqual(app._all_distros, [])
         self.assertIn("wsl.exe was not found.", app._set_status.call_args.args[0])
         app._render_distros.assert_called_once()
+
+    def test_a_temporary_error_keeps_the_previous_list(self) -> None:
+        # 一時的なタイムアウトで一覧が消え、すべての操作が無効になるのを避ける
+        app = _make_app()
+        app._refresh_pending = False
+        app._refresh_error = None
+        previous = [{"name": "Ubuntu", "state": "Running"}]
+        app._all_distros = previous
+
+        wslmgr.WSLManager._apply_refresh_result(app, [], "WSL did not respond in time.", None)
+
+        self.assertIs(app._all_distros, previous)
+        self.assertIsNone(app._refresh_error)
+        self.assertIn("WSL did not respond in time.", app._set_status.call_args.args[0])
+        app._resource_history.record_refresh.assert_not_called()
 
     def test_success_records_history_and_time(self) -> None:
         app = _make_app()

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import functools
+from collections.abc import Callable
 from tkinter import ttk
 
 import wsl_core
@@ -16,9 +17,16 @@ class TreeviewSorter:
     それ以外は文字列(casefold)ソートを行います。
     """
 
-    def __init__(self, tree: ttk.Treeview, numeric_columns: set[str]) -> None:
+    def __init__(
+        self,
+        tree: ttk.Treeview,
+        numeric_columns: set[str],
+        on_sorted: Callable[[], None] | None = None,
+    ) -> None:
         self._tree = tree
         self._numeric_columns = numeric_columns
+        # 並べ替えた後に呼ぶ処理 (行の縞模様を表示順に付け直す等)
+        self._on_sorted = on_sorted
         # ソート状態: (列ID, 逆順フラグ) または None
         self._sort_col: str | None = None
         self._sort_reverse: bool = False
@@ -70,6 +78,8 @@ class TreeviewSorter:
 
         for index, (_, iid) in enumerate(items):
             tree.move(iid, "", index)
+        if self._on_sorted is not None:
+            self._on_sorted()
 
     def apply(self) -> None:
         """現在のソート設定を再適用します。未ソートなら何もしません。"""

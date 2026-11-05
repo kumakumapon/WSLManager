@@ -53,6 +53,7 @@ _MESSAGES: Mapping[str, Mapping[str, str]] = {
     },
     # ── 言語名 ──
     "language.system": {"ja": "システム設定", "en": "System default"},
+    "language.auto": {"ja": "システムの設定に合わせる", "en": "Follow the system"},
     "language.ja": {"ja": "日本語", "en": "Japanese"},
     "language.en": {"ja": "English", "en": "English"},
     # ── 共通アクション・ボタン・ダイアログ ──
@@ -665,6 +666,14 @@ _MESSAGES: Mapping[str, Mapping[str, str]] = {
         "別のフォルダーを選んでください: {path}",
         "en": "The install location already contains a virtual disk (ext4.vhdx). "
         "Choose another folder: {path}",
+    },
+    "form.error.path_not_absolute": {
+        "ja": "ドライブから始まるフルパスで指定してください (例: C:\\WSL): {path}",
+        "en": "Enter a full path that starts with a drive (for example C:\\WSL): {path}",
+    },
+    "form.error.destination_folder_missing": {
+        "ja": "保存先のフォルダーがありません: {path}",
+        "en": "The destination folder does not exist: {path}",
     },
     "form.error.destination_required": {
         "ja": "保存先を指定してください。",

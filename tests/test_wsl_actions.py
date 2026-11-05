@@ -61,6 +61,13 @@ class ActionAvailabilityTests(unittest.TestCase):
         self.assertFalse(wsl_core.action_availability(_distro(version="1"))["optimize"])
         self.assertTrue(wsl_core.action_availability(_distro(version="2"))["optimize"])
 
+    def test_only_details_while_wsl_is_still_working_on_it(self) -> None:
+        for state in ("Installing", "Converting", "Uninstalling"):
+            with self.subTest(state=state):
+                availability = wsl_core.action_availability(_distro(state=state))
+
+                self.assertEqual([a for a, ok in availability.items() if ok], ["details"])
+
     def test_unknown_version_cannot_be_converted(self) -> None:
         self.assertFalse(wsl_core.action_availability(_distro(version=""))["convert"])
         self.assertTrue(wsl_core.action_availability(_distro(version="1"))["convert"])
@@ -215,7 +222,29 @@ class FormValidationTests(unittest.TestCase):
         self.assertEqual(
             self._keys(wsl_core.validate_export_form("  ")), ["form.error.destination_required"]
         )
-        self.assertEqual(wsl_core.validate_export_form("C:/b/u.tar"), [])
+        self.assertEqual(wsl_core.validate_export_form("C:/b/u.tar", isdir=lambda _p: True), [])
+
+    def test_export_destination_folder_must_exist(self) -> None:
+        # wsl --export は保存先のフォルダーを作らない
+        errors = wsl_core.validate_export_form("C:/nope/u.tar", isdir=lambda _p: False)
+
+        self.assertEqual(self._keys(errors), ["form.error.destination_folder_missing"])
+
+    def test_relative_paths_are_rejected(self) -> None:
+        # 相対パスだと、exe の作業フォルダー (起動方法で変わる) に書き込まれてしまう
+        self.assertEqual(
+            self._keys(wsl_core.validate_export_form("u.tar", isdir=lambda _p: True)),
+            ["form.error.path_not_absolute"],
+        )
+        self.assertEqual(
+            self._keys(wsl_core.validate_clone_form("New", "WSL\\New", [])),
+            ["form.error.path_not_absolute"],
+        )
+
+    def test_windows_paths_count_as_absolute_on_any_os(self) -> None:
+        self.assertEqual(
+            wsl_core.validate_clone_form("New", "D:\\WSL\\New", [], listdir=lambda _p: []), []
+        )
 
     def test_every_form_error_has_a_translation(self) -> None:
         from wsl_core.i18n import _MESSAGES

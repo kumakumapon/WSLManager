@@ -124,7 +124,12 @@ class ExecutableMetadataTests(unittest.TestCase):
         sizes = set()
         for index in range(count):
             entry = data[6 + 16 * index : 6 + 16 * (index + 1)]
-            sizes.add(entry[0] or 256)  # 0 は 256 px を表す
+            size = entry[0] or 256  # 0 は 256 px を表す
+            sizes.add(size)
+            offset = int.from_bytes(entry[12:16], "little")
+            is_png = data[offset : offset + 4] == b"\x89PNG"
+            # Tk 8.6 の wm iconbitmap は DIB しか読めない。PNG 圧縮は 256 px だけにする
+            self.assertEqual(is_png, size == 256, f"{size} px entry")
         self.assertTrue({16, 32, 48, 256} <= sizes, sizes)
 
     def test_gui_does_not_use_upx_either(self) -> None:

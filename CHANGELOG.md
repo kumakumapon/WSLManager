@@ -10,10 +10,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - **Redesigned main window** for easier operation: one toolbar row (Start, Stop, Terminal, Explorer, + Add, Snapshots, Search, Refresh) whose labels are no longer cut off; a **detail panel** next to the list with the selected distribution's state, resources, IP address (Copy button), install location and every action grouped into Backup / Settings / Delete; a status bar with a busy indicator, the number of distributions and the last refresh time.
 - Buttons, menu items and context-menu entries are enabled only when they apply to the selected distribution (for example Start is disabled while it runs and Processes while it is stopped), based on the new `wsl_core.action_availability()`.
-- Export, import and clone use **one form each** instead of chains of yes/no questions and file dialogs: defaults are filled in (dated file name, install folder `%USERPROFILE%\WSL\<name>`), tar or VHDX is chosen with radio buttons, and input problems are shown in the form. The existing confirmation prompts are unchanged.
+- Export, import and clone use **one form each** instead of chains of yes/no questions and file dialogs: defaults are filled in (dated file name, install folder `%USERPROFILE%\WSL\<name>`), tar or VHDX is chosen with radio buttons, and input problems (relative paths, a missing destination folder, a name already in use, a folder that already holds a virtual disk) are shown in the form. The existing confirmation prompts are unchanged.
 - Clone now runs with the progress dialog (with cancel) for both the export and the import step, and offers to unregister an incomplete clone after a cancelled import.
 - Installing a distribution runs in the progress dialog without a fixed timeout (it used to be stopped after 60 seconds, which could abort large downloads).
-- Failures of WSL commands are shown in an error dialog with the message from `wsl.exe` (falling back to its standard output), not only in the status bar.
+- Failures of WSL commands are shown in an error dialog with the message from `wsl.exe` (falling back to its standard output), not only in the status bar. A failed refresh keeps the last list instead of clearing it; while a distribution is Installing / Converting only its details can be opened.
 - The language can be switched from **View → Language** and is applied immediately (no restart). The main window, the new forms, the progress dialog, validation messages, the resource history chart and the distribution-list errors are fully translated; emoji that Tk 8.6 on Windows cannot draw were removed from labels.
 - New **WSL** and **View** menus: WSL-wide actions (shut down, `.wslconfig`, mount, containers, version, update) and display options (detail panel, resource history, auto refresh and its interval 5/10/30/60 s, theme, language, operation log). The history chart now sits under the list so it no longer squeezes the detail panel.
 - Keyboard shortcuts are bound to the main window only (Delete in another dialog no longer reaches the main list) and new ones were added: Ctrl+F (search), Ctrl+N (install), Ctrl+S (snapshot), Ctrl+Shift+S (start in the background), F1 (shortcut list), Shift+F10 (context menu).
@@ -28,11 +28,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Empty-list guidance: Install / Import buttons when nothing is installed, and an explanation with Try again when WSL is missing or the list cannot be read.
 - **Help → Command-line tool** shows where `wslmgr.exe` is and how to use it; **Help → Keyboard shortcuts** and **Open the GitHub page**.
 - Settings `auto_refresh_interval`, `detail_panel` and `last_export_dir` (the export form starts in the folder used last time).
+- `tools/make_icon.py` regenerates the icon (needs Pillow; development only). The ICO uses uncompressed entries up to 128 px and PNG only for 256 px, which Tk 8.6 can read; installer shortcuts carry the same AppUserModelID as the app.
 
 ### Fixed
 - Importing a `.vhd` / `.vhdx` image passed no `--vhd` flag, so `wsl --import` failed; VHD images are now imported with `--vhd` (always as WSL 2).
 - When no distribution is installed, `wsl --list --verbose` exits with an error code; the GUI showed this as an error and `wslmgr list` exited with code 4. Both now show an empty list.
 - The snapshot manager had two "change folder" buttons that did almost the same thing; only the one next to the folder path remains.
+- `wslmgr import` also passes `--vhd` for `.vhd` / `.vhdx` images.
+- The language menu showed the raw key `language.auto` instead of "Follow the system".
 
 ### Removed
 - The unused top-level `wsl_core.py` shim. `import wsl_core` always loaded the `wsl_core/` package, so nothing changes for callers.

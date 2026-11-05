@@ -163,15 +163,19 @@ class WSLManager(OperationLogMixin, ResourceHistoryMixin, SettingsMixin, tk.Tk):
         """ウィンドウ (とタスクバー) のアイコンを設定します。見つからなければ既定のまま。"""
         ico = resources.resource_path("assets", "wslmanager.ico")
         png = resources.resource_path("assets", "wslmanager.png")
-        try:
-            if sys.platform == "win32" and os.path.exists(ico):
+        if sys.platform == "win32" and os.path.exists(ico):
+            try:
                 # default= を付けると、以降に開くダイアログにも同じアイコンが付く
                 self.iconbitmap(default=ico)
-            elif os.path.exists(png):
+                return
+            except tk.TclError:
+                pass  # ICO を読めない Tk では PNG で設定する
+        if os.path.exists(png):
+            try:
                 self._icon_image = tk.PhotoImage(file=png)
                 self.iconphoto(True, self._icon_image)
-        except tk.TclError:
-            pass
+            except tk.TclError:
+                pass
 
     def _setup_theme(self) -> None:
         """利用可能な ttk テーマを検出し、保存済みのテーマがあれば適用します。"""
@@ -514,7 +518,9 @@ class WSLManager(OperationLogMixin, ResourceHistoryMixin, SettingsMixin, tk.Tk):
 
         configure_tree_tags(self._tree)
 
-        self._sorter = TreeviewSorter(self._tree, numeric_columns={"cpu", "memory", "disk"})
+        self._sorter = TreeviewSorter(
+            self._tree, numeric_columns={"cpu", "memory", "disk"}, on_sorted=self._apply_stripes
+        )
         self._sorter.set_state(self._settings["sort_column"], self._settings["sort_desc"])
 
         # 一覧が空のとき・取得に失敗したときに一覧の上へ重ねる案内
@@ -633,7 +639,11 @@ class WSLManager(OperationLogMixin, ResourceHistoryMixin, SettingsMixin, tk.Tk):
     ) -> None:
         self._refresh_in_progress = False
         self._loaded_once = True
-        if err:
+        if err and self._all_distros and self._refresh_error is None:
+            # 取得済みの一覧は残し、失敗はステータスバーで知らせる。一時的なタイムアウトで
+            # 一覧が消えて、すべての操作が使えなくなるのを避ける。
+            self._set_status(self._t("gui.status.refresh_failed", error=err))
+        elif err:
             self._refresh_error = err
             self._all_distros = []
             self._set_status(self._t("gui.status.refresh_failed", error=err))
@@ -691,7 +701,7 @@ class WSLManager(OperationLogMixin, ResourceHistoryMixin, SettingsMixin, tk.Tk):
                 tags=("running" if running else "stopped",),
             )
 
-        self._sorter.apply()
+        self._sorter.apply()  # 並べ替えたときは on_sorted で縞模様も付け直す
         self._apply_stripes()
 
         children = self._tree.get_children()
