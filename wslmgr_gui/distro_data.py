@@ -7,7 +7,11 @@ import logging
 import subprocess
 
 import wsl_core
-from wslmgr_gui.winutil import CREATE_NO_WINDOW, _get_distro_vhdx_sizes
+from wslmgr_gui.winutil import (
+    CREATE_NO_WINDOW,
+    _get_distro_base_paths,
+    _get_distro_vhdx_sizes,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -72,8 +76,11 @@ def get_distro_ip(name: str, timeout: float = IP_QUERY_TIMEOUT) -> str:
     return ips[0] if ips else "-"
 
 
-def get_distros() -> tuple[list[dict], str | None]:
+def get_distros(language: str = "ja") -> tuple[list[dict], str | None]:
     """``wsl --list --verbose`` を解析し、必要に応じてリソース情報も取得します。
+
+    Args:
+        language: エラーメッセージの言語 (GUI の表示言語)。
 
     Returns:
         (distros, error_message) のタプル。
@@ -88,25 +95,33 @@ def get_distros() -> tuple[list[dict], str | None]:
             timeout=15.0,
         )
     except subprocess.TimeoutExpired:
-        return [], "WSL の応答がタイムアウトしました。"
+        return [], wsl_core.translate("gui.msg.timeout", language)
     except FileNotFoundError:
-        return [], "wsl.exe が見つかりません。WSL2 がインストールされているか確認してください。"
+        return [], wsl_core.translate("gui.msg.wsl_missing", language)
     except OSError as e:
-        return [], f"WSL の実行に失敗しました: {e}"
+        return [], wsl_core.translate("gui.msg.wsl_failed", language, error=e)
 
     if result.returncode != 0:
         stderr = wsl_core.decode_wsl_output(result.stderr).strip()
-        return [], stderr or "ディストリビューション一覧の取得に失敗しました。"
+        stdout = wsl_core.decode_wsl_output(result.stdout).strip()
+        # 1 つも登録されていないときも wsl.exe は失敗を返す。これはエラーではなく空の一覧。
+        if wsl_core.is_no_distributions_message(f"{stdout}\n{stderr}"):
+            return [], None
+        return [], stderr or stdout or wsl_core.translate("gui.msg.list_failed", language)
 
     output = wsl_core.decode_wsl_output(result.stdout)
     distros: list[dict] = wsl_core.parse_distro_list(output)
 
-    # レジストリから仮想ディスク (ext4.vhdx) のサイズを取得する
+    # レジストリから仮想ディスク (ext4.vhdx) のサイズとインストール先を取得する
     disk_sizes = _get_distro_vhdx_sizes()
+    base_paths = _get_distro_base_paths()
     for d in distros:
         size = disk_sizes.get(d["name"])
         if size is not None:
             d["disk"] = f"{size:.1f}"
+        location = base_paths.get(d["name"])
+        if location:
+            d["location"] = location
 
     # Running のディストロのリソース使用量を並列取得する
     running_distros = [d for d in distros if d["state"] == "Running"]

@@ -1,6 +1,6 @@
 # WSL Manager
 
-[![CI](https://github.com/kumakumapon/WSLMgr/actions/workflows/ci.yml/badge.svg)](https://github.com/kumakumapon/WSLMgr/actions/workflows/ci.yml)
+[![CI](https://github.com/kumakumapon/WSLManager/actions/workflows/ci.yml/badge.svg)](https://github.com/kumakumapon/WSLManager/actions/workflows/ci.yml)
 
 [English](README.md) | 日本語
 
@@ -10,15 +10,15 @@
 
 ## 概要
 
-WSL Manager は、WSL ディストリビューションを管理するための Windows 向け Python/tkinter GUI ツールです。よく使う操作をスクリプト化できる CLI も含み、解析、バリデーション、設定、ログ、スナップショットなどのロジックはテストしやすい `wsl_core.py` に分離しています。
+WSL Manager は、WSL ディストリビューションを管理する Windows 用のデスクトップアプリです。インストール済みのディストリビューションを 1 つの一覧で確認し、起動・停止、ターミナルやエクスプローラーで開く、バックアップと復元、設定の編集を、`wsl.exe` のコマンドを打たずに行えます。Python が無くてもそのまま動く実行ファイルとして配布しており、スクリプトやタスク スケジューラ向けのコマンドライン版 (`wslmgr.exe`) も含みます。
 
 主な機能:
 
-- WSL ディストリビューションの状態、WSL バージョン、デフォルト設定、リソース使用量、IP アドレス、ディスクサイズを一覧表示
+- WSL ディストリビューションの状態、WSL バージョン、既定の印、リソース使用量、IP アドレス、ディスクサイズ、インストール先を一覧表示
 - CPU・メモリ使用量の直近30分の履歴グラフを表示し、ホバーで系列名・時刻・正確な値を確認
-- ディストリビューションの起動、ターミナル起動、個別停止、全停止
-- デフォルトディストリビューション設定、WSL1/WSL2 変換
-- インストール、登録解除、インポート、エクスポート、複製、スナップショット作成、復元、削除
+- バックグラウンドでの起動、ターミナル (Windows Terminal があればそれ、無ければ `cmd.exe`) での起動、個別停止、WSL の全停止
+- 既定のディストリビューション設定、WSL1/WSL2 変換
+- インストール、登録解除、インポート (tar / VHDX)、エクスポート (tar / VHDX)、複製、スナップショット作成、復元、削除。時間のかかる処理は進捗表示とキャンセルに対応
 - 実行中ディストリビューション内のプロセス確認と `SIGTERM` / `SIGKILL`
 - `\\wsl.localhost\<name>` を Explorer で開く
 - グローバル `%USERPROFILE%\.wslconfig` と各ディストリビューションの `/etc/wsl.conf` 編集
@@ -26,19 +26,77 @@ WSL Manager は、WSL ディストリビューションを管理するための 
 - WSL バージョン、更新情報の表示と `wsl --update`
 - WSL 3.0.1 / WSL Containers の利用可否診断と、読み取り専用のコンテナ表示（GUI / CLI）
 - CLI からの `netsh interface portproxy` ルール管理
-- アプリ設定と操作ログの保存
+- 日本語・英語の画面 (**表示 → 言語** でいつでも切り替え、その場で反映)
+
+## ダウンロード
+
+[最新のリリース](https://github.com/kumakumapon/WSLManager/releases/latest) から、次のどれか 1 つを選んでください。
+
+| ファイル | こんなときに |
+|----------|--------------|
+| `WSLManager-Setup-X.Y.Z.exe` | **おすすめ。** アプリ (GUI と `wslmgr.exe`) をインストールし、スタートメニューのショートカットとアンインストーラを作ります。管理者権限は不要です。コマンドライン版を `PATH` に追加することもできます。 |
+| `WSLManager-X.Y.Z-portable.zip` | インストールしたくないとき。好きな場所に展開して `WSLManager.exe` を実行します。`wslmgr.exe`、README、LICENSE も入っています。 |
+| `WSLManager.exe` | GUI だけを 1 ファイルで使いたいとき。 |
+| `wslmgr.exe` | コマンドライン版だけを 1 ファイルで使いたいとき。 |
+| `SHA256SUMS.txt` | 上のファイルのチェックサム。 |
+
+どの実行ファイルも Python は不要です。コード署名はしていないため、初回は Windows SmartScreen の警告が出ることがあります (「詳細情報」→「実行」)。どのファイルを使っても、設定とログは `%APPDATA%\WSLManager`、スナップショットは `%USERPROFILE%\WSLSnapshots` に保存されます。
 
 ## 動作環境
 
-- Windows 10 または Windows 11
-- WSL がインストール済みであること
-- Python 3.10 以上
-- 実行時の追加依存パッケージなし（標準ライブラリのみ）
-- `dist\WSLManager.exe` を作る場合のみ PyInstaller が必要
+- Windows 10 または Windows 11 と WSL (管理者の PowerShell で `wsl --install`)
+- ソースから実行・exe をビルドする場合のみ: Python 3.10 以上 (標準ライブラリのみ)
 
 ## 使い方
 
-### GUI を起動
+### GUI
+
+スタートメニューの **WSL Manager** (インストーラ版) から起動するか、`WSLManager.exe` を実行します。
+
+```text
++---------------------------------------------------------------------------+
+| ファイル  ディストリビューション  WSL  表示  ヘルプ                         |
+| [> 起動] [# 停止] [ターミナル] [エクスプローラー] | [+ 追加 v] [スナップショット]  検索: [___] [更新] |
++--------------------------------------------------+------------------------+
+| 既定  ディストリビューション  状態      WSL  CPU  | Ubuntu-24.04           |
+|  *    Ubuntu-24.04           * 実行中  WSL2 3.2  | (実行中) (WSL 2) (既定) |
+|       Debian                 o 停止中  WSL2 -    | CPU / メモリ / ディスク |
+|                                                  | IP [コピー]  場所       |
+|                                                  | [ターミナルを開く]      |
+|                                                  | [起動] [停止] ...       |
+|                                                  | バックアップ / 設定・管理 / 削除 |
++--------------------------------------------------+------------------------+
+| 準備完了                                  2 件 (実行中 1)   最終更新 12:34 |
++---------------------------------------------------------------------------+
+```
+
+- **一覧 (左):** インストール済みのディストリビューション。列見出しのクリックで並べ替え、**検索** (Ctrl+F) で絞り込みます。行のダブルクリックまたは Enter でターミナルを開き、Delete で停止します。右クリック (または Shift+F10) ですべての操作を選べます。
+- **詳細パネル (右):** 選択中のディストリビューションの状態、リソース、IP アドレス (コピーボタン付き)、インストール先と、すべての操作ボタンを「バックアップ」「設定・管理」「削除」に分けて表示します。**表示 → 詳細パネル** で隠せます。
+- **ボタンは状態に合わせて変わります:** 使えない操作は灰色になります (例: 実行中の「起動」、停止中の「プロセス」、既定のディストリビューションの「既定に設定」)。
+- **ツールバー:** 「起動」はウィンドウを開かずにバックグラウンドで起動します (`wslmgr start` と同じです。中で動き続けるプロセスが無いと、WSL がしばらくして自動で停止します。動かし続けるにはターミナルを開くか、サービスを動かしてください)。「ターミナル」はシェルを開きます。**＋ 追加** から公式ディストリビューションのインストールとバックアップのインポートができます。
+- **質問を何度も続けずに 1 画面のフォームで入力:** エクスポート・インポート・複製は、それぞれ 1 つのフォームに既定値 (今日の日付入りのファイル名、インストール先 `%USERPROFILE%\WSL\<名前>`) が入った状態で開き、tar / VHDX はラジオボタンで選び、入力の誤りはフォームの中に表示されます。`.vhdx` のインポートには自動で `--vhd` を付けます。
+- **結果の知らせ方:** WSL の処理中はステータスバーに処理中の表示が出ます。件数と最終更新時刻も表示します。失敗したときは `wsl.exe` のメッセージ付きのエラーダイアログでも知らせるので、見落としません。
+- **一覧が空のとき:** 何もインストールされていなければ「インストール」「インポート」を、WSL が無ければその入れ方と「再試行」を表示します。
+- **表示メニュー:** 詳細パネル、リソース履歴グラフ、自動更新とその間隔 (5/10/30/60 秒)、テーマ、言語 (その場で反映)、操作ログ。
+- 破壊的な操作 (停止、全停止、登録解除、インポート、エクスポートの上書き、バージョン変換、VHDX 圧縮、スナップショット削除) は従来どおり確認を経由します。登録解除はディストリビューション名の再入力も必要です。
+
+キーボード ショートカット (**ヘルプ → キーボード ショートカット**、F1 でも表示):
+
+| キー | 操作 |
+|------|------|
+| Enter / ダブルクリック | ターミナルを開く |
+| Ctrl+Shift+S | バックグラウンドで起動 |
+| Delete | 停止 |
+| F5 / Ctrl+R | 最新の情報に更新 |
+| Ctrl+F | 検索 |
+| Ctrl+N / Ctrl+I / Ctrl+E | インストール / インポート / エクスポート |
+| Ctrl+S | スナップショットを作成 |
+| Ctrl+D / Ctrl+P | 詳細情報 / プロセス一覧 |
+| Ctrl+, | WSL 全体の設定 (`.wslconfig`) |
+| Ctrl+L | 操作ログ |
+| Ctrl+Shift+Q | WSL を全停止 |
+
+### ソースから実行
 
 ```powershell
 python wslmgr.py
@@ -48,24 +106,16 @@ Windows では `start_wslmanager.bat` をダブルクリックして起動する
 `dist\WSLManager.exe` があればそれを優先し、無い場合はローカルの `.venv` または
 Python Launcher を使用します。
 
-メイン画面にはインストール済みディストリビューションが表示されます。行を選択し、ツールバー、メニューバー、ダブルクリック、右クリックメニューから操作します。
-
-画面表示は既定でシステム言語（日本語または英語）に追従します。**ツール → 言語**
-から明示的な言語設定を保存でき、次回 GUI 起動時に反映されます。
-
-主な GUI 操作:
-
-- ディストリビューション一覧の更新、自動更新の有効化
-- Windows Terminal があればそれを使い、無ければ `cmd.exe` でディストリビューションを起動
-- 選択したディストリビューションの停止、または WSL 全体の停止
-- 実行中ディストリビューションのプロセス一覧表示と `SIGTERM` / `SIGKILL`
-- エクスポート、インポート、複製、スナップショット作成、復元、登録解除
-- `.wslconfig` とディストリビューション別 `wsl.conf` の編集
-- WSL2 VHDX のスパース化または即時圧縮
-
 ### CLI を使う
 
-Windows ではリポジトリ直下の `wslmgr.bat` が CLI ランチャーです。Python を `.venv`、Python Launcher (`py -3`)、`python` の順に探して `wslmgr_cli.py` を実行し、渡した引数をすべてそのまま渡して、終了コードも変えずに返します (0 成功、1 エラー、2 引数エラー、3 取消、4 WSL の失敗、5 一部失敗)。スクリプトからも安全に使えます。リポジトリのフォルダを `PATH` に追加すれば、どこからでも `wslmgr` として実行できます。`dist\WSLManager.exe` はウィンドウ専用の GUI ビルドなので、コマンドラインツールとしては使えません。代わりに `dist\wslmgr.exe` をビルドしてください (後述の「コマンドライン用 exe」)。
+インストーラ版とポータブル版の ZIP には、Python なしで動くコンソール用の `wslmgr.exe` が入っています (インストーラで「コマンドライン用ツールを PATH に追加」を選ぶと、どのフォルダからでも `wslmgr` で実行できます)。GUI の **ヘルプ → コマンドライン版** で場所を確認できます。
+
+```powershell
+wslmgr list --format json
+wslmgr snapshot create Ubuntu --comment "アップグレード前"
+```
+
+ソースから使う場合は、リポジトリ直下の `wslmgr.bat` が CLI ランチャーです。Python を `.venv`、Python Launcher (`py -3`)、`python` の順に探して `wslmgr_cli.py` を実行し、渡した引数をすべてそのまま渡して、終了コードも変えずに返します (0 成功、1 エラー、2 引数エラー、3 取消、4 WSL の失敗、5 一部失敗)。スクリプトからも安全に使えます。リポジトリのフォルダを `PATH` に追加すれば、どこからでも `wslmgr` として実行できます。`dist\WSLManager.exe` はウィンドウ専用の GUI ビルドなので、コマンドラインツールとしては使えません。代わりに `dist\wslmgr.exe` をビルドしてください (後述の「コマンドライン用 exe」)。
 `&`、`|`、`^` を含む引数は二重引用符で囲んでください。Python 3 が未導入で `py -3` が失敗する場合は、リポジトリのフォルダに `.venv` を作成してください。
 
 ```powershell
@@ -153,33 +203,31 @@ CLI は保存済みの GUI 言語設定（未指定ならシステム言語）�
 
 ### exe をビルド
 
+配布物はすべて 1 コマンドで作れます (Windows、Python 3.10 以上)。
+
 ```powershell
-python -m venv .venv
-.\.venv\Scripts\python.exe -m pip install pyinstaller
-.\.venv\Scripts\python.exe -m PyInstaller --clean WSLManager.spec
+powershell -ExecutionPolicy Bypass -File build.ps1
 ```
 
-生成先:
+`.venv` を作成 (既存なら再利用) して固定版の PyInstaller を入れ、単体テストを実行してから、`dist\` に次を出力します。
 
 ```text
-dist\WSLManager.exe
+dist\WSLManager.exe                          GUI (1 ファイル、Python 不要)
+dist\wslmgr.exe                              コマンドライン版
+dist\installer\WSLManager-Setup-X.Y.Z.exe     インストーラ (Inno Setup 6.3 以降がある場合)
+dist\WSLManager-X.Y.Z-portable.zip           2 つの exe + README + LICENSE
+dist\SHA256SUMS.txt                          チェックサム
 ```
 
-`WSLManager.spec` と `pyinstaller_hooks/` は意図的に同梱しています。conda / miniforge 環境では、無関係なパッケージの PyInstaller hook や Tcl/Tk 検出の問題で解析が失敗することがあるため、これらを使ってビルドを安定させています。
+オプション: `-SkipTests`、`-SkipInstaller`、`-RequireInstaller` (Inno Setup が無いときに省略せず失敗させる。Inno Setup は `winget install JRSoftware.InnoSetup` で入ります)、`-Python <python.exe>`、`-Iscc <ISCC.exe>`。CI も同じスクリプトでビルドするので、手元のビルドとリリースのビルドは同じ手順です。
+
+どちらの exe にもアプリのアイコン (`assets/wslmanager.ico`) と Windows のバージョン情報 (エクスプローラーのファイルのプロパティに表示される製品名・バージョン) を埋め込みます。バージョンは `wsl_core.__version__` から取ります。ウイルス対策ソフトの誤検知を減らすため UPX は使いません。
+
+`WSLManager.spec` と `pyinstaller_hooks/` は意図的に同梱しています。conda / miniforge 環境では、無関係なパッケージの PyInstaller hook や Tcl/Tk 検出の問題で解析が失敗することがあるため、これらを使ってビルドを安定させています。PyInstaller を直接使う場合は `python -m PyInstaller --clean WSLManager.spec` (GUI) と `python -m PyInstaller --clean WSLManagerCLI.spec` (CLI) です。
 
 #### コマンドライン用 exe
 
-`dist\WSLManager.exe` はウィンドウ専用の GUI ビルドなので、ターミナルには何も出力しません。コマンドラインツールは `WSLManagerCLI.spec` から別にビルドします。
-
-```powershell
-.\.venv\Scripts\python.exe -m PyInstaller --clean WSLManagerCLI.spec
-```
-
-```text
-dist\wslmgr.exe
-```
-
-Python なしで動くコンソール用の exe なので、出力・リダイレクト・終了コード (0 成功、1 エラー、2 引数エラー、3 取消、4 WSL の失敗、5 一部失敗) が通常のコマンドラインツールと同じように動きます。tkinter は含まれず、`pyinstaller_hooks/` も使いません。
+`dist\WSLManager.exe` はウィンドウ専用の GUI ビルドなので、ターミナルには何も出力しません。コマンドラインツール `dist\wslmgr.exe` は `WSLManagerCLI.spec` から別にビルドします。Python なしで動くコンソール用の exe なので、出力・リダイレクト・終了コード (0 成功、1 エラー、2 引数エラー、3 取消、4 WSL の失敗、5 一部失敗) が通常のコマンドラインツールと同じように動きます。tkinter は含まれず、`pyinstaller_hooks/` も使いません。
 
 - onefile の exe は実行のたびに展開されるため、起動に約 0.6 秒かかります (`python wslmgr_cli.py` を直接実行すると約 0.15 秒です)。
 - 出力をファイルやパイプへリダイレクトすると、Windows の ANSI コードページ (日本語 Windows では cp932) でエンコードされます。日本語を表現できないコードページの環境では、日本語を含むメッセージのエンコードに失敗することがあります。onefile の exe は `PYTHONIOENCODING` を無視します。Python スクリプトと同じ制約で、別の Issue として扱います。
@@ -188,7 +236,7 @@ Python なしで動くコンソール用の exe なので、出力・リダイ�
 
 #### Windows インストーラ
 
-`installer/WSLManager.iss` は、`WSLManager-Setup-<version>.exe` をビルドする [Inno Setup](https://jrsoftware.org/isinfo.php) 6.3 以降のスクリプトです。先に `dist\WSLManager.exe` と `dist\wslmgr.exe` をビルドしてから、`pyproject.toml` のバージョン (数値の `X.Y.Z` だけ) を渡してコンパイルします。
+`installer/WSLManager.iss` は、`WSLManager-Setup-<version>.exe` をビルドする [Inno Setup](https://jrsoftware.org/isinfo.php) 6.3 以降のスクリプトです (`build.ps1` が実行します)。手動でコンパイルする場合は、先に `dist\WSLManager.exe` と `dist\wslmgr.exe` をビルドしてから、`pyproject.toml` のバージョン (数値の `X.Y.Z` だけ) を渡します。
 
 ```powershell
 iscc /DAppVersion=1.0.0 installer\WSLManager.iss
@@ -215,7 +263,7 @@ CI は push と pull request のたびにインストーラをコンパイルし
 
 全ユーザー向けにするときは、`/CURRENTUSER` の代わりに `/ALLUSERS` (と `/TASKS=addtopath_system`) を使います。全ユーザー向けでは、既定の `Program Files` のままにしてください。一般のユーザーが書き込めるフォルダを `/DIR` に指定して `addtopath_system` と組み合わせると、そのフォルダがすべてのユーザーのシステム `PATH` に入ってしまいます。サイレントのアンインストールは、インストール先の `unins000.exe /VERYSILENT /SUPPRESSMSGBOXES` です (インストーラと同じく、WSL Manager の起動中は止まります)。
 
-リリースとダウンロード: `pyproject.toml` (と `wsl_core.__version__`) のバージョンに一致するタグ `vX.Y.Z` をプッシュすると、CI が `WSLManager-Setup-X.Y.Z.exe`、単体の `WSLManager.exe` (GUI) と `wslmgr.exe` (コマンドライン)、`SHA256SUMS.txt` を添付した GitHub Release を公開します。ファイルにコード署名はしていないため、チェックサムが役に立つのは、ダウンロードの破損や差し替えに気づくときだけです。ダウンロードしたファイルと見比べてください。
+リリースとダウンロード: `pyproject.toml` (と `wsl_core.__version__`) のバージョンに一致するタグ `vX.Y.Z` をプッシュすると、CI が `WSLManager-Setup-X.Y.Z.exe`、`WSLManager-X.Y.Z-portable.zip`、単体の `WSLManager.exe` (GUI) と `wslmgr.exe` (コマンドライン)、`SHA256SUMS.txt` を添付した GitHub Release を公開します。ファイルにコード署名はしていないため、チェックサムが役に立つのは、ダウンロードの破損や差し替えに気づくときだけです。ダウンロードしたファイルと見比べてください。
 
 ```powershell
 Get-FileHash .\WSLManager-Setup-1.0.0.exe -Algorithm SHA256
@@ -230,20 +278,24 @@ CI は毎回、インストーラを実際にインストールして検証し�
 
 | ファイル | 役割 |
 |----------|------|
-| `wslmgr.py` | tkinter GUI、各種ダイアログ、バックグラウンド実行、UI 状態、確認処理 |
-| `wslmgr_gui/` | `wslmgr.py` から分割した GUI 部品（Windows 定数、レジストリヘルパー、共通ウィジェット） |
+| `wslmgr.py` | tkinter のメイン画面 (`WSLManager`): ツールバー、一覧、詳細パネル、ステータスバー、メニュー、各操作と確認処理 |
+| `wslmgr_gui/` | GUI 部品: `detail_panel.py`、`style.py` (共通のスタイルと色)、`ui_queue.py` (ワーカースレッドの結果を Tk のメインスレッドへ渡す)、`resources.py` (同梱アイコン、`wslmgr.exe` の検索)、`dialogs/` (フォームと各ダイアログ)、`app/` (メイン画面の Mixin)、Windows 定数とレジストリヘルパー |
 | `wslmgr_cli.py` | argparse ベースの CLI |
-| `wsl_core.py` | 解析、整形、バリデーション、設定、ログ、スナップショット、進捗計算の純粋ロジック |
-| `tests/` | `wsl_core.py` と CLI の unittest |
-| `WSLManager.spec` | PyInstaller ビルド定義 |
+| `wsl_core/` | 解析、整形、バリデーション、設定、ログ、スナップショット、進捗計算、翻訳、ディストリビューションごとの操作の可否を判定する純粋ロジック |
+| `tests/` | `wsl_core`、CLI、GUI (モックを使い、実際のウィンドウは作らない) の unittest |
+| `WSLManager.spec` / `WSLManagerCLI.spec` | PyInstaller ビルド定義 (GUI / CLI) |
 | `pyinstaller_hooks/` | tkinter / Tcl/Tk パッケージング用のローカル PyInstaller hook |
+| `tools/pyinstaller_support.py` | 2 つの spec が共有する、exe のバージョン情報 |
+| `assets/` | アプリのアイコン (exe とインストーラ用の `.ico`、ウィンドウ用の `.png`) |
+| `build.ps1` | exe・インストーラ・ポータブル版 ZIP・チェックサムを 1 コマンドで作るスクリプト |
+| `installer/` | Inno Setup のスクリプトと、その検証スクリプト |
 
 ### アーキテクチャ
 
 - GUI は Windows 向けで、`tkinter`、`ttk`、`subprocess`、`winreg` を使用します。
 - コアロジックは可能な限り GUI、レジストリ、subprocess に依存しない形に分離し、Windows 以外の CI でもテストできるようにしています。
 - WSL コマンド出力は `wsl_core.decode_wsl_output()` で UTF-16 LE、UTF-8、CP932、フォールバックエンコーディングに対応します。
-- 時間のかかる処理はバックグラウンドで実行し、GUI のフリーズを避けます。
+- 時間のかかる処理はバックグラウンドで実行し、GUI のフリーズを避けます。ワーカーは Tk のウィジェットに触れず、結果をキューに積み、メインスレッドが取り出して画面を更新します (`wslmgr_gui/ui_queue.py`)。
 - 破壊的操作は確認ダイアログ、または CLI の明示的なサブコマンドを通して実行します。
 - 設定値は利用前に正規化し、`.wslconfig` / `wsl.conf` エディタでは可能な限り未知のキーを保持します。
 
@@ -272,17 +324,17 @@ CI は毎回、インストーラを実際にインストールして検証し�
 - 復元は元ディストリビューションを上書きせず、新しいディストリビューション名でインポートします。
 - `snapshot prune --keep N` は既定で削除候補だけを表示します。`--yes` を明示した場合のみ、ディストリビューションごとに新しい N 世代を残して、古い tar/メタデータ組を削除します。
 - Windows では `snapshot schedule create <name> --time HH:MM --keep N` により毎日実行するタスクを登録できます。登録・削除には確認が必要です。登録したタスクには、登録時に承認した世代整理のための `--yes` が明示的に含まれます。`snapshot schedule list` / `delete <name>` で管理できます。
-- 操作ログは構造化レコードとしてシリアライズし、`wsl_core.py` のヘルパーでローテーションします。
+- 操作ログは構造化レコードとしてシリアライズし、`wsl_core/logging.py` のヘルパーでローテーションします。
 
 ### パッケージング
 
-PyInstaller ビルドでは、生の `pyinstaller wslmgr.py` ではなく `WSLManager.spec` を使います。spec は conda / miniforge の DLL を存在する場合に収集し、ローカル hook は PyInstaller の runtime hook が参照する `_tcl_data` と `_tk_data` を用意します。
+生の `pyinstaller wslmgr.py` ではなく `build.ps1` (または spec ファイル) を使います。GUI の spec は conda / miniforge の DLL を存在する場合に収集し、ウィンドウ用のアイコンを同梱します。ローカル hook は PyInstaller の runtime hook が参照する `_tcl_data` と `_tk_data` を用意します。
 
 ### テスト
 
 ```powershell
-python -m py_compile wslmgr.py wslmgr_cli.py wsl_core.py
-python -m compileall -q wsl_core wslmgr_gui
+python -m py_compile wslmgr.py wslmgr_cli.py
+python -m compileall -q wsl_core wslmgr_gui tools
 python -m unittest discover -s tests -v
 ```
 
@@ -290,7 +342,7 @@ Linux / macOS では、GUI 以外の大部分を `python3` で検証できます
 
 ### CI
 
-GitHub Actions では、Ubuntu と Windows の複数 Python バージョンでコンパイルチェックと単体テストを実行します。Windows ジョブでは GUI モジュールの import スモークテストも実行します。
+GitHub Actions では、Ubuntu と Windows の複数 Python バージョンでコンパイルチェックと単体テスト、ruff と mypy を実行します。Windows では `build.ps1` で配布物をすべてビルドし、exe のバージョン情報を確認し、インストーラを実際にインストール・アンインストールして検証し、ポータブル版 ZIP の中身を確認します。
 
 ## ライセンス
 

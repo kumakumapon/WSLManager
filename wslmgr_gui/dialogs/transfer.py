@@ -11,7 +11,23 @@ from collections.abc import Callable
 from tkinter import messagebox, ttk
 
 import wsl_core
+from wslmgr_gui.ui_queue import post_to_ui
 from wslmgr_gui.winutil import CREATE_NO_WINDOW
+
+# 失敗時に標準出力から拾うメッセージの最大行数 (wsl.exe はエラーを標準出力に書くことがある)
+_STDOUT_TAIL_LINES = 5
+
+
+def _error_text(stdout: bytes | None, stderr: bytes | None) -> str:
+    """失敗時に表示する文言。標準エラーが空なら標準出力の末尾を使う。"""
+    text = wsl_core.decode_wsl_output(stderr).strip() if stderr else ""
+    if text:
+        return text
+    if not stdout:
+        return ""
+    lines = [line.strip() for line in wsl_core.decode_wsl_output(stdout).splitlines()]
+    lines = [line for line in lines if line]
+    return "\n".join(lines[-_STDOUT_TAIL_LINES:])
 
 
 class TransferProgressDialog(tk.Toplevel):
@@ -46,12 +62,13 @@ class TransferProgressDialog(tk.Toplevel):
         cancel_prompt: str | None = None,
     ) -> None:
         super().__init__(parent)
+        self._language = getattr(parent, "_language", wsl_core.LANGUAGE_AUTO)
         self.title(title)
         self.resizable(False, False)
         self._watch_path = watch_path
         self._total_bytes = total_bytes
         self._on_done = on_done
-        self._cancel_prompt = cancel_prompt or "処理をキャンセルしますか？"
+        self._cancel_prompt = cancel_prompt or self._t("gui.transfer.cancel_prompt")
         self._cancelled = False
         self._finished = False
         self._start_time = time.monotonic()
@@ -81,11 +98,14 @@ class TransferProgressDialog(tk.Toplevel):
         if hasattr(parent, "_transfer_dialogs"):
             parent._transfer_dialogs.append(self)
 
+    def _t(self, key: str, **values: object) -> str:
+        return wsl_core.translate(key, self._language, **values)
+
     def _build_ui(self, message: str) -> None:
         main = ttk.Frame(self, padding=16)
         main.pack(fill=tk.BOTH, expand=True)
 
-        ttk.Label(main, text=message).pack(anchor=tk.W)
+        ttk.Label(main, text=message, wraplength=420).pack(anchor=tk.W)
 
         determinate = self._total_bytes is not None and self._total_bytes > 0
         self._progress = ttk.Progressbar(
@@ -97,13 +117,13 @@ class TransferProgressDialog(tk.Toplevel):
         if not determinate:
             self._progress.start(80)
 
-        self._status_var = tk.StringVar(value="開始しています…")
+        self._status_var = tk.StringVar(value=self._t("gui.transfer.starting"))
         ttk.Label(main, textvariable=self._status_var).pack(anchor=tk.W)
 
         btn_frame = ttk.Frame(main)
         btn_frame.pack(fill=tk.X, pady=(12, 0))
         self._cancel_btn = ttk.Button(
-            btn_frame, text="キャンセル", command=self._request_cancel, width=12
+            btn_frame, text=self._t("gui.common.cancel"), command=self._request_cancel, width=12
         )
         self._cancel_btn.pack(side=tk.RIGHT)
 
@@ -111,10 +131,11 @@ class TransferProgressDialog(tk.Toplevel):
 
     def _wait_proc(self) -> None:
         """バックグラウンドスレッドでプロセス終了を待ちます。"""
-        _stdout, stderr = self._proc.communicate()
-        stderr_text = wsl_core.decode_wsl_output(stderr).strip() if stderr else ""
+        stdout, stderr = self._proc.communicate()
         returncode = self._proc.returncode
-        self.after(0, lambda: self._handle_exit(returncode, stderr_text))
+        stderr_text = _error_text(stdout, stderr) if returncode != 0 else ""
+        # Tk の操作はメインスレッドに任せる (ここではキューに積むだけ)
+        post_to_ui(self, lambda: self._handle_exit(returncode, stderr_text))
 
     def _handle_exit(self, returncode: int, stderr_text: str) -> None:
         """プロセス終了を UI スレッドで処理します。"""
@@ -146,16 +167,20 @@ class TransferProgressDialog(tk.Toplevel):
         elapsed = time.monotonic() - self._start_time
 
         if self._cancelled:
-            self._status_var.set("キャンセルしています…")
+            self._status_var.set(self._t("gui.transfer.cancelling"))
         elif self._watch_path is None:
-            self._status_var.set(f"経過 {wsl_core.format_duration(elapsed)}")
+            self._status_var.set(
+                self._t("gui.transfer.elapsed", time=wsl_core.format_duration(elapsed))
+            )
         else:
             try:
                 current = os.path.getsize(self._watch_path)
             except OSError:
                 current = 0
             self._status_var.set(
-                wsl_core.format_transfer_status(current, self._total_bytes, elapsed)
+                wsl_core.format_transfer_status(
+                    current, self._total_bytes, elapsed, self._language
+                )
             )
             percent = wsl_core.estimate_transfer_progress(current, self._total_bytes)
             if percent is not None:
@@ -170,13 +195,13 @@ class TransferProgressDialog(tk.Toplevel):
         """キャンセルボタン / 閉じるボタン押下時の処理。"""
         if self._finished or self._cancelled:
             return
-        if not messagebox.askyesno("確認", self._cancel_prompt, parent=self):
+        if not messagebox.askyesno(self._t("gui.common.confirm"), self._cancel_prompt, parent=self):
             return
         if self._finished:  # 確認ダイアログ表示中に完了した場合
             return
         self._cancelled = True
         self._cancel_btn.configure(state=tk.DISABLED)
-        self._status_var.set("キャンセルしています…")
+        self._status_var.set(self._t("gui.transfer.cancelling"))
         try:
             self._proc.terminate()
         except OSError:

@@ -1,8 +1,17 @@
 """
-WSL Manager - WSL2 ディストリビューション管理ツール
+WSL Manager - WSL ディストリビューション管理ツール (GUI)
 
-WSL2 の個別ディストリビューションの起動・停止・管理を行う GUI アプリケーションです。
-Windows 10/11 + WSL2 環境での使用を前提としています。
+WSL ディストリビューションの起動・停止・バックアップ・設定を 1 画面で行う
+tkinter アプリケーションです。Windows 10/11 + WSL 環境での使用を前提としています。
+
+画面構成:
+    - ツールバー: よく使う操作 (起動・停止・ターミナル・追加・更新) と検索
+    - 一覧: インストール済みディストリビューション (列クリックで並べ替え)
+    - 詳細パネル: 選択中のディストリビューションの情報と、すべての操作ボタン
+    - ステータスバー: 処理中の表示、結果メッセージ、件数、最終更新時刻
+
+操作は選択中のディストリビューションの状態に応じて有効/無効が切り替わります
+(:func:`wsl_core.action_availability`)。破壊的な操作は従来どおり確認を経由します。
 """
 
 from __future__ import annotations
@@ -11,23 +20,26 @@ import functools
 import os
 import subprocess
 import sys
-import tempfile
 import threading
 import time
 import tkinter as tk
+import webbrowser
 from collections.abc import Callable
 from datetime import datetime
-from tkinter import filedialog, messagebox, simpledialog, ttk
-from typing import ClassVar
+from tkinter import messagebox, simpledialog, ttk
+from typing import Literal
 
 import wsl_core
+from wslmgr_gui import resources, ui_queue
 from wslmgr_gui.app.operation_log import OperationLogMixin
 from wslmgr_gui.app.resource_history import ResourceHistoryMixin
 from wslmgr_gui.app.settings import SettingsMixin
+from wslmgr_gui.detail_panel import DetailPanel
 from wslmgr_gui.dialogs.containers import ContainerManagerDialog
 from wslmgr_gui.dialogs.disk_optimize import DiskOptimizeDialog
 from wslmgr_gui.dialogs.distro_conf import DistroConfDialog
 from wslmgr_gui.dialogs.distro_detail import DistroDetailDialog
+from wslmgr_gui.dialogs.forms import CloneDialog, ExportDialog, ImportDialog
 from wslmgr_gui.dialogs.install import InstallDialog
 from wslmgr_gui.dialogs.mount import WslMountDialog, WslUnmountDialog
 from wslmgr_gui.dialogs.process import ProcessWindow
@@ -37,6 +49,7 @@ from wslmgr_gui.dialogs.wsl_config import WslConfigDialog
 from wslmgr_gui.dialogs.wsl_update import WslUpdateConfirmDialog
 from wslmgr_gui.dialogs.wsl_version import WslVersionDialog
 from wslmgr_gui.distro_data import get_distros
+from wslmgr_gui.style import apply_styles, configure_tree_tags
 from wslmgr_gui.widgets import TreeviewSorter
 from wslmgr_gui.winutil import (
     CREATE_NEW_CONSOLE,
@@ -44,23 +57,59 @@ from wslmgr_gui.winutil import (
     _get_distro_vhdx_path,
 )
 
+PROJECT_URL = "https://github.com/kumakumapon/WSLManager"
+
+# 一覧の列 (ID, 翻訳キー, 幅, 最小幅, 配置)
+_Anchor = Literal["w", "center", "e"]
+_COLUMNS: tuple[tuple[str, str, int, int, _Anchor], ...] = (
+    ("default", "gui.column.default", 64, 44, tk.CENTER),
+    ("name", "gui.column.name", 200, 120, tk.W),
+    ("state", "gui.column.state", 96, 80, tk.W),
+    ("version", "gui.column.version", 70, 60, tk.CENTER),
+    ("cpu", "gui.column.cpu", 70, 56, tk.E),
+    ("memory", "gui.column.memory", 96, 76, tk.E),
+    ("disk", "gui.column.disk", 96, 76, tk.E),
+    ("ip", "gui.column.ip", 130, 96, tk.W),
+)
+
+
+def _warn_no_selection(app: WSLManager) -> None:
+    """ディストリビューションが選択されていないことを知らせます。"""
+    messagebox.showwarning(
+        app._t("gui.common.warning"), app._t("gui.msg.select_distro"), parent=app
+    )
+
+
+def _file_size(path: str | None) -> int | None:
+    if not path:
+        return None
+    try:
+        return os.path.getsize(path)
+    except OSError:
+        return None
+
 
 class WSLManager(OperationLogMixin, ResourceHistoryMixin, SettingsMixin, tk.Tk):
-    """WSL2 ディストリビューション管理メインウィンドウ。"""
+    """WSL ディストリビューション管理メインウィンドウ。"""
 
-    # 状態の日本語表示マッピング
-    STATE_JP: ClassVar[dict[str, str]] = {"Running": "実行中", "Stopped": "停止中"}
+    DEFAULT_GEOMETRY = "1100x680"
+    MIN_SIZE = (860, 540)
 
     def __init__(self) -> None:
         super().__init__()
         self.title("WSL Manager")
-        self.geometry("780x500")
-        self.resizable(True, True)
-        self.minsize(640, 400)
+        self.geometry(self.DEFAULT_GEOMETRY)
+        self.minsize(*self.MIN_SIZE)
+        # ワーカースレッドからの画面更新はすべてこのキューを経由させる
+        self._ui_queue = ui_queue.install(self)
 
         self._refresh_job: str | None = None
         self._refresh_in_progress = False
         self._refresh_pending = False
+        self._refresh_error: str | None = None
+        self._loaded_once = False
+        self._last_refresh: datetime | None = None
+        self._busy_count = 0
         self._process_windows: dict[str, ProcessWindow] = {}
         self._transfer_dialogs: list[TransferProgressDialog] = []
         self._all_distros: list[dict] = []
@@ -78,28 +127,58 @@ class WSLManager(OperationLogMixin, ResourceHistoryMixin, SettingsMixin, tk.Tk):
         self._settings_path = wsl_core.get_default_settings_path()
         self._settings = wsl_core.load_settings(self._settings_path)
         self._language = wsl_core.resolve_language(self._settings["language"])
+        self._auto_refresh_ms = int(self._settings["auto_refresh_interval"]) * 1000
         if self._settings["window_geometry"]:
             try:
                 self.geometry(self._settings["window_geometry"])
             except tk.TclError:
                 pass
+
+        # 画面を作り直しても (言語切替) 値を保つ変数
         self._filter_var = tk.StringVar()
+        self._auto_refresh_var = tk.BooleanVar(value=self._settings["auto_refresh"])
+        self._detail_visible_var = tk.BooleanVar(value=self._settings["detail_panel"])
+        self._history_visible_var = tk.BooleanVar(value=False)
+        self._interval_var = tk.IntVar(value=self._settings["auto_refresh_interval"])
+        self._language_var = tk.StringVar(value=self._settings["language"])
+
+        self._apply_window_icon()
         self._setup_theme()
+        self._reapply_styles()
         self._build_ui()
+        self._bind_shortcuts()
         self._filter_var.trace_add("write", lambda *_: self._render_distros())
         if self._settings["auto_refresh"]:
             self._schedule_auto_refresh()
         else:
             self._refresh()
 
-    # ── UI 構築 ──────────────────────────────────────────────────────────────
+    # ── 初期化 ─────────────────────────────────────────────────────────────
 
     def _t(self, key: str, **values: object) -> str:
         """Translate text used by the main application shell."""
         return wsl_core.translate(key, self._language, **values)
 
+    def _apply_window_icon(self) -> None:
+        """ウィンドウ (とタスクバー) のアイコンを設定します。見つからなければ既定のまま。"""
+        ico = resources.resource_path("assets", "wslmanager.ico")
+        png = resources.resource_path("assets", "wslmanager.png")
+        if sys.platform == "win32" and os.path.exists(ico):
+            try:
+                # default= を付けると、以降に開くダイアログにも同じアイコンが付く
+                self.iconbitmap(default=ico)
+                return
+            except tk.TclError:
+                pass  # ICO を読めない Tk では PNG で設定する
+        if os.path.exists(png):
+            try:
+                self._icon_image = tk.PhotoImage(file=png)
+                self.iconphoto(True, self._icon_image)
+            except tk.TclError:
+                pass
+
     def _setup_theme(self) -> None:
-        """利用可能な ttk テーマを検出し、デフォルトテーマを設定します。"""
+        """利用可能な ttk テーマを検出し、保存済みのテーマがあれば適用します。"""
         style = ttk.Style(self)
         self._available_themes = sorted(style.theme_names())
         self._current_theme = style.theme_use()
@@ -110,129 +189,148 @@ class WSLManager(OperationLogMixin, ResourceHistoryMixin, SettingsMixin, tk.Tk):
                 self._current_theme = saved_theme
             except tk.TclError:
                 pass
+        self._theme_var = tk.StringVar(value=self._current_theme)
+
+    def _reapply_styles(self) -> None:
+        """名前付きスタイルを (テーマ変更後にも) 登録し直します。"""
+        self._fonts = apply_styles(self)
+        tree = getattr(self, "_tree", None)
+        if tree is not None:
+            configure_tree_tags(tree)
+
+    # ── UI 構築 ──────────────────────────────────────────────────────────────
 
     def _build_ui(self) -> None:
-        main_frame = ttk.Frame(self, padding=10)
-        main_frame.pack(fill=tk.BOTH, expand=True)
+        self._main_frame = ttk.Frame(self, padding=(8, 6, 8, 4))
+        self._main_frame.pack(fill=tk.BOTH, expand=True)
 
+        self._menu_items: list[tuple[tk.Menu, int, str]] = []
+        self._toolbar_buttons: dict[str, ttk.Button] = {}
         self._build_menubar()
-        self._build_toolbar(main_frame)
-        self._build_treeview(main_frame)
-        self._build_resource_history_panel(main_frame)
-        self._build_statusbar(main_frame)
+        self._build_toolbar(self._main_frame)
+        self._build_statusbar(self._main_frame)
+        self._build_body(self._main_frame)
+        self._build_resource_history_panel(self._list_frame)
+        if self._resource_history_visible:
+            self._set_resource_history_visible(True)
+        self._apply_detail_visibility()
+        self._update_action_states()
+
+    def _rebuild_ui(self) -> None:
+        """表示言語の切り替え後に、メニュー・ツールバー・一覧・パネルを作り直します。
+
+        選択行・並べ替え・検索語・パネルの表示状態は引き継ぎます。
+        """
+        selected = self._selected_name()
+        sort_state = self._sorter.get_state()
+        old_menubar = self._menubar
+        self._main_frame.destroy()
+        self._build_ui()
+        old_menubar.destroy()
+        self._sorter.set_state(*sort_state)
+        self._render_distros(selected)
+        self._draw_resource_history()
+        self._show_last_refresh()
+
+    def _add_menu_command(
+        self,
+        menu: tk.Menu,
+        label_key: str,
+        command: Callable[[], None],
+        accelerator: str | None = None,
+        action: str | None = None,
+    ) -> None:
+        """メニュー項目を追加します。``action`` を渡すと選択状態で有効/無効が切り替わります。"""
+        options: dict[str, object] = {"label": self._t(label_key), "command": command}
+        if accelerator:
+            options["accelerator"] = accelerator
+        menu.add_command(**options)  # type: ignore[arg-type]
+        if action is not None:
+            index = menu.index(tk.END)
+            if index is not None:
+                self._menu_items.append((menu, int(index), action))
 
     def _build_menubar(self) -> None:
         """メニューバーを構築してウィンドウに設定します。"""
         menubar = tk.Menu(self)
+        add = self._add_menu_command
 
         # ── ファイル ──
         file_menu = tk.Menu(menubar, tearoff=0)
-        file_menu.add_command(
-            label=self._t("gui.action.import"),
-            command=self._import_distro_image,
-            accelerator="Ctrl+I",
-        )
-        file_menu.add_command(
-            label=self._t("gui.action.export"),
-            command=self._export_distro_image,
-            accelerator="Ctrl+E",
-        )
+        add(file_menu, "gui.action.install", self._install_distro, "Ctrl+N")
+        add(file_menu, "gui.action.import", self._import_distro_image, "Ctrl+I")
+        add(file_menu, "gui.action.snapshots", self._open_snapshot_manager)
         file_menu.add_separator()
-        file_menu.add_command(
-            label=self._t("gui.action.exit"),
-            command=self.on_closing,
-            accelerator="Alt+F4",
-        )
+        add(file_menu, "gui.action.exit", self.on_closing, "Alt+F4")
         menubar.add_cascade(label=self._t("gui.menu.file"), menu=file_menu)
 
-        # ── ディストリビューション ──
+        # ── ディストリビューション (選択中の 1 件に対する操作) ──
         distro_menu = tk.Menu(menubar, tearoff=0)
-        distro_menu.add_command(
-            label=self._t("gui.action.start_terminal"),
-            command=self._open_terminal,
-            accelerator="Return",
-        )
-        distro_menu.add_command(
-            label=self._t("gui.action.stop"),
-            command=self._stop_distro,
-            accelerator="Delete",
-        )
-        distro_menu.add_command(
-            label=self._t("gui.action.shutdown"),
-            command=self._shutdown_all,
-            accelerator="Ctrl+Shift+Q",
-        )
+        add(distro_menu, "gui.action.start_terminal", self._open_terminal, "Enter", "terminal")
+        add(distro_menu, "gui.action.start", self._start_distro, "Ctrl+Shift+S", "start")
+        add(distro_menu, "gui.action.stop", self._stop_distro, "Delete", "stop")
+        add(distro_menu, "gui.action.explorer", self._open_in_explorer, None, "explorer")
+        add(distro_menu, "gui.action.copy_ip", self._copy_ip_address, None, "copy_ip")
         distro_menu.add_separator()
-        distro_menu.add_command(
-            label=self._t("gui.action.set_default"),
-            command=self._set_default,
-        )
-        distro_menu.add_command(
-            label=self._t("gui.action.convert"),
-            command=self._convert_version,
-        )
+        add(distro_menu, "gui.action.snapshot", self._create_snapshot, "Ctrl+S", "snapshot")
+        add(distro_menu, "gui.action.export", self._export_distro_image, "Ctrl+E", "export")
+        add(distro_menu, "gui.action.clone", self._clone_distro, None, "clone")
         distro_menu.add_separator()
-        distro_menu.add_command(
-            label=self._t("gui.action.install"),
-            command=self._install_distro,
-        )
-        distro_menu.add_command(
-            label=self._t("gui.action.unregister"),
-            command=self._uninstall_distro,
-        )
+        add(distro_menu, "gui.action.set_default", self._set_default, None, "set_default")
+        add(distro_menu, "gui.action.convert", self._convert_version, None, "convert")
+        add(distro_menu, "gui.action.distro_conf", self._open_distro_conf, None, "distro_conf")
+        add(distro_menu, "gui.action.optimize", self._open_disk_optimize, None, "optimize")
+        distro_menu.add_separator()
+        add(distro_menu, "gui.action.details", self._show_detail, "Ctrl+D", "details")
+        add(distro_menu, "gui.action.processes", self._show_processes, "Ctrl+P", "processes")
+        distro_menu.add_separator()
+        add(distro_menu, "gui.action.unregister", self._uninstall_distro, None, "unregister")
         menubar.add_cascade(label=self._t("gui.menu.distribution"), menu=distro_menu)
 
-        # ── ツール ──
-        tools_menu = tk.Menu(menubar, tearoff=0)
-        tools_menu.add_command(
-            label=self._t("gui.action.details"),
-            command=self._show_detail,
-            accelerator="Ctrl+D",
+        # ── WSL (全体に対する操作) ──
+        wsl_menu = tk.Menu(menubar, tearoff=0)
+        add(wsl_menu, "gui.action.shutdown", self._shutdown_all, "Ctrl+Shift+Q")
+        wsl_menu.add_separator()
+        add(wsl_menu, "gui.action.wsl_config", self._open_wslconfig, "Ctrl+,")
+        add(wsl_menu, "gui.action.mount", self._open_mount)
+        add(wsl_menu, "gui.action.unmount", self._open_unmount)
+        add(wsl_menu, "gui.action.containers", self._open_container_manager)
+        wsl_menu.add_separator()
+        add(wsl_menu, "gui.action.wsl_version", self._show_wsl_version)
+        add(wsl_menu, "gui.action.update_wsl", self._update_wsl)
+        menubar.add_cascade(label=self._t("gui.menu.wsl"), menu=wsl_menu)
+
+        # ── 表示 ──
+        view_menu = tk.Menu(menubar, tearoff=0)
+        add(view_menu, "gui.action.refresh", self._refresh, "F5")
+        view_menu.add_checkbutton(
+            label=self._t("gui.view.detail_panel"),
+            variable=self._detail_visible_var,
+            command=self._toggle_detail_panel,
         )
-        tools_menu.add_command(
-            label=self._t("gui.action.processes"),
-            command=self._show_processes,
-            accelerator="Ctrl+P",
+        view_menu.add_checkbutton(
+            label=self._t("gui.view.history"),
+            variable=self._history_visible_var,
+            command=lambda: self._set_resource_history_visible(self._history_visible_var.get()),
         )
-        tools_menu.add_command(
-            label=self._t("gui.action.explorer"),
-            command=self._open_in_explorer,
+        view_menu.add_separator()
+        view_menu.add_checkbutton(
+            label=self._t("gui.auto_refresh"),
+            variable=self._auto_refresh_var,
+            command=self._toggle_auto_refresh,
         )
-        tools_menu.add_command(
-            label=self._t("gui.action.optimize"),
-            command=self._open_disk_optimize,
-        )
-        tools_menu.add_command(
-            label=self._t("gui.action.snapshots"),
-            command=self._open_snapshot_manager,
-        )
-        tools_menu.add_command(
-            label="WSL Containers...",
-            command=self._open_container_manager,
-        )
-        tools_menu.add_separator()
-        tools_menu.add_command(
-            label=self._t("gui.action.mount"),
-            command=self._open_mount,
-        )
-        tools_menu.add_command(
-            label=self._t("gui.action.unmount"),
-            command=self._open_unmount,
-        )
-        tools_menu.add_separator()
-        tools_menu.add_command(
-            label=self._t("gui.action.wsl_config"),
-            command=self._open_wslconfig,
-            accelerator="Ctrl+,",
-        )
-        tools_menu.add_command(
-            label=self._t("gui.action.log"),
-            command=self._show_log_viewer,
-            accelerator="Ctrl+L",
-        )
-        tools_menu.add_separator()
-        self._theme_var = tk.StringVar(value=self._current_theme)
-        theme_menu = tk.Menu(tools_menu, tearoff=0)
+        interval_menu = tk.Menu(view_menu, tearoff=0)
+        for seconds in wsl_core.AUTO_REFRESH_INTERVALS:
+            interval_menu.add_radiobutton(
+                label=self._t("gui.view.interval_seconds", seconds=seconds),
+                variable=self._interval_var,
+                value=seconds,
+                command=functools.partial(self._set_auto_refresh_interval, seconds),
+            )
+        view_menu.add_cascade(label=self._t("gui.view.interval"), menu=interval_menu)
+        view_menu.add_separator()
+        theme_menu = tk.Menu(view_menu, tearoff=0)
+        self._theme_var.set(self._current_theme)
         for theme_name in self._available_themes:
             theme_menu.add_radiobutton(
                 label=theme_name,
@@ -240,9 +338,9 @@ class WSLManager(OperationLogMixin, ResourceHistoryMixin, SettingsMixin, tk.Tk):
                 value=theme_name,
                 command=functools.partial(self._change_theme, theme_name),
             )
-        tools_menu.add_cascade(label=self._t("gui.action.theme"), menu=theme_menu)
-        language_menu = tk.Menu(tools_menu, tearoff=0)
-        self._language_var = tk.StringVar(value=self._settings["language"])
+        view_menu.add_cascade(label=self._t("gui.action.theme"), menu=theme_menu)
+        language_menu = tk.Menu(view_menu, tearoff=0)
+        self._language_var.set(self._settings["language"])
         for language in (wsl_core.LANGUAGE_AUTO, *wsl_core.SUPPORTED_LANGUAGES):
             language_menu.add_radiobutton(
                 label=self._t(f"language.{language}"),
@@ -250,131 +348,149 @@ class WSLManager(OperationLogMixin, ResourceHistoryMixin, SettingsMixin, tk.Tk):
                 value=language,
                 command=functools.partial(self._change_language, language),
             )
-        tools_menu.add_cascade(label=self._t("gui.menu.language"), menu=language_menu)
-        menubar.add_cascade(label=self._t("gui.menu.tools"), menu=tools_menu)
+        view_menu.add_cascade(label=self._t("gui.menu.language"), menu=language_menu)
+        view_menu.add_separator()
+        add(view_menu, "gui.action.log", self._show_log_viewer, "Ctrl+L")
+        menubar.add_cascade(label=self._t("gui.menu.view"), menu=view_menu)
 
         # ── ヘルプ ──
         help_menu = tk.Menu(menubar, tearoff=0)
-        help_menu.add_command(
-            label=self._t("gui.action.wsl_version"),
-            command=self._show_wsl_version,
-        )
-        help_menu.add_command(
-            label=self._t("gui.action.update_wsl"),
-            command=self._update_wsl,
-        )
-        help_menu.add_command(
-            label=self._t("gui.action.about"),
-            command=self._show_about,
-        )
+        add(help_menu, "gui.action.shortcuts", self._show_shortcuts, "F1")
+        add(help_menu, "gui.action.cli_help", self._show_cli_help)
+        add(help_menu, "gui.action.project_page", self._open_project_page)
+        help_menu.add_separator()
+        add(help_menu, "gui.action.about", self._show_about)
         menubar.add_cascade(label=self._t("gui.menu.help"), menu=help_menu)
 
         self.config(menu=menubar)
+        self._menubar = menubar
 
-        # ── キーボードショートカット ──
-        self.bind_all("<Control-r>", lambda e: self._refresh())
-        self.bind_all("<Control-i>", lambda e: self._import_distro_image())
-        self.bind_all("<Control-e>", lambda e: self._export_distro_image())
-        self.bind_all("<Control-d>", lambda e: self._show_detail())
-        self.bind_all("<Control-p>", lambda e: self._show_processes())
-        self.bind_all("<Control-comma>", lambda e: self._open_wslconfig())
-        self.bind_all("<Control-l>", lambda e: self._show_log_viewer())
-        self.bind_all(
-            "<Delete>",
-            lambda e: (
-                self._stop_distro() if not isinstance(e.widget, (tk.Entry, ttk.Entry)) else None
-            ),
-        )
-        self.bind_all("<Control-Shift-Q>", lambda e: self._shutdown_all())
-        self.bind_all("<F5>", lambda e: self._refresh())
+    def _bind_shortcuts(self) -> None:
+        """メイン画面のキーボードショートカット。
+
+        ルートウィンドウ (``self``) にバインドするので、別ウィンドウのダイアログで
+        キーを押しても反応しない (以前は ``bind_all`` で、ダイアログ内の Delete キーでも
+        メイン画面のディストリビューションが停止されかけた)。
+        """
+
+        def _key(handler: Callable[[], None]) -> Callable[[tk.Event], str]:  # type: ignore[type-arg]
+            def _on_key(_event: tk.Event) -> str:  # type: ignore[type-arg]
+                handler()
+                return "break"
+
+            return _on_key
+
+        bindings: dict[str, Callable[[], None]] = {
+            "<F5>": self._refresh,
+            "<Control-r>": self._refresh,
+            "<Control-n>": self._install_distro,
+            "<Control-i>": self._import_distro_image,
+            "<Control-e>": self._export_distro_image,
+            "<Control-s>": self._create_snapshot,
+            "<Control-d>": self._show_detail,
+            "<Control-p>": self._show_processes,
+            "<Control-comma>": self._open_wslconfig,
+            "<Control-l>": self._show_log_viewer,
+            "<Control-f>": self._focus_search,
+            "<Control-Shift-S>": self._start_distro,
+            "<Control-Shift-Q>": self._shutdown_all,
+            "<F1>": self._show_shortcuts,
+        }
+        for sequence, handler in bindings.items():
+            self.bind(sequence, _key(handler))
 
     def _build_toolbar(self, parent: ttk.Frame) -> None:
-        """主要操作と補助操作を2段に分け、狭い画面でも表示を保ちます。"""
+        """よく使う操作を 1 行に並べたツールバー (右端に検索)。"""
         toolbar = ttk.Frame(parent)
-        toolbar.pack(fill=tk.X, pady=(0, 8))
+        toolbar.pack(fill=tk.X, pady=(0, 6))
 
-        primary_row = ttk.Frame(toolbar)
-        primary_row.pack(fill=tk.X)
+        def _button(action: str, label_key: str, command: Callable[[], None]) -> None:
+            button = ttk.Button(
+                toolbar, text=self._t(label_key), command=command, style="Toolbar.TButton"
+            )
+            button.pack(side=tk.LEFT, padx=(0, 4))
+            self._toolbar_buttons[action] = button
 
-        primary_actions = [
-            (self._t("gui.toolbar.start"), self._start_distro, 8),
-            (self._t("gui.toolbar.stop"), self._stop_distro, 8),
-            (self._t("gui.toolbar.shutdown"), self._shutdown_all, 11),
-            (self._t("gui.toolbar.terminal"), self._open_terminal, 11),
-            (self._t("gui.toolbar.processes"), self._show_processes, 11),
-        ]
-        for index, (label, cmd, width) in enumerate(primary_actions):
-            if index == 3:
-                ttk.Separator(primary_row, orient=tk.VERTICAL).pack(side=tk.LEFT, padx=6, fill=tk.Y)
-            ttk.Button(primary_row, text=label, command=cmd, width=width).pack(side=tk.LEFT, padx=2)
+        _button("start", "gui.toolbar.start", self._start_distro)
+        _button("stop", "gui.toolbar.stop", self._stop_distro)
+        _button("terminal", "gui.toolbar.terminal", self._open_terminal)
+        _button("explorer", "gui.toolbar.explorer", self._open_in_explorer)
+        ttk.Separator(toolbar, orient=tk.VERTICAL).pack(side=tk.LEFT, fill=tk.Y, padx=6, pady=2)
+
+        add_button = ttk.Menubutton(
+            toolbar, text=self._t("gui.toolbar.add"), style="Toolbar.TButton"
+        )
+        add_menu = tk.Menu(add_button, tearoff=0)
+        add_menu.add_command(label=self._t("gui.action.install"), command=self._install_distro)
+        add_menu.add_command(label=self._t("gui.action.import"), command=self._import_distro_image)
+        add_button.configure(menu=add_menu)
+        add_button.pack(side=tk.LEFT, padx=(0, 4))
         ttk.Button(
-            primary_row,
+            toolbar,
+            text=self._t("gui.toolbar.snapshots"),
+            command=self._open_snapshot_manager,
+            style="Toolbar.TButton",
+        ).pack(side=tk.LEFT, padx=(0, 4))
+
+        ttk.Button(
+            toolbar,
             text=self._t("gui.toolbar.refresh"),
             command=self._refresh,
-            width=10,
-        ).pack(side=tk.RIGHT, padx=2)
+            style="Toolbar.TButton",
+        ).pack(side=tk.RIGHT)
+        clear = ttk.Button(toolbar, text="×", width=2, command=lambda: self._filter_var.set(""))
+        clear.pack(side=tk.RIGHT, padx=(2, 8))
+        self._search_entry = ttk.Entry(toolbar, textvariable=self._filter_var, width=22)
+        self._search_entry.pack(side=tk.RIGHT)
+        self._search_entry.bind("<Escape>", lambda _e: self._filter_var.set(""))
+        self._search_entry.bind("<Down>", lambda _e: self._focus_tree())
+        ttk.Label(toolbar, text=self._t("gui.toolbar.search")).pack(side=tk.RIGHT, padx=(0, 4))
 
-        secondary_row = ttk.Frame(toolbar)
-        secondary_row.pack(fill=tk.X, pady=(4, 0))
+    def _build_body(self, parent: ttk.Frame) -> None:
+        """一覧 (左) と詳細パネル (右) を分割ペインに並べます。"""
+        self._paned = ttk.Panedwindow(parent, orient=tk.HORIZONTAL)
+        self._paned.pack(fill=tk.BOTH, expand=True)
 
-        secondary_actions = [
-            (self._t("gui.toolbar.install"), self._install_distro, 12),
-            (self._t("gui.toolbar.import"), self._import_distro_image, 10),
-            (self._t("gui.toolbar.export"), self._export_distro_image, 10),
-            (self._t("gui.toolbar.wsl_config"), self._open_wslconfig, 13),
-        ]
-        for label, cmd, width in secondary_actions:
-            ttk.Button(secondary_row, text=label, command=cmd, width=width).pack(
-                side=tk.LEFT, padx=2
-            )
+        self._list_frame = ttk.Frame(self._paned)
+        self._build_treeview(self._list_frame)
+        self._paned.add(self._list_frame, weight=1)
 
-        self._auto_refresh_var = tk.BooleanVar(value=self._settings["auto_refresh"])
-        ttk.Checkbutton(
-            secondary_row,
-            text=self._t("gui.auto_refresh"),
-            variable=self._auto_refresh_var,
-            command=self._toggle_auto_refresh,
-        ).pack(side=tk.LEFT, padx=(8, 4))
-
-        ttk.Label(secondary_row, text="🔍").pack(side=tk.LEFT, padx=(4, 2))
-        ttk.Entry(secondary_row, textvariable=self._filter_var, width=12).pack(side=tk.LEFT, padx=2)
-        ttk.Button(
-            secondary_row,
-            text="✕",
-            width=2,
-            command=lambda: self._filter_var.set(""),
-        ).pack(side=tk.LEFT, padx=2)
-        self._history_toggle = ttk.Button(
-            secondary_row,
-            text=self._t("gui.history.show"),
-            command=self._toggle_resource_history,
-        )
-        self._history_toggle.pack(side=tk.RIGHT, padx=2)
+        commands: dict[str, Callable[[], None]] = {
+            "terminal": self._open_terminal,
+            "start": self._start_distro,
+            "stop": self._stop_distro,
+            "explorer": self._open_in_explorer,
+            "processes": self._show_processes,
+            "copy_ip": self._copy_ip_address,
+            "snapshot": self._create_snapshot,
+            "export": self._export_distro_image,
+            "clone": self._clone_distro,
+            "set_default": self._set_default,
+            "convert": self._convert_version,
+            "distro_conf": self._open_distro_conf,
+            "optimize": self._open_disk_optimize,
+            "details": self._show_detail,
+            "unregister": self._uninstall_distro,
+        }
+        self._detail_panel = DetailPanel(self._paned, self._t, commands)
 
     def _build_treeview(self, parent: ttk.Frame) -> None:
         tree_frame = ttk.Frame(parent)
         tree_frame.pack(fill=tk.BOTH, expand=True)
+        # リソース履歴パネルはこの一覧の下に差し込む (ResourceHistoryMixin)
+        self._history_anchor = tree_frame
 
-        cols = ("default", "name", "state", "version", "cpu", "memory", "disk", "ip")
+        cols = tuple(column[0] for column in _COLUMNS)
         self._tree = ttk.Treeview(tree_frame, columns=cols, show="headings", selectmode="browse")
-
-        self._tree.heading("default", text="")
-        self._tree.heading("name", text=self._t("gui.column.name"))
-        self._tree.heading("state", text=self._t("gui.column.state"))
-        self._tree.heading("version", text=self._t("gui.column.version"))
-        self._tree.heading("cpu", text="CPU(%)")
-        self._tree.heading("memory", text=self._t("gui.column.memory"))
-        self._tree.heading("disk", text=self._t("gui.column.disk"))
-        self._tree.heading("ip", text=self._t("gui.column.ip"))
-
-        self._tree.column("default", width=26, minwidth=26, anchor=tk.CENTER)
-        self._tree.column("name", width=180, minwidth=120)
-        self._tree.column("state", width=80, minwidth=70, anchor=tk.CENTER)
-        self._tree.column("version", width=70, minwidth=65, anchor=tk.CENTER)
-        self._tree.column("cpu", width=70, minwidth=60, anchor=tk.CENTER)
-        self._tree.column("memory", width=85, minwidth=75, anchor=tk.CENTER)
-        self._tree.column("disk", width=85, minwidth=75, anchor=tk.CENTER)
-        self._tree.column("ip", width=120, minwidth=95)
+        for col_id, key, width, minwidth, anchor in _COLUMNS:
+            self._tree.heading(col_id, text=self._t(key), anchor=anchor)
+            self._tree.column(
+                col_id,
+                width=width,
+                minwidth=minwidth,
+                anchor=anchor,
+                stretch=col_id in ("name", "ip"),
+            )
 
         vsb = ttk.Scrollbar(tree_frame, orient=tk.VERTICAL, command=self._tree.yview)
         hsb = ttk.Scrollbar(tree_frame, orient=tk.HORIZONTAL, command=self._tree.xview)
@@ -385,36 +501,117 @@ class WSLManager(OperationLogMixin, ResourceHistoryMixin, SettingsMixin, tk.Tk):
         tree_frame.grid_rowconfigure(0, weight=1)
         tree_frame.grid_columnconfigure(0, weight=1)
 
-        # ダブルクリックでターミナルを開く
-        self._tree.bind("<Double-1>", lambda _e: self._open_terminal())
-
-        # Enter キーでもダブルクリックと同じ動作にする（メニューの
-        # accelerator="Return" 表示に合わせる）。フィルタ入力欄で
-        # Enter を打っても誤発火しないよう、bind_all ではなく
-        # Treeview ウィジェットに直接バインドする。
+        # ダブルクリック / Enter でターミナルを開く。Delete で停止 (確認あり)。
+        # フィルタ入力欄で誤発火しないよう、Treeview に直接バインドする。
+        self._tree.bind("<Double-1>", self._on_tree_double_click)
         self._tree.bind("<Return>", self._on_tree_return)
-
-        # 右クリックコンテキストメニュー
+        self._tree.bind("<Delete>", lambda _e: self._stop_distro())
         self._tree.bind("<Button-3>", self._show_context_menu)
+        self._tree.bind("<Shift-F10>", self._show_context_menu_for_selection)
+        # アプリケーションキーの keysym は Windows では App、X11 では Menu
+        for keysym in ("<App>", "<Menu>"):
+            try:
+                self._tree.bind(keysym, self._show_context_menu_for_selection)
+            except tk.TclError:
+                pass
+        self._tree.bind("<<TreeviewSelect>>", lambda _e: self._on_selection_changed())
 
-        # 状態による行の色分け
-        self._tree.tag_configure("running", foreground="#1a7a1a")
-        self._tree.tag_configure("stopped", foreground="#888888")
+        configure_tree_tags(self._tree)
 
-        # 列クリックソート
-        self._sorter = TreeviewSorter(self._tree, numeric_columns={"cpu", "memory", "disk"})
+        self._sorter = TreeviewSorter(
+            self._tree, numeric_columns={"cpu", "memory", "disk"}, on_sorted=self._apply_stripes
+        )
         self._sorter.set_state(self._settings["sort_column"], self._settings["sort_desc"])
 
-    def _build_statusbar(self, parent: ttk.Frame) -> None:
-        self._status_var = tk.StringVar(value=self._t("gui.status.ready"))
-        self._statusbar = ttk.Label(
-            parent,
-            textvariable=self._status_var,
-            relief=tk.SUNKEN,
-            anchor=tk.W,
-            padding=(4, 2),
+        # 一覧が空のとき・取得に失敗したときに一覧の上へ重ねる案内
+        self._empty_frame = ttk.Frame(tree_frame, padding=20)
+        self._empty_title = ttk.Label(self._empty_frame, style="Empty.TLabel", justify=tk.CENTER)
+        self._empty_title.pack()
+        self._empty_detail = ttk.Label(
+            self._empty_frame, style="Muted.TLabel", justify=tk.CENTER, wraplength=460
         )
-        self._statusbar.pack(fill=tk.X, pady=(8, 0))
+        self._empty_detail.pack(pady=(6, 10))
+        self._empty_buttons = ttk.Frame(self._empty_frame)
+        self._empty_buttons.pack()
+
+    def _build_statusbar(self, parent: ttk.Frame) -> None:
+        self._statusbar = ttk.Frame(parent)
+        self._statusbar.pack(side=tk.BOTTOM, fill=tk.X, pady=(6, 0))
+        ttk.Separator(self._statusbar, orient=tk.HORIZONTAL).pack(fill=tk.X, pady=(0, 3))
+
+        self._busy_bar = ttk.Progressbar(self._statusbar, mode="indeterminate", length=90)
+        self._status_var = tk.StringVar(value=self._t("gui.status.ready"))
+        self._status_label = ttk.Label(self._statusbar, textvariable=self._status_var, anchor=tk.W)
+        self._status_label.pack(side=tk.LEFT, fill=tk.X, expand=True)
+
+        self._updated_var = tk.StringVar(value="")
+        ttk.Label(self._statusbar, textvariable=self._updated_var, style="Muted.TLabel").pack(
+            side=tk.RIGHT
+        )
+        self._summary_var = tk.StringVar(value="")
+        ttk.Label(self._statusbar, textvariable=self._summary_var).pack(side=tk.RIGHT, padx=12)
+        if self._busy_count > 0:
+            self._show_busy_bar()
+
+    # ── 詳細パネル ─────────────────────────────────────────────────────────
+
+    def _apply_detail_visibility(self) -> None:
+        panes = self._paned.panes()
+        visible = str(self._detail_panel) in [str(p) for p in panes]
+        if self._detail_visible_var.get() and not visible:
+            self._paned.add(self._detail_panel, weight=0)
+        elif not self._detail_visible_var.get() and visible:
+            self._paned.forget(self._detail_panel)
+
+    def _toggle_detail_panel(self) -> None:
+        self._apply_detail_visibility()
+        self._settings["detail_panel"] = bool(self._detail_visible_var.get())
+        self._save_settings()
+
+    # ── 選択と操作の有効/無効 ───────────────────────────────────────────────
+
+    def _selected_name(self) -> str | None:
+        sel = self._tree.selection()
+        return str(sel[0]) if sel else None
+
+    def _distro_by_name(self, name: str | None) -> dict | None:
+        if name is None:
+            return None
+        return next((d for d in self._all_distros if d["name"] == name), None)
+
+    def _selected_distro(self) -> dict | None:
+        """選択中のディストリビューション (一覧取得時の dict)。未選択なら None。"""
+        return self._distro_by_name(self._selected_name())
+
+    def _on_selection_changed(self) -> None:
+        self._update_action_states()
+
+    def _update_action_states(self) -> None:
+        """選択中のディストリビューションに合わせて、ボタン・メニューの有効/無効を更新します。"""
+        distro = self._selected_distro()
+        availability = wsl_core.action_availability(distro)
+        for action, button in self._toolbar_buttons.items():
+            button.state(["!disabled"] if availability.get(action) else ["disabled"])
+        for menu, index, action in self._menu_items:
+            try:
+                menu.entryconfigure(
+                    index, state=tk.NORMAL if availability.get(action) else tk.DISABLED
+                )
+            except tk.TclError:
+                pass
+        self._detail_panel.show(distro, availability)
+
+    def _focus_search(self) -> None:
+        self._search_entry.focus_set()
+        self._search_entry.select_range(0, tk.END)
+
+    def _focus_tree(self) -> None:
+        self._tree.focus_set()
+        children = self._tree.get_children()
+        if children and not self._tree.selection():
+            self._tree.selection_set(children[0])
+        if self._tree.selection():
+            self._tree.focus(self._tree.selection()[0])
 
     # ── ツリービュー更新 ──────────────────────────────────────────────────
 
@@ -425,10 +622,14 @@ class WSLManager(OperationLogMixin, ResourceHistoryMixin, SettingsMixin, tk.Tk):
 
         selected = self._selected_name()
         self._refresh_in_progress = True
-        self._set_status("更新中…")
+        self._updated_var.set(self._t("gui.status.refreshing"))
+        if not self._loaded_once:
+            self._show_empty_state()
+
+        language = self._language
 
         def _run() -> None:
-            distros, err = get_distros()
+            distros, err = get_distros(language)
             self._call_soon_safe(lambda: self._apply_refresh_result(distros, err, selected))
 
         threading.Thread(target=_run, daemon=True).start()
@@ -436,38 +637,26 @@ class WSLManager(OperationLogMixin, ResourceHistoryMixin, SettingsMixin, tk.Tk):
     def _apply_refresh_result(
         self, distros: list[dict], err: str | None, selected: str | None
     ) -> None:
-        if err:
-            self._set_status(err)
-            self._refresh_in_progress = False
-            if self._refresh_pending:
-                self._refresh_pending = False
-                self._refresh()
-            return
-
-        self._all_distros = distros
-        self._resource_history.record_refresh(distros)
+        self._refresh_in_progress = False
+        self._loaded_once = True
+        if err and self._all_distros and self._refresh_error is None:
+            # 取得済みの一覧は残し、失敗はステータスバーで知らせる。一時的なタイムアウトで
+            # 一覧が消えて、すべての操作が使えなくなるのを避ける。
+            self._set_status(self._t("gui.status.refresh_failed", error=err))
+        elif err:
+            self._refresh_error = err
+            self._all_distros = []
+            self._set_status(self._t("gui.status.refresh_failed", error=err))
+            self._updated_var.set("")
+        else:
+            self._refresh_error = None
+            self._all_distros = distros
+            self._resource_history.record_refresh(distros)
+            self._last_refresh = datetime.now()
+            self._show_last_refresh()
         self._render_distros(selected)
         self._draw_resource_history()
 
-        count = len(distros)
-        running = sum(1 for d in distros if d["state"] == "Running")
-
-        # フィルタが適用されている場合はフィルタ後の件数を追記
-        filter_text = self._filter_var.get().strip().casefold()
-        if filter_text:
-            filtered_count = sum(1 for d in distros if filter_text in d["name"].casefold())
-            self._set_status(
-                f"ディストリビューション数: {count}  "
-                f"(実行中: {running} / 停止中: {count - running})"
-                f"  （フィルタ表示: {filtered_count} 件）"
-            )
-        else:
-            self._set_status(
-                f"ディストリビューション数: {count}  "
-                f"(実行中: {running} / 停止中: {count - running})"
-            )
-
-        self._refresh_in_progress = False
         if self._refresh_pending:
             self._refresh_pending = False
             self._refresh()
@@ -479,63 +668,143 @@ class WSLManager(OperationLogMixin, ResourceHistoryMixin, SettingsMixin, tk.Tk):
         ``self._all_distros`` のみを参照し、subprocess 等の重い処理は行いません。
         フィルタ入力のたびに呼ばれるため、軽量に保つこと。
         """
-        # 引数が省略された場合は現在の選択名を維持する
         if selected is None:
             selected = self._selected_name()
 
-        # 全行削除
-        for item in self._tree.get_children():
-            self._tree.delete(item)
-
+        self._tree.delete(*self._tree.get_children())
         filter_text = self._filter_var.get().strip().casefold()
+        running_label = "● " + self._t("gui.state.running")
+        stopped_label = "○ " + self._t("gui.state.stopped")
 
-        select_iid: str | None = None
         for d in self._all_distros:
             if filter_text and filter_text not in d["name"].casefold():
                 continue
-            default_mark = "★" if d["default"] else ""
-            state_jp = (
-                self.STATE_JP.get(d["state"], d["state"]) if self._language == "ja" else d["state"]
-            )
-            version_str = f"WSL{d['version']}" if d["version"] else ""
-            tag = "running" if d["state"] == "Running" else "stopped"
-            iid = self._tree.insert(
+            running = d["state"] == "Running"
+            if d["state"] in ("Running", "Stopped"):
+                state_text = running_label if running else stopped_label
+            else:  # Installing / Converting など
+                state_text = "◌ " + str(d["state"])
+            self._tree.insert(
                 "",
                 tk.END,
+                iid=d["name"],
                 values=(
-                    default_mark,
+                    "★" if d["default"] else "",
                     d["name"],
-                    state_jp,
-                    version_str,
+                    state_text,
+                    f"WSL{d['version']}" if d["version"] else "",
                     d["cpu"],
                     d["memory"],
                     d["disk"],
                     d.get("ip", "-"),
                 ),
-                tags=(tag,),
+                tags=("running" if running else "stopped",),
             )
-            if d["name"] == selected:
-                select_iid = iid
 
-        # ソート状態を再適用
-        self._sorter.apply()
+        self._sorter.apply()  # 並べ替えたときは on_sorted で縞模様も付け直す
+        self._apply_stripes()
 
-        # 直前の選択を復元、なければ先頭を選択
-        if select_iid:
-            self._tree.selection_set(select_iid)
-            self._tree.see(select_iid)
-        elif self._tree.get_children():
-            self._tree.selection_set(self._tree.get_children()[0])
+        children = self._tree.get_children()
+        if selected and self._tree.exists(selected):
+            self._tree.selection_set(selected)
+            self._tree.see(selected)
+        elif children:
+            self._tree.selection_set(children[0])
+        self._update_empty_state(bool(children))
+        self._update_summary()
+        self._update_action_states()
 
-    def _selected_name(self) -> str | None:
-        sel = self._tree.selection()
-        if not sel:
-            return None
-        values = self._tree.item(sel[0])["values"]
-        return str(values[1]) if values else None
+    def _apply_stripes(self) -> None:
+        """並べ替え後の表示順で、1 行おきに背景色を付けます。"""
+        for index, iid in enumerate(self._tree.get_children()):
+            tags = [t for t in self._tree.item(iid, "tags") if t != "stripe"]
+            if index % 2 == 1:
+                tags.append("stripe")
+            self._tree.item(iid, tags=tags)
+
+    def _show_last_refresh(self) -> None:
+        if self._last_refresh is None or self._refresh_error:
+            self._updated_var.set("")
+            return
+        self._updated_var.set(
+            self._t("gui.status.updated_at", time=self._last_refresh.strftime("%H:%M:%S"))
+        )
+
+    def _update_summary(self) -> None:
+        if not self._loaded_once or self._refresh_error:
+            self._summary_var.set("")
+            return
+        count = len(self._all_distros)
+        running = sum(1 for d in self._all_distros if d["state"] == "Running")
+        summary = self._t("gui.status.summary", count=count, running=running)
+        filter_text = self._filter_var.get().strip()
+        if filter_text:
+            shown = len(self._tree.get_children())
+            summary += "  " + self._t("gui.status.filtered", shown=shown)
+        self._summary_var.set(summary)
+
+    # ── 空の一覧の案内 ─────────────────────────────────────────────────────
+
+    def _show_empty_state(self) -> None:
+        self._update_empty_state(False)
+
+    def _update_empty_state(self, has_rows: bool) -> None:
+        """一覧が空のときに、理由と次に取れる操作を一覧の上に表示します。"""
+        if has_rows:
+            self._empty_frame.place_forget()
+            return
+        for child in self._empty_buttons.winfo_children():
+            child.destroy()
+        if not self._loaded_once:
+            title, detail, buttons = self._t("gui.empty.loading"), "", []
+        elif self._refresh_error:
+            title = self._t("gui.empty.error_title")
+            detail = self._refresh_error + "\n\n" + self._t("gui.empty.error_hint")
+            buttons = [("gui.empty.retry", self._refresh)]
+        elif self._all_distros:  # フィルタで 0 件
+            title = self._t("gui.empty.no_match", text=self._filter_var.get().strip())
+            detail = ""
+            buttons = [("gui.empty.clear_filter", lambda: self._filter_var.set(""))]
+        else:
+            title = self._t("gui.empty.none_title")
+            detail = self._t("gui.empty.none_hint")
+            buttons = [
+                ("gui.action.install", self._install_distro),
+                ("gui.action.import", self._import_distro_image),
+            ]
+        self._empty_title.configure(text=title)
+        self._empty_detail.configure(text=detail)
+        if detail:
+            self._empty_detail.pack(pady=(6, 10), before=self._empty_buttons)
+        else:
+            self._empty_detail.pack_forget()
+        for key, command in buttons:
+            ttk.Button(self._empty_buttons, text=self._t(key), command=command).pack(
+                side=tk.LEFT, padx=4
+            )
+        self._empty_frame.place(relx=0.5, rely=0.4, anchor=tk.CENTER)
+        self._empty_frame.lift()
+
+    # ── ステータス・処理中表示 ─────────────────────────────────────────────
 
     def _set_status(self, msg: str) -> None:
         self._status_var.set(msg)
+
+    def _show_busy_bar(self) -> None:
+        self._busy_bar.pack(side=tk.LEFT, padx=(0, 8), before=self._status_label)
+        self._busy_bar.start(15)
+
+    def _begin_busy(self) -> None:
+        """時間のかかる処理の開始を記録し、ステータスバーに処理中の表示を出します。"""
+        self._busy_count += 1
+        if self._busy_count == 1:
+            self._show_busy_bar()
+
+    def _end_busy(self) -> None:
+        self._busy_count = max(0, self._busy_count - 1)
+        if self._busy_count == 0:
+            self._busy_bar.stop()
+            self._busy_bar.pack_forget()
 
     def _check_log_writer_health(self) -> None:
         """#35: ログ書き込みのキュー溢れ/失敗を検知し、初回のみステータスバーに警告表示します。
@@ -551,35 +820,26 @@ class WSLManager(OperationLogMixin, ResourceHistoryMixin, SettingsMixin, tk.Tk):
         if dropped > 0 or write_errors > 0:
             self._log_writer_warning_shown = True
             self._set_status(
-                "警告: 操作ログの書き込みに問題が発生しています"
-                f"（キュー溢れによる破棄: {dropped} 件 / 書き込み失敗: {write_errors} 件）"
+                self._t("gui.status.log_warning", dropped=dropped, errors=write_errors)
             )
 
     def _call_soon_safe(self, fn: Callable[[], None]) -> None:
         """バックグラウンドスレッドから UI 更新を安全にスケジュールします。
 
-        長時間コマンドの実行中にウィンドウが閉じられると ``self`` は destroy
-        済みになり、素の ``after(0, ...)`` は ``tk.TclError`` を送出します。
-        スレッド内での例外は誰も捕まえないため、スケジュール時と実行時の
-        両方をここでガードします。ウィンドウが既に無い場合は黙って捨てます。
+        実際の実行はメインスレッドが :mod:`wslmgr_gui.ui_queue` のキューから取り出して
+        行います。ウィンドウが既に閉じられていれば黙って捨てます。
         """
-
-        def _guarded() -> None:
-            try:
-                if self.winfo_exists():
-                    fn()
-            except tk.TclError:
-                pass
-
-        try:
-            self.after(0, _guarded)
-        except (tk.TclError, RuntimeError):
-            # destroy 済み、または mainloop 終了後にスケジュールしようとした場合
-            pass
+        ui_queue.post_to_ui(self, fn)
 
     def _set_status_safe(self, msg: str) -> None:
         """バックグラウンドスレッドからステータスバーを更新します。"""
         self._call_soon_safe(lambda: self._set_status(msg))
+
+    def _show_error(self, message: str, detail: str = "") -> None:
+        """失敗をステータスバーとエラーダイアログの両方で知らせます (見落とし防止)。"""
+        self._set_status(message if not detail else f"{message} {detail}")
+        text = message if not detail else f"{message}\n\n{detail}"
+        messagebox.showerror(self._t("gui.common.error"), text, parent=self)
 
     # ── WSL コマンド実行 ──────────────────────────────────────────────────
 
@@ -590,9 +850,15 @@ class WSLManager(OperationLogMixin, ResourceHistoryMixin, SettingsMixin, tk.Tk):
         error_msg: str | None = None,
         timeout: float = 60.0,
     ) -> None:
-        """WSL コマンドをバックグラウンドスレッドで実行し、完了後にリストを更新します。"""
+        """WSL コマンドをバックグラウンドスレッドで実行し、完了後にリストを更新します。
+
+        失敗した場合はエラーダイアログでも知らせます。
+        """
+        self._begin_busy()
 
         def _run() -> None:
+            ok = False
+            detail = ""
             try:
                 result = subprocess.run(
                     ["wsl", *args],
@@ -600,48 +866,69 @@ class WSLManager(OperationLogMixin, ResourceHistoryMixin, SettingsMixin, tk.Tk):
                     creationflags=CREATE_NO_WINDOW,
                     timeout=timeout,
                 )
-                if result.returncode == 0:
-                    self._set_status_safe(success_msg)
-                else:
-                    stderr = wsl_core.decode_wsl_output(result.stderr).strip()
-                    msg = error_msg or stderr or f"エラー (終了コード {result.returncode})"
-                    self._set_status_safe(msg)
+                ok = result.returncode == 0
+                if not ok:
+                    # wsl.exe はエラーを標準出力に書くことがある
+                    detail = (
+                        wsl_core.decode_wsl_output(result.stderr).strip()
+                        or wsl_core.decode_wsl_output(result.stdout).strip()
+                        or self._t("gui.msg.exit_code", code=result.returncode)
+                    )
             except subprocess.TimeoutExpired:
-                self._set_status_safe("WSL の応答がタイムアウトしました。")
+                detail = self._t("gui.msg.timeout")
             except OSError as e:
-                self._set_status_safe(str(e))
-            finally:
-                self._call_soon_safe(self._refresh)
+                detail = str(e)
+
+            def _done() -> None:
+                self._end_busy()
+                if ok:
+                    self._set_status(success_msg)
+                else:
+                    self._show_error(error_msg or self._t("gui.msg.command_failed"), detail)
+                self._refresh()
+
+            self._call_soon_safe(_done)
 
         threading.Thread(target=_run, daemon=True).start()
 
-    # ── ボタンアクション ──────────────────────────────────────────────────
+    # ── 起動・停止・ターミナル ───────────────────────────────────────────
 
     def _start_distro(self) -> None:
-        """選択したディストリビューションのターミナルを開きます（起動を兼ねます）。"""
-        self._open_terminal()
+        """選択したディストリビューションをバックグラウンドで起動します (画面は開きません)。"""
+        distro = self._selected_distro()
+        if distro is None:
+            _warn_no_selection(self)
+            return
+        name = distro["name"]
+        if distro.get("state") == "Running":
+            self._set_status(self._t("gui.msg.already_running", name=name))
+            return
+        self._log_operation("起動", name, "実行")
+        self._set_status(self._t("gui.msg.starting", name=name))
+        self._run_wsl_cmd(
+            ["-d", name, "--", "true"],
+            self._t("gui.msg.started", name=name),
+            self._t("gui.msg.start_failed", name=name),
+            timeout=120.0,
+        )
 
     def _stop_distro(self) -> None:
-        name = self._selected_name()
-        if not name:
-            messagebox.showwarning(
-                self._t("gui.common.warning"), self._t("gui.msg.select_distro"), parent=self
-            )
+        distro = self._selected_distro()
+        if distro is None:
+            _warn_no_selection(self)
             return
+        name = distro["name"]
         if not messagebox.askyesno(
             self._t("gui.common.confirm"), self._t("gui.confirm.stop", name=name), parent=self
         ):
             return
         self._log_operation("停止", name, "実行")
-        status_msg = f"「{name}」を停止中…" if self._language == "ja" else f"Stopping '{name}'..."
-        self._set_status(status_msg)
-        ok_msg = f"「{name}」を停止しました。" if self._language == "ja" else f"Stopped '{name}'."
-        err_msg = (
-            f"「{name}」の停止に失敗しました。"
-            if self._language == "ja"
-            else f"Failed to stop '{name}'."
+        self._set_status(self._t("gui.msg.stopping", name=name))
+        self._run_wsl_cmd(
+            ["--terminate", name],
+            self._t("gui.msg.stopped", name=name),
+            self._t("gui.msg.stop_failed", name=name),
         )
-        self._run_wsl_cmd(["--terminate", name], ok_msg, err_msg)
 
     def _shutdown_all(self) -> None:
         if not messagebox.askyesno(
@@ -649,38 +936,25 @@ class WSLManager(OperationLogMixin, ResourceHistoryMixin, SettingsMixin, tk.Tk):
         ):
             return
         self._log_operation("全停止", "全ディストリビューション", "実行")
-        status_msg = (
-            "WSL を全停止中…" if self._language == "ja" else "Shutting down all distributions..."
+        self._set_status(self._t("gui.msg.shutting_down"))
+        self._run_wsl_cmd(
+            ["--shutdown"],
+            self._t("gui.msg.shutdown_done"),
+            self._t("gui.msg.shutdown_failed"),
         )
-        self._set_status(status_msg)
-        ok_msg = (
-            "WSL を全停止しました。" if self._language == "ja" else "Shut down all distributions."
-        )
-        err_msg = (
-            "WSL の全停止に失敗しました。"
-            if self._language == "ja"
-            else "Failed to shut down all distributions."
-        )
-        self._run_wsl_cmd(["--shutdown"], ok_msg, err_msg)
 
     def _set_default(self) -> None:
-        name = self._selected_name()
-        if not name:
-            messagebox.showwarning(
-                self._t("gui.common.warning"), self._t("gui.msg.select_distro"), parent=self
-            )
+        distro = self._selected_distro()
+        if distro is None:
+            _warn_no_selection(self)
             return
+        name = distro["name"]
         self._log_operation("デフォルト設定", name, "実行")
-        status_msg = (
-            f"「{name}」をデフォルトに設定中…"
-            if self._language == "ja"
-            else f"Setting '{name}' as default..."
-        )
-        self._set_status(status_msg)
+        self._set_status(self._t("gui.msg.setting_default", name=name))
         self._run_wsl_cmd(
             ["--set-default", name],
             self._t("gui.msg.set_default_success", name=name),
-            self._t("gui.msg.set_default_failed", error=""),
+            self._t("gui.msg.set_default_failed", name=name),
         )
 
     def _open_terminal(self) -> None:
@@ -689,20 +963,19 @@ class WSLManager(OperationLogMixin, ResourceHistoryMixin, SettingsMixin, tk.Tk):
         Windows Terminal (wt.exe) が利用可能な場合はそちらを優先し、
         ない場合は cmd.exe にフォールバックします。
         """
-        name = self._selected_name()
-        if not name:
-            messagebox.showwarning(
-                self._t("gui.common.warning"), self._t("gui.msg.select_distro"), parent=self
-            )
+        distro = self._selected_distro()
+        if distro is None:
+            _warn_no_selection(self)
             return
+        name = distro["name"]
         # wsl --list の出力から得た名前はこのアプリの作成時バリデーションを
         # 経由していない可能性がある (他ツールでの登録等)。cmd.exe/wt.exe の
         # コマンドラインインタプリタに渡す前に必ず再検証する。
-        valid, reason = wsl_core.validate_distro_name(name)
+        valid, reason = wsl_core.validate_distro_name(name, language=self._language)
         if not valid:
             messagebox.showerror(
                 self._t("gui.common.error"),
-                f"「{name}」はターミナル起動時に使用できない名前です: {reason}",
+                self._t("gui.msg.terminal_bad_name", name=name, reason=reason),
                 parent=self,
             )
             return
@@ -713,10 +986,9 @@ class WSLManager(OperationLogMixin, ResourceHistoryMixin, SettingsMixin, tk.Tk):
                 creationflags=CREATE_NO_WINDOW,
             )
             self._log_operation("ターミナル起動", name, "Windows Terminal")
-            self._set_status(f"「{name}」のターミナルを開きました (Windows Terminal)。")
+            self._set_status(self._t("gui.msg.terminal_opened", name=name, app="Windows Terminal"))
+            self._refresh_soon()
             return
-        except FileNotFoundError:
-            pass
         except OSError:
             pass
 
@@ -727,11 +999,19 @@ class WSLManager(OperationLogMixin, ResourceHistoryMixin, SettingsMixin, tk.Tk):
                 creationflags=CREATE_NEW_CONSOLE,
             )
             self._log_operation("ターミナル起動", name, "コマンド プロンプト")
-            self._set_status(f"「{name}」のターミナルを開きました (コマンド プロンプト)。")
+            self._set_status(self._t("gui.msg.terminal_opened", name=name, app="cmd.exe"))
+            self._refresh_soon()
         except OSError as e:
-            self._set_status(f"ターミナルを開けませんでした: {e}")
+            self._show_error(self._t("gui.msg.terminal_failed"), str(e))
 
-    def _on_tree_return(self, _event: object = None) -> None:
+    def _refresh_soon(self, delay_ms: int = 2500) -> None:
+        """ターミナル起動直後など、少し待ってから状態を取り直します (起動を一覧へ反映)。"""
+        try:
+            self.after(delay_ms, self._refresh)
+        except tk.TclError:
+            pass
+
+    def _on_tree_return(self, _event: object = None) -> str | None:
         """Treeview 上で Return キーが押されたときの処理。
 
         ダブルクリックと同じくターミナルを開くが、選択行が無い状態で
@@ -739,40 +1019,39 @@ class WSLManager(OperationLogMixin, ResourceHistoryMixin, SettingsMixin, tk.Tk):
         （空撃ちを無害な no-op にする）。
         """
         if not self._selected_name():
-            return
+            return None
         self._open_terminal()
+        return "break"
+
+    def _on_tree_double_click(self, event: tk.Event) -> None:  # type: ignore[type-arg]
+        """行の上でのダブルクリックだけをターミナル起動にします (見出しのクリックは除く)。"""
+        if self._tree.identify_region(event.x, event.y) not in ("cell", "tree"):
+            return
+        if self._tree.identify_row(event.y):
+            self._open_terminal()
 
     def _show_detail(self) -> None:
         """選択したディストリビューションの詳細情報ダイアログを開きます。"""
-        name = self._selected_name()
-        if not name:
-            messagebox.showwarning(
-                "警告", "ディストリビューションを選択してください。", parent=self
-            )
+        distro = self._selected_distro()
+        if distro is None:
+            _warn_no_selection(self)
             return
-        DistroDetailDialog(self, name)
+        DistroDetailDialog(self, distro["name"])
 
     def _show_processes(self) -> None:
         """選択したディストリビューションのプロセス一覧ウィンドウを開きます。"""
-        name = self._selected_name()
-        if not name:
+        distro = self._selected_distro()
+        if distro is None:
+            _warn_no_selection(self)
+            return
+        name = distro["name"]
+        if distro.get("state") != "Running":
             messagebox.showwarning(
-                self._t("gui.common.warning"), self._t("gui.msg.select_distro"), parent=self
+                self._t("gui.common.warning"),
+                self._t("gui.msg.processes_need_running", name=name),
+                parent=self,
             )
             return
-
-        sel = self._tree.selection()
-        if sel:
-            state_val = self._tree.item(sel[0])["values"][2]
-            if state_val not in ("実行中", "Running"):
-                messagebox.showwarning(
-                    self._t("gui.common.warning"),
-                    f"「{name}」は停止中です。起動してからプロセスを確認してください。"
-                    if self._language == "ja"
-                    else f"'{name}' is stopped. Please start it before checking processes.",
-                    parent=self,
-                )
-                return
 
         self._process_windows = {k: v for k, v in self._process_windows.items() if v.winfo_exists()}
 
@@ -785,205 +1064,255 @@ class WSLManager(OperationLogMixin, ResourceHistoryMixin, SettingsMixin, tk.Tk):
         win = ProcessWindow(self, name)
         self._process_windows[name] = win
 
+    # ── 複製・エクスポート・インポート ─────────────────────────────────────
+
+    def _existing_names(self) -> list[str]:
+        return [d["name"] for d in self._all_distros]
+
     def _clone_distro(self) -> None:
         """選択したディストリビューションを複製します（エクスポート→インポートを自動実行）。"""
-        name = self._selected_name()
-        if not name:
-            messagebox.showwarning(
-                "警告", "ディストリビューションを選択してください。", parent=self
-            )
+        distro = self._selected_distro()
+        if distro is None:
+            _warn_no_selection(self)
             return
+        name = distro["name"]
+        version = str(distro.get("version") or "")
 
-        existing = [d["name"] for d in self._all_distros]
-        version = next((str(d["version"]) for d in self._all_distros if d["name"] == name), "")
-
-        new_name = simpledialog.askstring(
-            "複製",
-            "新しいディストリビューション名を入力してください。",
-            initialvalue=wsl_core.default_clone_name(name, existing),
-            parent=self,
+        request = CloneDialog.ask(self, name, self._existing_names())
+        if request is None:
+            return
+        # フォームで検証済みだが、コマンドラインに渡す前にもう一度確かめる
+        valid, reason = wsl_core.validate_clone_name(
+            request.name, self._existing_names(), language=self._language
         )
-        if new_name is None:
-            return
-        new_name = new_name.strip()
-        valid, reason = wsl_core.validate_clone_name(new_name, existing)
         if not valid:
-            messagebox.showwarning("警告", reason, parent=self)
-            return
-
-        install_path = filedialog.askdirectory(title="複製先フォルダを選択")
-        if not install_path:
+            messagebox.showwarning(self._t("gui.common.warning"), reason, parent=self)
             return
 
         if not messagebox.askyesno(
-            "確認",
-            (
-                "次の内容で複製します。\n\n"
-                f"複製元: {name}\n"
-                f"複製先の名前: {new_name}\n"
-                f"複製先フォルダ: {install_path}\n\n"
-                "複製中は一時 tar ファイルが複製先フォルダに作成され、"
-                "完了後に削除されます。"
+            self._t("gui.common.confirm"),
+            self._t(
+                "gui.confirm.clone", name=name, new_name=request.name, folder=request.install_dir
             ),
             parent=self,
         ):
             return
 
-        self._log_operation("複製", name, f"→ {new_name}")
-        self._set_status(f"「{name}」を複製中… (1/2 エクスポート)")
-        self._run_clone_cmd(name, new_name, install_path, version)
+        self._log_operation("複製", name, f"→ {request.name}")
+        self._run_clone_cmd(name, request.name, request.install_dir, version)
 
     def _run_clone_cmd(self, name: str, new_name: str, install_path: str, version: str) -> None:
-        """複製処理（エクスポート→インポート）をバックグラウンドスレッドで実行します。"""
+        """複製 (エクスポート→インポート) を進捗ダイアログ付きで順に実行します。
 
-        def _run() -> None:
-            try:
-                fd, tmp_tar = tempfile.mkstemp(
-                    prefix=f"{new_name}-clone-", suffix=".tar", dir=install_path
-                )
-                os.close(fd)
-            except OSError as e:
-                self._set_status_safe(str(e))
+        一時 tar は複製先フォルダに作り、成功・失敗・キャンセルのいずれでも削除します。
+        """
+        try:
+            os.makedirs(install_path, exist_ok=True)
+        except OSError as e:
+            self._show_error(self._t("gui.msg.folder_failed", path=install_path), str(e))
+            return
+        stamp = time.strftime("%Y%m%d-%H%M%S")
+        tmp_tar = os.path.join(install_path, f"{new_name}-clone-{stamp}.tar")
+
+        def _cleanup() -> None:
+            wsl_core.discard_partial_write(tmp_tar)
+
+        def _after_import(returncode: int, stderr_text: str, cancelled: bool) -> None:
+            _cleanup()
+            if cancelled:
+                self._log_operation("複製", name, "キャンセル")
+                self._set_status(self._t("gui.msg.clone_cancelled", name=name))
+                self._offer_unregister_partial(new_name)
                 return
+            if returncode == 0:
+                self._set_status(self._t("gui.msg.clone_done", name=name, new_name=new_name))
+            else:
+                self._show_error(self._t("gui.msg.import_failed", name=new_name), stderr_text)
+            self._refresh()
 
-            try:
-                try:
-                    export_result = subprocess.run(
-                        ["wsl", "--export", name, tmp_tar],
-                        capture_output=True,
-                        creationflags=CREATE_NO_WINDOW,
-                        timeout=3600,
-                    )
-                except subprocess.TimeoutExpired:
-                    self._set_status_safe("複製処理がタイムアウトしました。")
-                    return
-                except OSError as e:
-                    self._set_status_safe(str(e))
-                    return
+        def _after_export(returncode: int, stderr_text: str, cancelled: bool) -> None:
+            if cancelled or returncode != 0:
+                _cleanup()
+                if cancelled:
+                    self._log_operation("複製", name, "キャンセル")
+                    self._set_status(self._t("gui.msg.clone_cancelled", name=name))
+                else:
+                    self._show_error(self._t("gui.msg.export_failed", name=name), stderr_text)
+                self._refresh()
+                return
+            self._set_status(self._t("gui.msg.clone_step", name=name, step="2/2"))
+            TransferProgressDialog(
+                self,
+                self._t("gui.transfer.clone_title"),
+                self._t("gui.transfer.clone_import", name=new_name),
+                wsl_core.build_import_args(new_name, install_path, tmp_tar, version),
+                os.path.join(install_path, "ext4.vhdx") if version != "1" else None,
+                _file_size(tmp_tar),
+                _after_import,
+            )
 
-                if export_result.returncode != 0:
-                    stderr = wsl_core.decode_wsl_output(export_result.stderr).strip()
-                    msg = stderr or f"「{name}」のエクスポートに失敗しました。"
-                    self._set_status_safe(msg)
-                    return
+        self._set_status(self._t("gui.msg.clone_step", name=name, step="1/2"))
+        TransferProgressDialog(
+            self,
+            self._t("gui.transfer.clone_title"),
+            self._t("gui.transfer.clone_export", name=name),
+            ["--export", name, tmp_tar],
+            tmp_tar,
+            _file_size(_get_distro_vhdx_path(name)),
+            _after_export,
+        )
 
-                self._set_status_safe(f"「{name}」を複製中… (2/2 インポート)")
-
-                import_args = ["wsl", "--import", new_name, install_path, tmp_tar]
-                if version in ("1", "2"):
-                    import_args += ["--version", version]
-
-                try:
-                    import_result = subprocess.run(
-                        import_args,
-                        capture_output=True,
-                        creationflags=CREATE_NO_WINDOW,
-                        timeout=3600,
-                    )
-                except subprocess.TimeoutExpired:
-                    self._set_status_safe("複製処理がタイムアウトしました。")
-                    return
-                except OSError as e:
-                    self._set_status_safe(str(e))
-                    return
-
-                if import_result.returncode != 0:
-                    stderr = wsl_core.decode_wsl_output(import_result.stderr).strip()
-                    msg = stderr or f"「{new_name}」のインポートに失敗しました。"
-                    self._set_status_safe(msg)
-                    return
-
-                self._set_status_safe(f"「{name}」を「{new_name}」として複製しました。")
-            finally:
-                try:
-                    os.remove(tmp_tar)
-                except OSError:
-                    pass
-                self._call_soon_safe(self._refresh)
-
-        threading.Thread(target=_run, daemon=True).start()
+    def _offer_unregister_partial(self, distro_name: str) -> None:
+        """中断したインポートで不完全な登録が残っていれば、登録解除を提案します。"""
+        if messagebox.askyesno(
+            self._t("gui.common.confirm"),
+            self._t("gui.confirm.unregister_partial", name=distro_name),
+            parent=self,
+        ):
+            self._run_wsl_cmd(
+                ["--unregister", distro_name],
+                self._t("gui.msg.unregister_success", name=distro_name),
+                self._t("gui.msg.unregister_failed", name=distro_name),
+            )
+        else:
+            self._refresh()
 
     def _export_distro_image(self) -> None:
         """選択したディストリビューションをエクスポートします（tar または VHD 形式）。"""
-        name = self._selected_name()
-        if not name:
-            messagebox.showwarning(
-                "警告", "ディストリビューションを選択してください。", parent=self
-            )
+        distro = self._selected_distro()
+        if distro is None:
+            _warn_no_selection(self)
             return
+        name = distro["name"]
 
-        use_vhd = messagebox.askyesno(
-            "エクスポート形式",
-            "VHD 形式でエクスポートしますか？\n「いいえ」を選ぶと tar 形式でエクスポートします。",
-            parent=self,
+        request = ExportDialog.ask(
+            self, name, str(distro.get("version") or ""), self._settings.get("last_export_dir")
         )
-
-        if use_vhd:
-            export_path = filedialog.asksaveasfilename(
-                title="エクスポート先を選択",
-                defaultextension=".vhdx",
-                initialfile=f"{name}.vhdx",
-                filetypes=[("VHDX image", "*.vhdx"), ("All files", "*.*")],
-            )
-        else:
-            export_path = filedialog.asksaveasfilename(
-                title="エクスポート先を選択",
-                defaultextension=".tar",
-                initialfile=f"{name}.tar",
-                filetypes=[("Tar archive", "*.tar"), ("All files", "*.*")],
-            )
-        if not export_path:
+        if request is None:
             return
+        export_path, use_vhd = request.path, request.vhd
 
         if os.path.exists(export_path) and not messagebox.askyesno(
-            "確認", f"既存ファイルを上書きしますか？\n{export_path}", parent=self
+            self._t("gui.common.confirm"),
+            self._t("gui.confirm.overwrite", path=export_path),
+            parent=self,
         ):
             return
+
+        export_dir = os.path.dirname(export_path)
+        if export_dir:
+            self._settings["last_export_dir"] = export_dir
+            self._save_settings()
 
         partial_path = wsl_core.partial_write_path(export_path)
         # 前回失敗して残った部分ファイルがあれば掃除する（wsl --export は既存ファイルを拒否する）
         wsl_core.discard_partial_write(partial_path)
 
-        cmd_args = ["--export", name, partial_path]
-        if use_vhd:
-            cmd_args.append("--vhd")
-
         # 元 VHDX のサイズを進捗率の分母 (上限の目安) として使う
-        total_bytes: int | None = None
-        vhdx_path = _get_distro_vhdx_path(name)
-        if vhdx_path:
-            try:
-                total_bytes = os.path.getsize(vhdx_path)
-            except OSError:
-                total_bytes = None
+        total_bytes = _file_size(_get_distro_vhdx_path(name))
 
         self._log_operation("エクスポート", name, export_path)
-        self._set_status(f"「{name}」をエクスポート中…")
+        self._set_status(self._t("gui.msg.exporting", name=name))
 
         def _on_done(returncode: int, stderr_text: str, cancelled: bool) -> None:
             if cancelled:
                 wsl_core.discard_partial_write(partial_path)
                 self._log_operation("エクスポート", name, "キャンセル")
-                self._set_status(f"「{name}」のエクスポートをキャンセルしました。")
+                self._set_status(self._t("gui.msg.export_cancelled", name=name))
             elif returncode == 0:
                 if wsl_core.finalize_partial_write(partial_path, export_path):
-                    self._set_status(f"「{name}」をエクスポートしました。")
+                    self._set_status(self._t("gui.msg.exported", name=name, path=export_path))
                 else:
                     wsl_core.discard_partial_write(partial_path)
-                    self._set_status(
-                        f"「{name}」のエクスポートに失敗しました（一時ファイルの移動に失敗）。"
+                    self._show_error(
+                        self._t("gui.msg.export_failed", name=name),
+                        self._t("gui.msg.move_failed"),
                     )
             else:
                 wsl_core.discard_partial_write(partial_path)
-                self._set_status(stderr_text or f"「{name}」のエクスポートに失敗しました。")
+                self._show_error(self._t("gui.msg.export_failed", name=name), stderr_text)
             self._refresh()
 
         TransferProgressDialog(
             self,
-            "エクスポート",
-            f"「{name}」をエクスポート中…",
-            cmd_args,
+            self._t("gui.transfer.export_title"),
+            self._t("gui.transfer.export_message", name=name),
+            wsl_core.build_export_args(name, partial_path, use_vhd),
             partial_path,
+            total_bytes,
+            _on_done,
+        )
+
+    def _import_distro_image(self) -> None:
+        """tar/vhdx 形式のディストリビューションイメージをインポートします。"""
+        request = ImportDialog.ask(self, self._existing_names())
+        if request is None:
+            return
+        distro_name = request.name
+        # フォームで検証済みだが、コマンドラインに渡す前にもう一度確かめる
+        valid, reason = wsl_core.validate_distro_name(distro_name, language=self._language)
+        if not valid:
+            messagebox.showwarning(self._t("gui.common.warning"), reason, parent=self)
+            return
+        image_path, install_path, version = request.image_path, request.install_dir, request.version
+
+        if not messagebox.askyesno(
+            self._t("gui.common.confirm"),
+            self._t(
+                "gui.confirm.import",
+                name=distro_name,
+                image=image_path,
+                folder=install_path,
+                version=version,
+            ),
+            parent=self,
+        ):
+            return
+
+        try:
+            os.makedirs(install_path, exist_ok=True)
+        except OSError as e:
+            self._show_error(self._t("gui.msg.folder_failed", path=install_path), str(e))
+            return
+
+        # 入力イメージのサイズを分母に、インストール先 ext4.vhdx の成長を監視する
+        # (WSL1 は vhdx を使わないため経過時間のみの表示になる)
+        total_bytes: int | None = None
+        watch_path: str | None = None
+        if version == "2":
+            total_bytes = _file_size(image_path)
+            watch_path = os.path.join(install_path, "ext4.vhdx")
+
+        self._log_operation("インポート", distro_name, image_path)
+        self._set_status(self._t("gui.msg.importing", name=distro_name))
+
+        def _on_done(returncode: int, stderr_text: str, cancelled: bool) -> None:
+            if cancelled:
+                self._log_operation("インポート", distro_name, "キャンセル")
+                self._set_status(self._t("gui.msg.import_cancelled", name=distro_name))
+                if messagebox.askyesno(
+                    self._t("gui.common.confirm"),
+                    self._t("gui.confirm.unregister_partial", name=distro_name),
+                    parent=self,
+                ):
+                    self._run_wsl_cmd(
+                        ["--unregister", distro_name],
+                        self._t("gui.msg.unregister_success", name=distro_name),
+                        self._t("gui.msg.unregister_failed", name=distro_name),
+                    )
+                    return
+            elif returncode == 0:
+                self._set_status(self._t("gui.msg.imported", name=distro_name))
+            else:
+                self._show_error(self._t("gui.msg.import_failed", name=distro_name), stderr_text)
+            self._refresh()
+
+        TransferProgressDialog(
+            self,
+            self._t("gui.transfer.import_title"),
+            self._t("gui.transfer.import_message", name=distro_name),
+            wsl_core.build_import_args(distro_name, install_path, image_path, version),
+            watch_path,
             total_bytes,
             _on_done,
         )
@@ -996,16 +1325,15 @@ class WSLManager(OperationLogMixin, ResourceHistoryMixin, SettingsMixin, tk.Tk):
 
     def _create_snapshot(self) -> None:
         """選択したディストリビューションのスナップショット (tar + メタデータ) を作成します。"""
-        name = self._selected_name()
-        if not name:
-            messagebox.showwarning(
-                "警告", "ディストリビューションを選択してください。", parent=self
-            )
+        distro = self._selected_distro()
+        if distro is None:
+            _warn_no_selection(self)
             return
+        name = distro["name"]
 
         comment = simpledialog.askstring(
-            "スナップショット作成",
-            f"「{name}」のスナップショットを作成します。\nコメント (任意):",
+            self._t("gui.snapshot.create_title"),
+            self._t("gui.snapshot.create_prompt", name=name, folder=self._snapshot_dir()),
             parent=self,
         )
         if comment is None:
@@ -1015,7 +1343,7 @@ class WSLManager(OperationLogMixin, ResourceHistoryMixin, SettingsMixin, tk.Tk):
         try:
             os.makedirs(snap_dir, exist_ok=True)
         except OSError as e:
-            messagebox.showerror("エラー", str(e), parent=self)
+            messagebox.showerror(self._t("gui.common.error"), str(e), parent=self)
             return
 
         timestamp = time.strftime(wsl_core.SNAPSHOT_TIMESTAMP_FORMAT)
@@ -1023,61 +1351,48 @@ class WSLManager(OperationLogMixin, ResourceHistoryMixin, SettingsMixin, tk.Tk):
         basename = wsl_core.build_snapshot_basename(name, timestamp)
         tar_path = os.path.join(snap_dir, basename + ".tar")
         json_path = os.path.join(snap_dir, basename + ".json")
-
-        wsl_version = next((str(d["version"]) for d in self._all_distros if d["name"] == name), "2")
+        wsl_version = str(distro.get("version") or "2")
 
         # 元 VHDX のサイズを進捗率の分母 (上限の目安) として使う
-        total_bytes: int | None = None
-        vhdx_path = _get_distro_vhdx_path(name)
-        if vhdx_path:
-            try:
-                total_bytes = os.path.getsize(vhdx_path)
-            except OSError:
-                total_bytes = None
+        total_bytes = _file_size(_get_distro_vhdx_path(name))
 
         partial_tar = wsl_core.partial_write_path(tar_path)
         # 前回失敗して残った部分ファイルがあれば掃除する（wsl --export は既存ファイルを拒否する）
         wsl_core.discard_partial_write(partial_tar)
 
         self._log_operation("スナップショット作成", name, tar_path)
-        self._set_status(f"「{name}」のスナップショットを作成中…")
+        self._set_status(self._t("gui.msg.snapshot_creating", name=name))
 
         def _on_done(returncode: int, stderr_text: str, cancelled: bool) -> None:
             if cancelled:
                 wsl_core.discard_partial_write(partial_tar)
                 self._log_operation("スナップショット作成", name, "キャンセル")
-                self._set_status(f"「{name}」のスナップショット作成をキャンセルしました。")
+                self._set_status(self._t("gui.msg.snapshot_cancelled", name=name))
             elif returncode == 0:
                 if not wsl_core.finalize_partial_write(partial_tar, tar_path):
                     wsl_core.discard_partial_write(partial_tar)
-                    self._set_status(
-                        f"「{name}」のスナップショット作成に失敗しました"
-                        "（一時ファイルの移動に失敗）。"
+                    self._show_error(
+                        self._t("gui.msg.snapshot_failed", name=name),
+                        self._t("gui.msg.move_failed"),
                     )
                 else:
-                    try:
-                        size = os.path.getsize(tar_path)
-                    except OSError:
-                        size = 0
+                    size = _file_size(tar_path) or 0
                     metadata = wsl_core.build_snapshot_metadata(
                         name, wsl_version, comment, size, created_at, basename + ".tar"
                     )
                     if not wsl_core.write_snapshot_metadata(json_path, metadata):
-                        self._set_status(
-                            f"「{name}」のスナップショットを作成しましたが、"
-                            "メタデータの保存に失敗しました。"
-                        )
+                        self._set_status(self._t("gui.msg.snapshot_meta_failed", name=name))
                     else:
-                        self._set_status(f"「{name}」のスナップショットを作成しました。")
+                        self._set_status(self._t("gui.msg.snapshot_created", name=name))
             else:
                 wsl_core.discard_partial_write(partial_tar)
-                self._set_status(stderr_text or f"「{name}」のスナップショット作成に失敗しました。")
+                self._show_error(self._t("gui.msg.snapshot_failed", name=name), stderr_text)
             self._refresh()
 
         TransferProgressDialog(
             self,
-            "スナップショット作成",
-            f"「{name}」のスナップショットを作成中…",
+            self._t("gui.transfer.snapshot_title"),
+            self._t("gui.transfer.snapshot_message", name=name),
             ["--export", name, partial_tar],
             partial_tar,
             total_bytes,
@@ -1092,6 +1407,8 @@ class WSLManager(OperationLogMixin, ResourceHistoryMixin, SettingsMixin, tk.Tk):
         """Open the read-only WSL Containers management dialog."""
         ContainerManagerDialog(self)
 
+    # ── インストール・登録解除 ─────────────────────────────────────────────
+
     def _get_online_distros(self) -> tuple[list[str], str | None]:
         """``wsl --list --online`` からインストール可能なディストロ名を取得します。"""
         try:
@@ -1102,15 +1419,15 @@ class WSLManager(OperationLogMixin, ResourceHistoryMixin, SettingsMixin, tk.Tk):
                 timeout=60.0,
             )
         except subprocess.TimeoutExpired:
-            return [], "オンライン一覧の取得がタイムアウトしました。"
+            return [], self._t("gui.msg.online_timeout")
         except FileNotFoundError:
-            return [], "wsl.exe が見つかりません。WSL2 がインストールされているか確認してください。"
+            return [], self._t("gui.msg.wsl_missing")
         except OSError as e:
-            return [], f"WSL の実行に失敗しました: {e}"
+            return [], self._t("gui.msg.wsl_failed", error=e)
 
         if result.returncode != 0:
             stderr = wsl_core.decode_wsl_output(result.stderr).strip()
-            return [], stderr or "インストール可能な一覧取得に失敗しました。"
+            return [], stderr or self._t("gui.msg.online_failed")
 
         names = wsl_core.parse_online_distros(wsl_core.decode_wsl_output(result.stdout))
         return names, None
@@ -1121,11 +1438,17 @@ class WSLManager(OperationLogMixin, ResourceHistoryMixin, SettingsMixin, tk.Tk):
         バックグラウンドで ``wsl --list --online`` を取得しつつ UI フリーズを防ぎます。
         取得完了後に :class:`InstallDialog` を表示します。
         """
-        self._set_status("インストール可能な一覧を取得中…")
+        self._set_status(self._t("gui.msg.online_loading"))
+        self._begin_busy()
 
         def _fetch() -> None:
             candidates, err = self._get_online_distros()
-            self._call_soon_safe(lambda: self._open_install_dialog(candidates, err))
+
+            def _open() -> None:
+                self._end_busy()
+                self._open_install_dialog(candidates, err)
+
+            self._call_soon_safe(_open)
 
         threading.Thread(target=_fetch, daemon=True).start()
 
@@ -1133,49 +1456,74 @@ class WSLManager(OperationLogMixin, ResourceHistoryMixin, SettingsMixin, tk.Tk):
         """``_install_distro`` のバックグラウンド取得完了後にダイアログを開きます。"""
         if err:
             self._set_status(err)
+        else:
+            self._set_status(self._t("gui.status.ready"))
 
         dialog = InstallDialog(self, candidates)
         self.wait_window(dialog)
 
         name = dialog.result
         if name is None:
-            self._set_status("インストールをキャンセルしました。")
+            self._set_status(self._t("gui.msg.install_cancelled"))
             return
 
-        if not messagebox.askyesno("確認", f"「{name}」をインストールしますか？", parent=self):
+        if not messagebox.askyesno(
+            self._t("gui.common.confirm"), self._t("gui.confirm.install", name=name), parent=self
+        ):
             return
 
-        self._set_status(f"「{name}」をインストール中…")
-        self._run_wsl_cmd(
+        self._run_install_cmd(name)
+
+    def _run_install_cmd(self, name: str) -> None:
+        """``wsl --install`` を進捗ダイアログ付きで実行します。
+
+        ダウンロードを伴い数分かかることがあるため、固定タイムアウトの
+        ``_run_wsl_cmd`` (以前は 60 秒で打ち切っていた) ではなく、キャンセル可能な
+        進捗ダイアログで完了まで待ちます。
+        """
+        self._log_operation("インストール", name, "実行")
+        self._set_status(self._t("gui.msg.installing", name=name))
+
+        def _on_done(returncode: int, stderr_text: str, cancelled: bool) -> None:
+            if cancelled:
+                self._log_operation("インストール", name, "キャンセル")
+                self._set_status(self._t("gui.msg.install_cancelled"))
+            elif returncode == 0:
+                self._set_status(self._t("gui.msg.installed", name=name))
+            else:
+                self._show_error(self._t("gui.msg.install_failed", name=name), stderr_text)
+            self._refresh()
+
+        TransferProgressDialog(
+            self,
+            self._t("gui.transfer.install_title"),
+            self._t("gui.transfer.install_message", name=name),
             ["--install", "-d", name, "--no-launch"],
-            f"「{name}」をインストールしました。初回起動時に初期セットアップ（ユーザー作成）が実行されます。",
-            f"「{name}」のインストールに失敗しました。",
+            None,
+            None,
+            _on_done,
+            cancel_prompt=self._t("gui.transfer.install_cancel"),
         )
 
     def _uninstall_distro(self) -> None:
-        """選択したディストリビューションを個別アンインストールします。"""
-        name = self._selected_name()
-        if not name:
-            messagebox.showwarning(
-                self._t("gui.common.warning"), self._t("gui.msg.select_distro"), parent=self
-            )
+        """選択したディストリビューションを登録解除します (名前の再入力による二段階確認)。"""
+        distro = self._selected_distro()
+        if distro is None:
+            _warn_no_selection(self)
             return
+        name = distro["name"]
 
         if not messagebox.askyesno(
             self._t("gui.common.confirm"),
             self._t("gui.confirm.unregister", name=name),
+            icon=messagebox.WARNING,
             parent=self,
         ):
             return
 
         confirm_name = simpledialog.askstring(
             self._t("gui.common.confirm"),
-            (
-                "誤操作防止のため、削除するディストリビューション名を\n"
-                f"正確に入力してください: {name}"
-                if self._language == "ja"
-                else f"To prevent mistakes, please re-enter the exact distribution name:\n{name}"
-            ),
+            self._t("gui.confirm.unregister_retype", name=name),
             parent=self,
         )
         if confirm_name is None:
@@ -1184,148 +1532,42 @@ class WSLManager(OperationLogMixin, ResourceHistoryMixin, SettingsMixin, tk.Tk):
         if confirm_name.strip() != name:
             messagebox.showwarning(
                 self._t("gui.common.warning"),
-                "入力された名前が一致しないため、アンインストールを中止しました。"
-                if self._language == "ja"
-                else "Uninstallation cancelled because the entered name did not match.",
+                self._t("gui.msg.unregister_mismatch"),
                 parent=self,
             )
             return
 
         self._log_operation("アンインストール", name, "実行")
-        status_msg = (
-            f"「{name}」をアンインストール中…"
-            if self._language == "ja"
-            else f"Unregistering '{name}'..."
-        )
-        self._set_status(status_msg)
+        self._set_status(self._t("gui.msg.unregistering", name=name))
         self._run_wsl_cmd(
             ["--unregister", name],
             self._t("gui.msg.unregister_success", name=name),
-            self._t("gui.msg.unregister_failed", error=""),
+            self._t("gui.msg.unregister_failed", name=name),
         )
 
-    def _import_distro_image(self) -> None:
-        """tar/vhdx 形式のディストリビューションイメージをインポートします。"""
-        distro_name = simpledialog.askstring(
-            "インポート", "新しいディストリビューション名を入力してください。", parent=self
-        )
-        if distro_name is None:
-            return
-        distro_name = distro_name.strip()
-        valid, reason = wsl_core.validate_distro_name(distro_name)
-        if not valid:
-            messagebox.showwarning("警告", reason, parent=self)
-            return
-
-        image_path = filedialog.askopenfilename(
-            title="インポートするイメージを選択",
-            filetypes=[
-                ("WSL image files", "*.tar *.tar.gz *.tgz *.vhd *.vhdx"),
-                ("All files", "*.*"),
-            ],
-        )
-        if not image_path:
-            return
-
-        install_path = filedialog.askdirectory(title="インストール先フォルダを選択")
-        if not install_path:
-            return
-
-        is_wsl2 = messagebox.askyesno(
-            "WSL バージョン",
-            "WSL2 としてインポートしますか？\n「いいえ」を選ぶと WSL1 としてインポートします。",
-            parent=self,
-        )
-        version = "2" if is_wsl2 else "1"
-
-        if not messagebox.askyesno(
-            "確認",
-            (
-                "次の内容でインポートします。\n\n"
-                f"名前: {distro_name}\n"
-                f"イメージ: {image_path}\n"
-                f"保存先: {install_path}\n"
-                f"バージョン: WSL{version}"
-            ),
-            parent=self,
-        ):
-            return
-
-        # 入力イメージのサイズを分母に、インストール先 ext4.vhdx の成長を監視する
-        # (WSL1 は vhdx を使わないため経過時間のみの表示になる)
-        total_bytes: int | None = None
-        watch_path: str | None = None
-        if version == "2":
-            try:
-                total_bytes = os.path.getsize(image_path)
-            except OSError:
-                total_bytes = None
-            watch_path = os.path.join(install_path, "ext4.vhdx")
-
-        self._log_operation("インポート", distro_name, image_path)
-        self._set_status(f"「{distro_name}」をインポート中…")
-
-        def _on_done(returncode: int, stderr_text: str, cancelled: bool) -> None:
-            if cancelled:
-                self._log_operation("インポート", distro_name, "キャンセル")
-                self._set_status(f"「{distro_name}」のインポートをキャンセルしました。")
-                if messagebox.askyesno(
-                    "確認",
-                    (
-                        "インポートを中断したため、不完全な登録が残っている\n"
-                        f"可能性があります。「{distro_name}」の登録を解除しますか？"
-                    ),
-                    parent=self,
-                ):
-                    self._run_wsl_cmd(
-                        ["--unregister", distro_name],
-                        f"「{distro_name}」の登録を解除しました。",
-                        f"「{distro_name}」の登録解除に失敗しました。",
-                    )
-                    return
-            elif returncode == 0:
-                self._set_status(f"「{distro_name}」をインポートしました。")
-            else:
-                self._set_status(stderr_text or f"「{distro_name}」のインポートに失敗しました。")
-            self._refresh()
-
-        TransferProgressDialog(
-            self,
-            "インポート",
-            f"「{distro_name}」をインポート中…",
-            [
-                "--import",
-                distro_name,
-                install_path,
-                image_path,
-                "--version",
-                version,
-            ],
-            watch_path,
-            total_bytes,
-            _on_done,
-        )
+    # ── 設定ファイル ───────────────────────────────────────────────────────
 
     def _open_wslconfig(self) -> None:
         """.wslconfig エディタダイアログを開きます。"""
         dialog = WslConfigDialog(self)
         self.wait_window(dialog)
         if dialog.result:
-            self._set_status(".wslconfig を保存しました。反映には全停止が必要です。")
+            self._set_status(self._t("gui.msg.wslconfig_saved"))
 
     def _open_distro_conf(self) -> None:
         """選択したディストリビューションの wsl.conf エディタダイアログを開きます。"""
-        name = self._selected_name()
-        if not name:
-            messagebox.showwarning(
-                "警告", "ディストリビューションを選択してください。", parent=self
-            )
+        distro = self._selected_distro()
+        if distro is None:
+            _warn_no_selection(self)
             return
+        name = distro["name"]
         dialog = DistroConfDialog(self, name)
         self.wait_window(dialog)
         if dialog.result:
-            self._set_status(f"「{name}」の wsl.conf を保存しました。")
+            self._set_status(self._t("gui.msg.distroconf_saved", name=name))
             self._refresh()
+
+    # ── コンテキストメニュー ───────────────────────────────────────────────
 
     def _show_context_menu(self, event: tk.Event) -> None:  # type: ignore[type-arg]
         """右クリックでディストリビューション操作のコンテキストメニューを表示します。"""
@@ -1334,45 +1576,66 @@ class WSLManager(OperationLogMixin, ResourceHistoryMixin, SettingsMixin, tk.Tk):
             return
         self._tree.selection_set(row)
         self._tree.focus(row)
+        self._popup_context_menu(event.x_root, event.y_root)
 
+    def _show_context_menu_for_selection(self, _event: object = None) -> str:
+        """キーボード (Shift+F10 / アプリケーションキー) でコンテキストメニューを開きます。"""
+        selected = self._selected_name()
+        if selected:
+            bbox = self._tree.bbox(selected)
+            x = self._tree.winfo_rootx() + (bbox[0] + 20 if bbox else 20)
+            y = self._tree.winfo_rooty() + (bbox[1] + bbox[3] if bbox else 20)
+            self._popup_context_menu(x, y)
+        return "break"
+
+    def _popup_context_menu(self, x: int, y: int) -> None:
+        availability = wsl_core.action_availability(self._selected_distro())
         menu = tk.Menu(self, tearoff=0)
-        menu.add_command(label=self._t("gui.context.terminal"), command=self._open_terminal)
-        menu.add_command(label=self._t("gui.context.details"), command=self._show_detail)
-        menu.add_command(label=self._t("gui.context.processes"), command=self._show_processes)
-        menu.add_command(label=self._t("gui.context.explorer"), command=self._open_in_explorer)
-        menu.add_command(label=self._t("gui.context.copy_ip"), command=self._copy_ip_address)
+
+        def _add(key: str, command: Callable[[], None], action: str) -> None:
+            menu.add_command(
+                label=self._t(key),
+                command=command,
+                state=tk.NORMAL if availability.get(action) else tk.DISABLED,
+            )
+
+        _add("gui.context.terminal", self._open_terminal, "terminal")
+        _add("gui.context.start", self._start_distro, "start")
+        _add("gui.context.stop", self._stop_distro, "stop")
+        _add("gui.context.explorer", self._open_in_explorer, "explorer")
+        _add("gui.context.copy_ip", self._copy_ip_address, "copy_ip")
         menu.add_separator()
-        menu.add_command(label=self._t("gui.context.stop"), command=self._stop_distro)
-        menu.add_command(label=self._t("gui.context.set_default"), command=self._set_default)
-        menu.add_command(label=self._t("gui.context.convert"), command=self._convert_version)
-        menu.add_command(label=self._t("gui.context.optimize"), command=self._open_disk_optimize)
-        menu.add_command(label=self._t("gui.context.distro_conf"), command=self._open_distro_conf)
+        _add("gui.context.snapshot", self._create_snapshot, "snapshot")
+        _add("gui.context.export", self._export_distro_image, "export")
+        _add("gui.context.clone", self._clone_distro, "clone")
         menu.add_separator()
-        menu.add_command(label=self._t("gui.context.clone"), command=self._clone_distro)
-        menu.add_command(label=self._t("gui.context.snapshot"), command=self._create_snapshot)
-        menu.add_command(label=self._t("gui.context.export"), command=self._export_distro_image)
-        menu.add_command(label=self._t("gui.context.unregister"), command=self._uninstall_distro)
+        _add("gui.context.set_default", self._set_default, "set_default")
+        _add("gui.context.convert", self._convert_version, "convert")
+        _add("gui.context.distro_conf", self._open_distro_conf, "distro_conf")
+        _add("gui.context.optimize", self._open_disk_optimize, "optimize")
+        _add("gui.context.details", self._show_detail, "details")
+        _add("gui.context.processes", self._show_processes, "processes")
+        menu.add_separator()
+        _add("gui.context.unregister", self._uninstall_distro, "unregister")
         try:
-            menu.tk_popup(event.x_root, event.y_root)
+            menu.tk_popup(x, y)
         finally:
             menu.grab_release()
 
+    # ── そのほかの操作 ─────────────────────────────────────────────────────
+
     def _open_disk_optimize(self) -> None:
         """選択したディストリビューションのディスク最適化ダイアログを開きます。"""
-        name = self._selected_name()
-        if not name:
-            messagebox.showwarning(
-                "警告", "ディストリビューションを選択してください。", parent=self
-            )
+        distro = self._selected_distro()
+        if distro is None:
+            _warn_no_selection(self)
             return
+        name = distro["name"]
         vhdx = _get_distro_vhdx_path(name)
         if not vhdx:
             messagebox.showinfo(
-                "ディスク最適化",
-                (
-                    f"「{name}」の仮想ディスク (ext4.vhdx) が見つかりません。\n"
-                    "WSL1 か、ディスク情報を取得できない構成の可能性があります。"
-                ),
+                self._t("gui.optimize.title", name=name),
+                self._t("gui.msg.vhdx_missing", name=name),
                 parent=self,
             )
             return
@@ -1380,100 +1643,64 @@ class WSLManager(OperationLogMixin, ResourceHistoryMixin, SettingsMixin, tk.Tk):
 
     def _open_in_explorer(self) -> None:
         """選択したディストリビューションのファイルシステムをエクスプローラーで開きます。"""
-        name = self._selected_name()
-        if not name:
-            messagebox.showwarning(
-                "警告", "ディストリビューションを選択してください。", parent=self
-            )
+        distro = self._selected_distro()
+        if distro is None:
+            _warn_no_selection(self)
             return
+        name = distro["name"]
         try:
             subprocess.Popen(
                 ["explorer.exe", f"\\\\wsl.localhost\\{name}"],
                 creationflags=CREATE_NO_WINDOW,
             )
-            self._set_status(f"「{name}」をエクスプローラーで開きました。")
+            self._set_status(self._t("gui.msg.explorer_opened", name=name))
         except OSError as e:
-            self._set_status(f"エクスプローラーを開けませんでした: {e}")
+            self._show_error(self._t("gui.msg.explorer_failed"), str(e))
 
     def _copy_ip_address(self) -> None:
         """選択したディストリビューションのIPアドレスをクリップボードにコピーします。"""
-        sel = self._tree.selection()
-        if not sel:
+        distro = self._selected_distro()
+        if distro is None:
             return
-        values = self._tree.item(sel[0])["values"]
-        if not values or len(values) < 8:
-            return
-        ip = str(values[7])  # index 7 = ip column
+        ip = str(distro.get("ip") or "")
         if ip and ip != "-":
             self.clipboard_clear()
             self.clipboard_append(ip)
-            self._set_status(f"IPアドレスをコピーしました: {ip}")
+            self._set_status(self._t("gui.msg.ip_copied", ip=ip))
         else:
-            self._set_status("IPアドレスが取得できていません。")
+            self._set_status(self._t("gui.msg.ip_unavailable"))
 
     def _convert_version(self) -> None:
         """選択したディストリビューションの WSL バージョンを変換します(WSL1↔WSL2)。"""
-        name = self._selected_name()
-        if not name:
-            messagebox.showwarning(
-                self._t("gui.common.warning"), self._t("gui.msg.select_distro"), parent=self
-            )
+        distro = self._selected_distro()
+        if distro is None:
+            _warn_no_selection(self)
             return
+        name = distro["name"]
+        current = str(distro.get("version") or "")
+        target = wsl_core.conversion_target(current) or "2"
 
-        sel = self._tree.selection()
-        current_version_str = ""
-        if sel:
-            values = self._tree.item(sel[0])["values"]
-            if values and len(values) > 3:
-                current_version_str = str(values[3])  # index 3: "WSL1" or "WSL2"
-
-        if current_version_str == "WSL1":
-            current = "1"
-            target = "2"
-        elif current_version_str == "WSL2":
-            current = "2"
-            target = "1"
+        if current in ("1", "2"):
+            confirm_msg = self._t(
+                "gui.confirm.convert_from", name=name, current=current, target=target
+            )
         else:
-            current = "?"
-            target = "2"
-
-        if current == "?":
             confirm_msg = self._t("gui.confirm.convert", name=name, target=target)
-        else:
-            if self._language == "ja":
-                confirm_msg = (
-                    f"「{name}」を WSL{current} から WSL{target} に変換しますか？\n"
-                    "（変換には数分かかる場合があります）"
-                )
-            else:
-                confirm_msg = (
-                    f"Convert '{name}' from WSL{current} to WSL{target}?\n"
-                    "(This conversion may take several minutes)"
-                )
 
         if not messagebox.askyesno(self._t("gui.common.confirm"), confirm_msg, parent=self):
             return
 
         self._log_operation("バージョン変換", name, f"WSL{target}")
-        status_msg = (
-            f"「{name}」を WSL{target} に変換中…"
-            if self._language == "ja"
-            else f"Converting '{name}' to WSL{target}..."
-        )
-        self._set_status(status_msg)
+        self._set_status(self._t("gui.msg.converting", name=name, version=target))
 
         def _on_done(returncode: int, stderr_text: str, cancelled: bool) -> None:
             if cancelled:
                 self._log_operation("バージョン変換", name, "キャンセル")
-                self._set_status(
-                    f"「{name}」の WSL バージョン変換を中断しました。"
-                    if self._language == "ja"
-                    else f"Cancelled WSL version conversion for '{name}'."
-                )
+                self._set_status(self._t("gui.msg.convert_cancelled", name=name))
             elif returncode == 0:
                 self._set_status(self._t("gui.msg.convert_success", name=name, version=target))
             else:
-                self._set_status(stderr_text or self._t("gui.msg.convert_failed", error=""))
+                self._show_error(self._t("gui.msg.convert_failed", name=name), stderr_text)
             self._refresh()
 
         # ``--set-version`` は大きなディストリビューションで数分〜数十分かかるため
@@ -1481,17 +1708,13 @@ class WSLManager(OperationLogMixin, ResourceHistoryMixin, SettingsMixin, tk.Tk):
         # 進捗を監視できる出力ファイルは無いので watch_path は None（経過時間表示）。
         TransferProgressDialog(
             self,
-            "WSL バージョン変換",
-            f"「{name}」を WSL{target} に変換しています…",
+            self._t("gui.transfer.convert_title"),
+            self._t("gui.transfer.convert_message", name=name, version=target),
             ["--set-version", name, target],
             None,
             None,
             _on_done,
-            cancel_prompt=(
-                "変換をキャンセルしますか？\n"
-                "変換の中断はディストリビューションが不完全な状態で"
-                "残る可能性があります。"
-            ),
+            cancel_prompt=self._t("gui.transfer.convert_cancel"),
         )
 
     def _open_mount(self) -> None:
@@ -1504,27 +1727,28 @@ class WSLManager(OperationLogMixin, ResourceHistoryMixin, SettingsMixin, tk.Tk):
 
     def _execute_mount(self, disk: str, mount_args: list[str]) -> None:
         """ディスクのマウントコマンドを実行します。"""
-        self._set_status(f"「{disk}」をマウント中…")
+        self._set_status(self._t("gui.msg.mounting", disk=disk))
+        self._begin_busy()
 
         def _run() -> None:
             res = wsl_core.run_wsl(mount_args, timeout=60.0, creationflags=CREATE_NO_WINDOW)
 
             def _done() -> None:
+                self._end_busy()
                 if res.returncode == 0:
                     self._log_operation("マウント", disk, "成功")
-                    self._set_status(f"「{disk}」をマウントしました。")
+                    self._set_status(self._t("gui.msg.mounted", disk=disk))
                     messagebox.showinfo(
-                        "マウント完了", f"「{disk}」を正常にマウントしました。", parent=self
+                        self._t("gui.mount.title"),
+                        self._t("gui.msg.mounted", disk=disk),
+                        parent=self,
                     )
                 else:
-                    msg = res.stderr.strip() or "マウントに失敗しました。"
+                    msg = res.stderr.strip() or self._t("gui.msg.command_failed")
                     self._log_operation("マウント", disk, f"失敗: {msg}")
-                    self._set_status(f"マウント失敗: {msg}")
-                    messagebox.showerror(
-                        "マウントエラー",
-                        f"「{disk}」のマウントに失敗しました:\n{msg}\n\n"
-                        "管理者権限が必要な場合があります。",
-                        parent=self,
+                    self._show_error(
+                        self._t("gui.msg.mount_failed", disk=disk),
+                        msg + "\n\n" + self._t("gui.msg.admin_hint"),
                     )
 
             self._call_soon_safe(_done)
@@ -1533,30 +1757,29 @@ class WSLManager(OperationLogMixin, ResourceHistoryMixin, SettingsMixin, tk.Tk):
 
     def _execute_unmount(self, disk: str | None, unmount_args: list[str]) -> None:
         """ディスクのアンマウントコマンドを実行します。"""
-        target = disk or "すべてのマウントディスク"
-        self._set_status(f"「{target}」をアンマウント中…")
+        target = disk or self._t("gui.msg.all_disks")
+        self._set_status(self._t("gui.msg.unmounting", disk=target))
+        self._begin_busy()
 
         def _run() -> None:
             res = wsl_core.run_wsl(unmount_args, timeout=30.0, creationflags=CREATE_NO_WINDOW)
 
             def _done() -> None:
+                self._end_busy()
                 if res.returncode == 0:
                     self._log_operation("アンマウント", target, "成功")
-                    self._set_status(f"「{target}」をアンマウントしました。")
+                    self._set_status(self._t("gui.msg.unmounted", disk=target))
                     messagebox.showinfo(
-                        "アンマウント完了",
-                        f"「{target}」を正常にアンマウントしました。",
+                        self._t("gui.unmount.title"),
+                        self._t("gui.msg.unmounted", disk=target),
                         parent=self,
                     )
                 else:
-                    msg = res.stderr.strip() or "アンマウントに失敗しました。"
+                    msg = res.stderr.strip() or self._t("gui.msg.command_failed")
                     self._log_operation("アンマウント", target, f"失敗: {msg}")
-                    self._set_status(f"アンマウント失敗: {msg}")
-                    messagebox.showerror(
-                        "アンマウントエラー",
-                        f"「{target}」のアンマウントに失敗しました:\n{msg}\n\n"
-                        "管理者権限が必要な場合があります。",
-                        parent=self,
+                    self._show_error(
+                        self._t("gui.msg.unmount_failed", disk=target),
+                        msg + "\n\n" + self._t("gui.msg.admin_hint"),
                     )
 
             self._call_soon_safe(_done)
@@ -1565,15 +1788,16 @@ class WSLManager(OperationLogMixin, ResourceHistoryMixin, SettingsMixin, tk.Tk):
 
     def _show_wsl_version(self) -> None:
         """WSL のバージョン情報を取得してダイアログに表示します。"""
-        label_map = {
-            "wsl": "WSL バージョン",
-            "kernel": "カーネル バージョン",
-            "wslg": "WSLg バージョン",
-            "msrdc": "MSRDC バージョン",
-            "direct3d": "Direct3D バージョン",
-            "dxcore": "DXCore バージョン",
-            "windows": "Windows バージョン",
+        label_keys = {
+            "wsl": "gui.version.wsl",
+            "kernel": "gui.version.kernel",
+            "wslg": "gui.version.wslg",
+            "msrdc": "gui.version.msrdc",
+            "direct3d": "gui.version.direct3d",
+            "dxcore": "gui.version.dxcore",
+            "windows": "gui.version.windows",
         }
+        self._begin_busy()
 
         def _run() -> None:
             try:
@@ -1589,11 +1813,14 @@ class WSLManager(OperationLogMixin, ResourceHistoryMixin, SettingsMixin, tk.Tk):
                 info = {}
 
             def _show() -> None:
+                self._end_busy()
                 lines = []
-                for key, label in label_map.items():
+                for key, label_key in label_keys.items():
                     value = info.get(key)
                     if value is not None:
-                        lines.append(f"{label}: {value}")
+                        lines.append(f"{self._t(label_key)}: {value}")
+                if not lines:
+                    lines = [self._t("gui.version.unavailable")]
                 capability = wsl_core.wslc_capability(str(info.get("wsl", "")))
                 lines.append("")
                 lines.append(
@@ -1604,10 +1831,8 @@ class WSLManager(OperationLogMixin, ResourceHistoryMixin, SettingsMixin, tk.Tk):
                 unparsed = info.get("_unparsed_lines")
                 if unparsed:
                     lines.append("")
-                    lines.append("【その他の情報】")
+                    lines.append(self._t("gui.version.other"))
                     lines.extend(unparsed)
-                if not lines:
-                    lines = ["WSL のバージョン情報を取得できませんでした。"]
                 WslVersionDialog(self, lines, self._update_wsl)
 
             self._call_soon_safe(_show)
@@ -1627,47 +1852,68 @@ class WSLManager(OperationLogMixin, ResourceHistoryMixin, SettingsMixin, tk.Tk):
         self._run_wsl_update_cmd(pre_release)
 
     def _run_wsl_update_cmd(self, pre_release: bool) -> None:
-        """``wsl --update`` をバックグラウンドスレッドで実行します。"""
+        """``wsl --update`` をバックグラウンドで実行します (進捗ダイアログ付き)。"""
         args = ["--update"]
         if pre_release:
             args.append("--pre-release")
 
-        self._set_status("WSL を更新中…（数分かかる場合があります）")
+        self._set_status(self._t("gui.msg.updating"))
 
         def _on_done(returncode: int, stderr_text: str, cancelled: bool) -> None:
             target = "wsl" + ("(--pre-release)" if pre_release else "")
             if cancelled:
                 self._log_operation("WSL 更新", target, "キャンセル")
-                self._set_status("WSL の更新をキャンセルしました。")
+                self._set_status(self._t("gui.msg.update_cancelled"))
             elif returncode == 0:
                 self._log_operation("WSL 更新", target, "成功")
-                self._set_status("WSL の更新が完了しました。")
-                messagebox.showinfo("WSL 更新", "WSL の更新が完了しました。", parent=self)
+                self._set_status(self._t("gui.msg.update_done"))
+                messagebox.showinfo(
+                    self._t("gui.update.title"), self._t("gui.msg.update_done"), parent=self
+                )
             else:
-                msg = stderr_text or "WSL の更新に失敗しました。"
+                msg = stderr_text or self._t("gui.msg.update_failed")
                 self._log_operation("WSL 更新", target, f"失敗: {msg}")
-                self._set_status(f"WSL 更新失敗: {msg}")
-                messagebox.showerror("WSL 更新エラー", msg, parent=self)
+                self._show_error(self._t("gui.msg.update_failed"), stderr_text)
 
         TransferProgressDialog(
             self,
-            "WSL 更新",
-            "WSL を更新しています…（数分かかる場合があります）",
+            self._t("gui.update.title"),
+            self._t("gui.msg.updating"),
             args,
             None,
             None,
             _on_done,
-            cancel_prompt="WSL の更新をキャンセルしますか？",
+            cancel_prompt=self._t("gui.transfer.update_cancel"),
         )
+
+    # ── ヘルプ ───────────────────────────────────────────────────────────
+
+    def _show_shortcuts(self) -> None:
+        messagebox.showinfo(
+            self._t("gui.action.shortcuts"), self._t("gui.help.shortcuts"), parent=self
+        )
+
+    def _show_cli_help(self) -> None:
+        """コマンドライン版 (wslmgr.exe) の場所と使い方を案内します。"""
+        cli = resources.find_cli_executable()
+        location = cli or self._t("gui.help.cli_not_found")
+        messagebox.showinfo(
+            self._t("gui.action.cli_help"),
+            self._t("gui.help.cli", location=location),
+            parent=self,
+        )
+
+    def _open_project_page(self) -> None:
+        try:
+            webbrowser.open(PROJECT_URL)
+        except webbrowser.Error as e:
+            self._show_error(self._t("gui.msg.browser_failed"), str(e))
 
     def _show_about(self) -> None:
         """アプリケーション情報を表示します。"""
         messagebox.showinfo(
-            "WSL Manager について",
-            f"WSL Manager v{wsl_core.__version__}\n\n"
-            "WSL2 ディストリビューション管理ツール\n"
-            "Windows 10/11 + WSL2 環境用\n\n"
-            "GitHub: https://github.com/kumakumapon/WSLManager",
+            self._t("gui.about.title"),
+            self._t("gui.about.body", version=wsl_core.__version__, url=PROJECT_URL),
             parent=self,
         )
 
@@ -1679,9 +1925,8 @@ class WSLManager(OperationLogMixin, ResourceHistoryMixin, SettingsMixin, tk.Tk):
         live_transfers = [d for d in self._transfer_dialogs if d.winfo_exists()]
         if live_transfers:
             if not messagebox.askyesno(
-                "確認",
-                f"実行中の処理が {len(live_transfers)} 件あります。中断して終了しますか？\n"
-                "中断すると、処理中だったファイルが不完全な状態で残る場合があります。",
+                self._t("gui.common.confirm"),
+                self._t("gui.confirm.quit_running", count=len(live_transfers)),
                 parent=self,
             ):
                 return
@@ -1697,26 +1942,15 @@ class WSLManager(OperationLogMixin, ResourceHistoryMixin, SettingsMixin, tk.Tk):
         self._save_settings()
         # キューに残った操作ログを書き終えてからライタスレッドを終了させる
         self._log_writer.stop()
+        self._ui_queue.close()
         self.destroy()
 
 
 # ── エントリポイント ──────────────────────────────────────────────────────────
 
 
-def main() -> None:
-    if sys.platform != "win32":
-        # Windows 以外では起動できない旨を伝えて終了
-        root = tk.Tk()
-        root.withdraw()
-        messagebox.showerror(
-            "エラー",
-            "WSL Manager は Windows 環境でのみ動作します。\nWindows 10/11 上で実行してください。",
-            parent=root,
-        )
-        root.destroy()
-        sys.exit(1)
-
-    # 高DPI 対応
+def _enable_dpi_awareness() -> None:
+    """高 DPI 環境で文字がぼやけないよう、DPI 対応を宣言します (Windows のみ)。"""
     try:
         import ctypes
 
@@ -1729,7 +1963,19 @@ def main() -> None:
         except (AttributeError, OSError):
             pass
 
-    # 多重起動防止 (Named Mutex)
+
+def _set_app_user_model_id() -> None:
+    """タスクバーで python.exe ではなく WSL Manager のアイコンとしてまとめて表示させます。"""
+    try:
+        import ctypes
+
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("kumakumapon.WSLManager")
+    except (AttributeError, OSError):
+        pass
+
+
+def _activate_existing_instance() -> bool:
+    """既に起動していればそのウィンドウを前面に出して True を返します (Named Mutex)。"""
     try:
         import ctypes
 
@@ -1740,9 +1986,32 @@ def main() -> None:
             if hwnd:
                 ctypes.windll.user32.ShowWindow(hwnd, 9)  # SW_RESTORE
                 ctypes.windll.user32.SetForegroundWindow(hwnd)
-            sys.exit(0)
+            return True
     except (AttributeError, OSError):
         pass
+    return False
+
+
+def main() -> None:
+    if sys.platform != "win32":
+        # Windows 以外では起動できない旨を伝えて終了
+        root = tk.Tk()
+        root.withdraw()
+        language = wsl_core.resolve_language(
+            wsl_core.load_settings(wsl_core.get_default_settings_path())["language"]
+        )
+        messagebox.showerror(
+            wsl_core.translate("gui.common.error", language),
+            wsl_core.translate("gui.msg.windows_only", language),
+            parent=root,
+        )
+        root.destroy()
+        sys.exit(1)
+
+    _enable_dpi_awareness()
+    _set_app_user_model_id()
+    if _activate_existing_instance():
+        sys.exit(0)
 
     app = WSLManager()
     app.protocol("WM_DELETE_WINDOW", app.on_closing)

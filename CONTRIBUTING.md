@@ -21,8 +21,8 @@ pip install ruff==0.15.8 mypy==2.3.1
 
 ```powershell
 # コンパイルチェック (GUI を起動せずバイトコードのみ確認、tkinter 不要)
-python -m py_compile wslmgr.py wsl_core.py wslmgr_cli.py
-python -m compileall -q wsl_core wslmgr_gui
+python -m py_compile wslmgr.py wslmgr_cli.py
+python -m compileall -q wsl_core wslmgr_gui tools
 
 # unit test (wsl_core / CLI の純粋ロジックが対象、OS を問わず実行可能)
 python -m unittest discover -s tests -v
@@ -48,12 +48,12 @@ mypy
 
 | モジュール | 役割 |
 | --- | --- |
-| `wsl_core.py` | パース・検証・設定・ログ・スナップショットなどのコアロジック。GUI/CLI から独立しており、テスト対象の中心。 |
+| `wsl_core/` | パース・検証・設定・ログ・スナップショット・操作可否の判定などのコアロジック。GUI/CLI から独立しており、テスト対象の中心。 |
 | `wslmgr.py` | tkinter による GUI 本体 (`WSLManager` と `main()`)。`wsl_core` のロジックを呼び出す。`WSLManager` は `wslmgr_gui/app/` の Mixin を継承する。`import` 時に副作用が起きないよう `__name__` ガードを維持する。 |
 | `wslmgr_gui/` | `wslmgr.py` から分割した GUI 部品。`winutil.py` (Windows 定数・レジストリ)、`widgets.py` (共通ウィジェット)、`distro_data.py` (ディストロ一覧・CPU・メモリ・IP の取得関数)、`dialogs/` (各ダイアログ)、`app/` (`WSLManager` の Mixin と型チェック用の基底 `AppBase`)。実行時に `wslmgr` を import しない (`python wslmgr.py` 実行時に二重ロードされるため。型注釈用の `if TYPE_CHECKING:` 内のみ可)。 |
 | `wslmgr_cli.py` | argparse ベースの CLI。`wsl_core` のロジックを呼び出す。破壊的操作 (terminate/unregister/import/export 等) は確認プロンプトを維持する。 |
 
-新しいロジックを追加する際は、可能な限り `wsl_core.py` に副作用の少ない関数として実装し、GUI/CLI 側は呼び出しに徹してください。詳細な設計制約は [`AGENTS.md`](AGENTS.md) の「アーキテクチャ」「変更禁止領域」を参照してください。
+新しいロジックを追加する際は、可能な限り `wsl_core/` に副作用の少ない関数として実装し、GUI/CLI 側は呼び出しに徹してください。詳細な設計制約は [`AGENTS.md`](AGENTS.md) の「アーキテクチャ」「変更禁止領域」を参照してください。
 
 GUI のメソッドを `wslmgr_gui/` へ移すときの注意:
 
@@ -61,15 +61,20 @@ GUI のメソッドを `wslmgr_gui/` へ移すときの注意:
 - `messagebox` などを使うメソッドを別モジュールへ移したら、テストの `patch("wslmgr.messagebox")` を移動先モジュール (例: `patch("wslmgr_gui.app.operation_log.messagebox")`) に更新してください。`wslmgr` 側に名前が残っていると、パッチが空振りしても例外にならず、「確認なしで実行される退行」を見逃す偽陽性になります。拒否側のテストには `askyesno.assert_called_once()` のような到達確認も入れてください。
 - 移動は、メソッド本体を変えないコピー移動にし、`ast.dump` が移動前後で一致することを確認してください。
 
-## PyInstaller ビルド手順の概要
+## 配布物のビルド (build.ps1)
+
+exe・インストーラ・ポータブル版 ZIP・チェックサムは、リポジトリ直下の `build.ps1` で一度に作ります。CI の build ジョブも同じスクリプトを実行するので、手元のビルドとリリースのビルドがずれません。
 
 ```powershell
-python -m venv .venv
-.\.venv\Scripts\python.exe -m pip install pyinstaller
-.\.venv\Scripts\python.exe -m PyInstaller --clean WSLManager.spec
+powershell -ExecutionPolicy Bypass -File build.ps1
 ```
 
-コマンドライン用の exe (`dist\wslmgr.exe`、コンソール付き) は別の spec からビルドします: `.\.venv\Scripts\python.exe -m PyInstaller --clean WSLManagerCLI.spec`。tkinter を含まず、`pyinstaller_hooks/` も使いません。
+`.venv` を作成 (既存なら再利用) して固定版の PyInstaller を入れ、単体テストを実行してから、`WSLManager.spec` (GUI) と `WSLManagerCLI.spec` (コンソール付き CLI) をビルドします。Inno Setup 6.3 以降が見つかればインストーラも作ります (無ければ警告して省略。`-RequireInstaller` で失敗にできます)。主なオプション: `-SkipTests`、`-SkipInstaller`、`-Python <python.exe>`、`-Iscc <ISCC.exe>`。
+
+- PyInstaller のバージョンは `build.ps1` の `$PyInstallerVersion` で固定しています。上げるときは、ビルドした exe が起動することを確認してください。
+- exe のアイコンは `assets/wslmanager.ico`、バージョン情報 (エクスプローラーのプロパティに出る製品名・バージョン) は `tools/pyinstaller_support.py` が `wsl_core.__version__` から作ります。
+- CLI 用の spec は tkinter を含まず、`pyinstaller_hooks/` も使いません。
+- `build.ps1` は ASCII のみで書いてください (Windows PowerShell 5.1 は BOM の無いファイルを ANSI として読むため)。
 
 インストーラは、先に 2 つの exe をビルドしてから Inno Setup 6.3 以降 (`iscc`) でビルドします: `iscc /DAppVersion=<pyproject.toml の version> installer\WSLManager.iss`。出力は `dist\installer\WSLManager-Setup-<version>.exe` です。`AppId` (`installer/WSLManager.iss`) は一度公開したら変更しないでください (アップグレードとアンインストールの識別子です)。アンインストール時にユーザーデータ (設定・ログ・スナップショット) を削除する処理を足さないでください。
 

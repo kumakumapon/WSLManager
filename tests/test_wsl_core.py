@@ -1,5 +1,5 @@
 """
-単体テスト for wsl_core.py
+単体テスト for wsl_core (パッケージ)
 
 実行方法 (リポジトリルートから):
     python3 -m unittest discover -s tests -v
@@ -2888,6 +2888,9 @@ class TestNormalizeSettings(unittest.TestCase):
             "sort_desc": True,
             "snapshot_dir": "/mnt/snapshots",
             "language": "ja",
+            "auto_refresh_interval": 30,
+            "detail_panel": False,
+            "last_export_dir": "/mnt/exports",
         }
         self.assertEqual(wsl_core.normalize_settings(data), data)
 
@@ -2947,6 +2950,35 @@ class TestNormalizeSettings(unittest.TestCase):
         """snapshot_dir が str 以外の場合はデフォルト値になる。"""
         result = wsl_core.normalize_settings({"snapshot_dir": 123})
         self.assertEqual(result["snapshot_dir"], wsl_core.DEFAULT_SETTINGS["snapshot_dir"])
+
+    def test_auto_refresh_interval_accepts_only_offered_choices(self):
+        """自動更新の間隔は GUI が選択肢として出す秒数だけを受け付ける。"""
+        for value in wsl_core.AUTO_REFRESH_INTERVALS:
+            with self.subTest(value=value):
+                result = wsl_core.normalize_settings({"auto_refresh_interval": value})
+                self.assertEqual(result["auto_refresh_interval"], value)
+        default = wsl_core.DEFAULT_SETTINGS["auto_refresh_interval"]
+        for value in (0, 1, 7, -5, 3600, "10", 10.0, True, None):
+            with self.subTest(value=value):
+                result = wsl_core.normalize_settings({"auto_refresh_interval": value})
+                self.assertEqual(result["auto_refresh_interval"], default)
+
+    def test_detail_panel_requires_bool(self):
+        """detail_panel は bool のときだけ採用する (1 や "false" は既定値)。"""
+        self.assertFalse(wsl_core.normalize_settings({"detail_panel": False})["detail_panel"])
+        for value in (0, 1, "false", None):
+            with self.subTest(value=value):
+                result = wsl_core.normalize_settings({"detail_panel": value})
+                self.assertEqual(result["detail_panel"], wsl_core.DEFAULT_SETTINGS["detail_panel"])
+
+    def test_last_export_dir_requires_non_empty_string(self):
+        """last_export_dir は空でない文字列のときだけ採用する。"""
+        result = wsl_core.normalize_settings({"last_export_dir": "C:/exports"})
+        self.assertEqual(result["last_export_dir"], "C:/exports")
+        for value in ("", 123, None):
+            with self.subTest(value=value):
+                result = wsl_core.normalize_settings({"last_export_dir": value})
+                self.assertIsNone(result["last_export_dir"])
 
     def test_default_settings_has_snapshot_dir_key(self):
         """DEFAULT_SETTINGS に snapshot_dir キーが存在し None である。"""
@@ -3016,6 +3048,9 @@ class TestLoadSettings(unittest.TestCase):
             "sort_desc": True,
             "snapshot_dir": "/mnt/snapshots",
             "language": "auto",
+            "auto_refresh_interval": 10,
+            "detail_panel": True,
+            "last_export_dir": "/mnt/exports",
         }
         with open(path, "w", encoding="utf-8") as f:
             json.dump(data, f)
@@ -3056,6 +3091,9 @@ class TestSaveSettings(unittest.TestCase):
             "sort_desc": False,
             "snapshot_dir": "/mnt/snapshots",
             "language": "en",
+            "auto_refresh_interval": 60,
+            "detail_panel": False,
+            "last_export_dir": None,
         }
         wsl_core.save_settings(path, data)
         self.assertEqual(wsl_core.load_settings(path), data)

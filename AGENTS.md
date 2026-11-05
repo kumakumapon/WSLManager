@@ -24,31 +24,35 @@
 
 | パス | 役割 | 変更時の注意 |
 | --- | --- | --- |
-| `wsl_core.py` | パース・検証・設定・ログ・スナップショットなどのコアロジック（テスト対象） | GUI/CLI から独立したロジックを維持し、副作用は最小限にする |
-| `wslmgr.py` | tkinter による GUI 本体（`WSLManager` と `main()`。UI 構築・更新処理・各種操作。`WSLManager` は `wslmgr_gui/app/` の Mixin を継承する） | `import` 時に副作用が起きないよう `__name__` ガードを維持する |
-| `wslmgr_gui/` | `wslmgr.py` から分割した GUI 部品。`winutil.py`（Windows 定数・レジストリ）、`widgets.py`（共通ウィジェット）、`distro_data.py`（ディストロ一覧・CPU・メモリ・IP の取得関数）、`dialogs/`（14 個のダイアログ）、`app/`（`WSLManager` の Mixin: リソース履歴グラフ・操作ログ・設定、と型チェック用の基底 `AppBase`） | 実行時に `wslmgr` を import しない（`python wslmgr.py` 実行時の二重ロード防止。型注釈用の `if TYPE_CHECKING:` ブロック内のみ可）。依存は `wslmgr.py` → `wslmgr_gui` の一方向。Mixin は `__init__` を持たず、メソッド名を `WSLManager` や他の Mixin と重複させない（MRO で後勝ちになる。`tests/test_wslmgr_structure.py` が検査）。確認プロンプトを持つメソッドを移すときは、テストのパッチ先も移動先モジュールに更新する |
+| `wsl_core/` | パース・検証・設定・ログ・スナップショット・翻訳・操作可否の判定（`actions.py`）などのコアロジック（テスト対象） | GUI/CLI から独立したロジックを維持し、副作用は最小限にする。tkinter を import しない（CLI の exe から除外しているため） |
+| `wslmgr.py` | tkinter による GUI 本体（`WSLManager` と `main()`。ツールバー・一覧・詳細パネル・ステータスバー・メニューの構築、更新処理、各種操作。`WSLManager` は `wslmgr_gui/app/` の Mixin を継承する） | `import` 時に副作用が起きないよう `__name__` ガードを維持する。ワーカースレッドから Tk を触らず、`_call_soon_safe`（`wslmgr_gui/ui_queue.py`）経由でメインスレッドに渡す |
+| `wslmgr_gui/` | `wslmgr.py` から分割した GUI 部品。`winutil.py`（Windows 定数・レジストリ）、`widgets.py`（共通ウィジェット）、`style.py`（共通スタイル・色）、`detail_panel.py`（詳細パネル）、`ui_queue.py`（スレッド→UI のキュー）、`resources.py`（同梱アイコン・`wslmgr.exe` の検索）、`distro_data.py`（ディストロ一覧・CPU・メモリ・IP・インストール先の取得関数）、`dialogs/`（各ダイアログと、エクスポート・インポート・複製の入力フォーム `forms.py`）、`app/`（`WSLManager` の Mixin: リソース履歴グラフ・操作ログ・設定、と型チェック用の基底 `AppBase`） | 実行時に `wslmgr` を import しない（`python wslmgr.py` 実行時の二重ロード防止。型注釈用の `if TYPE_CHECKING:` ブロック内のみ可）。依存は `wslmgr.py` → `wslmgr_gui` の一方向。Mixin は `__init__` を持たず、メソッド名を `WSLManager` や他の Mixin と重複させない（MRO で後勝ちになる。`tests/test_wslmgr_structure.py` が検査）。確認プロンプトを持つメソッドを移すときは、テストのパッチ先も移動先モジュールに更新する |
 | `wslmgr_cli.py` | コマンドラインインターフェース | 破壊的操作（terminate/unregister/import/export 等）は確認プロンプトを維持する |
 | `tests/` | `wsl_core` / CLI（`test_wslmgr_cli.py`）/ GUI（それ以外の `test_wslmgr_*.py`）の単体テスト。GUI は実ウィンドウを作らず、`MagicMock` の `self` に対してメソッドを呼び、ダイアログ・スレッド・`subprocess` をモックする | ロジック変更時は対応するテストを追加・更新する。実際の `wsl.exe` や本物のダイアログを起動するテストを書かない |
 | `pyinstaller_hooks/` | PyInstaller ビルド用フック（GUI 用） | exe ビルド手順に影響するため変更は慎重に |
 | `installer/` | Inno Setup のインストーラ定義（`WSLManager.iss` と、英語・日本語の追加メッセージ `CustomMessages.*.isl`）と、実際にインストール・アンインストールして検証する `verify-installer.ps1`（ASCII のみ。CI の build ジョブで毎回実行） | `AppId` は変更しない。アンインストールでユーザーデータ（設定・ログ・スナップショット）を削除しない。`.iss` は ASCII のみ（日本語は UTF-8 BOM 付きの `.isl` に置く）。PATH への追加は任意で既定オフ |
-| `WSLManager.spec` / `WSLManagerCLI.spec` | PyInstaller のビルド定義（GUI の `WSLManager.exe` / コンソール付き CLI の `wslmgr.exe`） | CLI 用は tkinter を除外し、`pyinstaller_hooks/` を使わない。`.gitignore` の `!…spec` 例外が必要 |
+| `WSLManager.spec` / `WSLManagerCLI.spec` | PyInstaller のビルド定義（GUI の `WSLManager.exe` / コンソール付き CLI の `wslmgr.exe`）。どちらもアイコンとバージョン情報を埋め込み、UPX は使わない | CLI 用は tkinter を除外し、`pyinstaller_hooks/` を使わない。`.gitignore` の `!…spec` 例外が必要 |
+| `build.ps1` | 配布物（2 つの exe・インストーラ・ポータブル版 ZIP・SHA256SUMS）を 1 コマンドで作るビルドスクリプト。CI の build ジョブも同じものを実行する | ASCII のみ（Windows PowerShell 5.1 互換）。PyInstaller のバージョンは `$PyInstallerVersion` で固定 |
+| `tools/pyinstaller_support.py` | spec が共有する補助関数（`wsl_core/__init__.py` からバージョンを読み、exe のバージョン情報を作る） | spec からは `importlib` でファイルを直接読む（`sys.path` を変えない） |
+| `assets/` | アプリのアイコン（`wslmanager.ico`: exe・インストーラ、`wslmanager.png`: ウィンドウ） | GUI の spec の `datas` に同梱している |
 | `docs/` | ドキュメント（レビュー記録等） | 実装と乖離しないよう更新する |
 
 ## アーキテクチャ
 
 - エントリーポイント: GUI は `wslmgr.py`、CLI は `wslmgr_cli.py`。
-- レイヤー・責務: `wsl_core.py`（パース・検証・設定・ログ・スナップショットのコアロジック）→ `wslmgr.py` / `wslmgr_cli.py`（GUI/CLI からコアロジックを呼び出す）。GUI は `wslmgr.py` の `WSLManager` が `wslmgr_gui/` の部品（Mixin・ダイアログ・データ取得）を組み合わせて構成する。
-- 状態管理・非同期処理: 操作ログは非同期化・スレッドセーフを考慮して実装されている（既存実装を踏襲する）。
+- レイヤー・責務: `wsl_core/`（パース・検証・設定・ログ・スナップショット・操作可否のコアロジック）→ `wslmgr.py` / `wslmgr_cli.py`（GUI/CLI からコアロジックを呼び出す）。GUI は `wslmgr.py` の `WSLManager` が `wslmgr_gui/` の部品（Mixin・ダイアログ・データ取得）を組み合わせて構成する。
+- 状態管理・非同期処理: 操作ログは非同期化・スレッドセーフを考慮して実装されている（既存実装を踏襲する）。バックグラウンドスレッドの結果は `wslmgr_gui/ui_queue.py` のキュー経由でメインスレッドが反映する（スレッドから `after()` を直接呼ばない）。
 - 重要な設計制約: WSL ディストリビューションに対する破壊的操作（terminate/shutdown/unregister/import/export/VHDX 圧縮/スナップショット削除）は、実行前に確認プロンプトを経由させる。
 
 ## 検証コマンド
 
 | 目的 | コマンド | 実行条件・補足 |
 | --- | --- | --- |
-| コンパイルチェック | `python -m py_compile wslmgr.py wsl_core.py wslmgr_cli.py` と `python -m compileall -q wsl_core wslmgr_gui` | GUI を起動せずバイトコードのみ確認（tkinter 不要） |
+| コンパイルチェック | `python -m py_compile wslmgr.py wslmgr_cli.py` と `python -m compileall -q wsl_core wslmgr_gui tools` | GUI を起動せずバイトコードのみ確認（tkinter 不要） |
 | unit test | `python -m unittest discover -s tests -v` | `wsl_core` / CLI / GUI（モック経由）が対象。ウィンドウは作らず OS を問わず実行可能（`wslmgr` を import できない環境では GUI のテストは skip される） |
 | import スモークテスト | `python -c "import wslmgr; print('import OK')"` | Windows ランナーのみ（`tkinter`/`winreg` が必要） |
 | lint | `ruff check .` | `ruff==0.15.8` に固定（`pyproject.toml` 参照） |
+| 配布物のビルド | `powershell -ExecutionPolicy Bypass -File build.ps1` | Windows のみ。`.venv` に固定版 PyInstaller を入れ、テスト → 2 つの exe → インストーラ（Inno Setup があれば）→ ポータブル版 ZIP → SHA256SUMS の順に作る。CI の build ジョブも実行 |
 | インストーラ検証 | `pwsh -File installer\verify-installer.ps1 -Setup <Setup.exe> -InstallDir <一時フォルダ>` | Windows のみ。サイレントで実際にインストール・アンインストールする。ユーザー PATH を一時的に変更し、最後に完全に元へ戻す。CI の build ジョブが毎回実行 |
 | 型チェック | `mypy` | `mypy==2.3.1` に固定。対象は `wsl_core/`・`wslmgr_gui/`・`wslmgr.py`・`wslmgr_cli.py`。Windows 専用 API の型を解決するため `platform = "win32"` を設定（`pyproject.toml` の `[tool.mypy]` 参照） |
 
@@ -66,7 +70,7 @@
 ## デプロイ上の注意
 
 - 環境変数・Secret を必要とする外部サービス連携はない。
-- 配布物は `PyInstaller` でビルドした `dist/WSLManager.exe`（GUI）と `dist/wslmgr.exe`（CLI）、およびそれらを同梱する Inno Setup のインストーラ `dist/installer/WSLManager-Setup-<version>.exe`。ビルド手順を変更する場合は `WSLManager.spec` / `WSLManagerCLI.spec` と `pyinstaller_hooks/` を確認する。
+- 配布物は `PyInstaller` でビルドした `dist/WSLManager.exe`（GUI）と `dist/wslmgr.exe`（CLI）、それらを同梱する Inno Setup のインストーラ `dist/installer/WSLManager-Setup-<version>.exe`、両方の exe と README・LICENSE をまとめた `dist/WSLManager-<version>-portable.zip`。すべて `build.ps1` で作る。ビルド手順を変更する場合は `build.ps1`、`WSLManager.spec` / `WSLManagerCLI.spec`、`tools/pyinstaller_support.py` と `pyinstaller_hooks/` を確認する。
 - 本番相当の WSL 環境に対して破壊的操作を伴うコマンドを検証目的で実行しない。
 
 ## プロジェクト固有の完了条件

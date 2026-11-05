@@ -25,7 +25,19 @@ class SettingsMixin(AppBase):
 
     def _schedule_auto_refresh(self) -> None:
         self._refresh()
-        self._refresh_job = self.after(5000, self._schedule_auto_refresh)
+        self._refresh_job = self.after(self._auto_refresh_ms, self._schedule_auto_refresh)
+
+    def _set_auto_refresh_interval(self, seconds: int) -> None:
+        """自動更新の間隔を変更します (自動更新中なら新しい間隔で予約し直します)。"""
+        if seconds not in wsl_core.AUTO_REFRESH_INTERVALS:
+            return
+        self._settings["auto_refresh_interval"] = seconds
+        self._auto_refresh_ms = seconds * 1000
+        if self._refresh_job:
+            self.after_cancel(self._refresh_job)
+            self._refresh_job = self.after(self._auto_refresh_ms, self._schedule_auto_refresh)
+        self._save_settings()
+        self._set_status(self._t("gui.status.interval_changed", seconds=seconds))
 
     # ── テーマ切り替え ────────────────────────────────────────────────────
 
@@ -34,16 +46,21 @@ class SettingsMixin(AppBase):
         try:
             style = ttk.Style(self)
             style.theme_use(theme_name)
-            self._current_theme = theme_name
-            self._set_status(f"テーマを「{theme_name}」に変更しました。")
-            self._save_settings()
         except tk.TclError:
-            self._set_status(f"テーマ「{theme_name}」の適用に失敗しました。")
+            self._set_status(self._t("gui.status.theme_failed", theme=theme_name))
+            return
+        self._current_theme = theme_name
+        # テーマを変えると名前付きスタイルの設定が失われるため登録し直す
+        self._reapply_styles()
+        self._set_status(self._t("gui.status.theme_changed", theme=theme_name))
+        self._save_settings()
 
     def _change_language(self, language: str) -> None:
-        """Persist a language preference for the next application launch."""
+        """表示言語を保存し、その場で画面を作り直して反映します。"""
         self._settings["language"] = wsl_core.normalize_language(language)
         self._save_settings()
+        self._language = wsl_core.resolve_language(self._settings["language"])
+        self._rebuild_ui()
         self._set_status(self._t("gui.language_changed"))
 
     # ── 設定の保存 ───────────────────────────────────────────────────────
@@ -59,5 +76,12 @@ class SettingsMixin(AppBase):
             "sort_desc": sort_desc,
             "snapshot_dir": self._settings.get("snapshot_dir"),
             "language": self._settings.get("language", wsl_core.LANGUAGE_AUTO),
+            "auto_refresh_interval": self._settings.get(
+                "auto_refresh_interval", wsl_core.DEFAULT_SETTINGS["auto_refresh_interval"]
+            ),
+            "detail_panel": self._settings.get(
+                "detail_panel", wsl_core.DEFAULT_SETTINGS["detail_panel"]
+            ),
+            "last_export_dir": self._settings.get("last_export_dir"),
         }
         wsl_core.save_settings(self._settings_path, settings)

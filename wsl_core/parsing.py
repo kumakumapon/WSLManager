@@ -30,6 +30,26 @@ def normalize_base_path(base_path: str) -> str:
     return base_path
 
 
+# ``wsl --list`` がディストリビューション未登録のときに出す文言 (このとき終了コードは 0 以外)。
+# 表示言語に依存しないエラーコードと、英語・日本語の文言の一部で判定する。
+_NO_DISTRIBUTIONS_MARKERS = (
+    "WSL_E_DEFAULT_DISTRO_NOT_FOUND",
+    "has no installed distributions",
+    "ディストリビューションがインストールされていません",
+    "インストールされているディストリビューションはありません",
+)
+
+
+def is_no_distributions_message(output: str) -> bool:
+    """``wsl --list`` の出力が「ディストリビューションが 1 つも無い」を意味するなら True。
+
+    この場合 ``wsl.exe`` は失敗の終了コードを返すが、利用者にとってはエラーではなく
+    「まだ何も無い」状態なので、GUI / CLI は空の一覧として扱う。
+    """
+    folded = output.casefold()
+    return any(marker.casefold() in folded for marker in _NO_DISTRIBUTIONS_MARKERS)
+
+
 def parse_distro_list(output: str) -> list[dict]:
     """``wsl --list --verbose`` のデコード済みテキスト出力を解析してディストロ一覧を返します。
 

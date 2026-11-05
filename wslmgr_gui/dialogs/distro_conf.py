@@ -10,6 +10,7 @@ from tkinter import messagebox, ttk
 from typing import ClassVar
 
 import wsl_core
+from wslmgr_gui.ui_queue import post_to_ui
 from wslmgr_gui.winutil import CREATE_NO_WINDOW
 
 
@@ -199,7 +200,7 @@ class DistroConfDialog(tk.Toplevel):
 
         def _run_and_apply() -> None:
             ok, text_or_err = _run()
-            self.after(0, lambda: self._on_loaded(ok, text_or_err))
+            post_to_ui(self, lambda: self._on_loaded(ok, text_or_err))
 
         threading.Thread(target=_run_and_apply, daemon=True).start()
 
@@ -284,7 +285,7 @@ class DistroConfDialog(tk.Toplevel):
 
         def _run_and_apply() -> None:
             ok, err = _run()
-            self.after(0, lambda: self._on_saved(ok, err, new_sections))
+            post_to_ui(self, lambda: self._on_saved(ok, err, new_sections))
 
         threading.Thread(target=_run_and_apply, daemon=True).start()
 
@@ -346,7 +347,7 @@ class DistroConfDialog(tk.Toplevel):
 
         def _run_and_finish() -> None:
             rc, msg = _run_terminate()
-            self.after(0, lambda: self._on_terminated(rc, msg))
+            post_to_ui(self, lambda: self._on_terminated(rc, msg))
 
         threading.Thread(target=_run_and_finish, daemon=True).start()
 

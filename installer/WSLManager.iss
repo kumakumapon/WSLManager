@@ -34,6 +34,8 @@
 ; Must match the Named Mutex created by wslmgr.py. Setup and the uninstaller refuse to
 ; replace or remove the application while it is running.
 #define AppMutexName "Global\WSLManager_SingleInstance_Mutex"
+; Must match SetCurrentProcessExplicitAppUserModelID in wslmgr.py (taskbar grouping).
+#define AppUserModelId "kumakumapon.WSLManager"
 
 [Setup]
 ; AppId identifies this application for upgrades and uninstalling. NEVER change it.
@@ -71,6 +73,8 @@ OutputBaseFilename=WSLManager-Setup-{#AppVersion}
 Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern
+; The same icon as the executables (assets\wslmanager.ico)
+SetupIconFile=..\assets\wslmanager.ico
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl,CustomMessages.en.isl"
@@ -88,8 +92,10 @@ Source: "{#DistDir}\{#CliExeName}"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\LICENSE"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
-Name: "{autoprograms}\{#AppName}"; Filename: "{app}\{#AppExeName}"
-Name: "{autodesktop}\{#AppName}"; Filename: "{app}\{#AppExeName}"; Tasks: desktopicon
+; AppUserModelID matches the one wslmgr.py sets, so a pinned shortcut and the running
+; window share one taskbar button.
+Name: "{autoprograms}\{#AppName}"; Filename: "{app}\{#AppExeName}"; AppUserModelID: "{#AppUserModelId}"
+Name: "{autodesktop}\{#AppName}"; Filename: "{app}\{#AppExeName}"; AppUserModelID: "{#AppUserModelId}"; Tasks: desktopicon
 
 [Run]
 Filename: "{app}\{#AppExeName}"; Description: "{cm:LaunchProgram,{#AppName}}"; Flags: nowait postinstall skipifsilent runasoriginaluser

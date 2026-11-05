@@ -4,6 +4,8 @@ wsl_core.transfer - データ転送進捗計算およびバイト数フォーマ
 
 from __future__ import annotations
 
+from .i18n import translate
+
 
 def format_bytes(size_bytes: int | float) -> str:
     """バイト数を人間が読みやすい形式の文字列に変換して返します。
@@ -86,6 +88,7 @@ def format_transfer_status(
     current_bytes: int | float,
     total_bytes: int | float | None,
     elapsed_seconds: int | float,
+    language: str = "ja",
 ) -> str:
     """進捗ダイアログに表示するステータス文字列を組み立てて返します。
 
@@ -95,18 +98,21 @@ def format_transfer_status(
         ``"1.5 KiB 書き込み済み ・ 経過 1:23"``
 
     残り時間が推定できない間 (転送開始直後など) は残り時間部分を省略します。
+    ``language`` は表示言語 (既定は日本語。上の例は日本語の場合)。
     """
     written = format_bytes(current_bytes)
-    elapsed = format_duration(elapsed_seconds)
+    elapsed = translate(
+        "gui.transfer.elapsed", language, time=format_duration(elapsed_seconds)
+    )
     percent = estimate_transfer_progress(current_bytes, total_bytes)
     if percent is None or total_bytes is None:
-        return f"{written} 書き込み済み ・ 経過 {elapsed}"
+        return translate("gui.transfer.written", language, size=written) + f" ・ {elapsed}"
 
     parts = [
         f"{written} / {format_bytes(total_bytes)} ({percent:.1f}%)",
-        f"経過 {elapsed}",
+        elapsed,
     ]
     remaining = estimate_remaining_seconds(current_bytes, total_bytes, elapsed_seconds)
     if remaining is not None:
-        parts.append(f"残り約 {format_duration(remaining)}")
+        parts.append(translate("gui.transfer.remaining", language, time=format_duration(remaining)))
     return " ・ ".join(parts)

@@ -285,6 +285,19 @@ class TestCmdList(unittest.TestCase):
         return proc
 
     @patch("wslmgr_cli.subprocess.run")
+    def test_no_installed_distributions_prints_an_empty_list(self, mock_run):
+        """未登録のとき wsl.exe は失敗を返すが、エラーではなく空の一覧として扱う。"""
+        mock_run.return_value = self._make_completed_process(
+            "Windows Subsystem for Linux has no installed distributions.\r\n",
+            returncode=0xFFFFFFFF,
+        )
+        args = argparse.Namespace(format="json")
+        buf = io.StringIO()
+        with patch("sys.stdout", buf):
+            wslmgr_cli.cmd_list(args)  # sys.exit しない
+        self.assertEqual(json.loads(buf.getvalue()), [])
+
+    @patch("wslmgr_cli.subprocess.run")
     def test_table_format_calls_parse_distro_list(self, mock_run):
         """table フォーマットで wsl_core.parse_distro_list の結果が出力される。"""
         mock_run.return_value = self._make_completed_process(self.TYPICAL_OUTPUT)
@@ -639,6 +652,24 @@ class TestCmdImport(unittest.TestCase):
         self.assertEqual(
             call_args[0][0],
             ["wsl", "--import", "NewDistro", "C:\\wsl\\NewDistro", "C:\\image.tar"],
+        )
+
+    @patch("wslmgr_cli.subprocess.run")
+    def test_vhdx_image_is_imported_with_the_vhd_flag(self, mock_run):
+        """.vhdx は --vhd を付けて渡す (付けないと wsl --import が tar として読んで失敗する)。"""
+        proc = MagicMock()
+        proc.returncode = 0
+        proc.stdout = b""
+        proc.stderr = b""
+        mock_run.return_value = proc
+        args = argparse.Namespace(
+            name="NewDistro", install_path="C:\\wsl\\NewDistro", image_path="C:\\disk.VHDX"
+        )
+        with patch("sys.stdout", io.StringIO()):
+            wslmgr_cli.cmd_import(args)
+        self.assertEqual(
+            mock_run.call_args[0][0],
+            ["wsl", "--import", "NewDistro", "C:\\wsl\\NewDistro", "C:\\disk.VHDX", "--vhd"],
         )
 
     @patch("wslmgr_cli.subprocess.run")

@@ -26,12 +26,14 @@ class AppBase(_Root):
     """
 
     # ``WSLManager.__init__`` / UI 構築で作られる属性
+    _language: str
     _resource_history: wsl_core.ResourceHistory
     _resource_history_visible: bool
     _history_layouts: dict[str, wsl_core.ChartLayout]
-    _history_toggle: ttk.Button
-    _statusbar: ttk.Label
+    _history_visible_var: tk.BooleanVar
+    _history_anchor: ttk.Frame
     _auto_refresh_var: tk.BooleanVar
+    _auto_refresh_ms: int
     _sorter: TreeviewSorter
     _refresh_job: str | None
     _current_theme: str
@@ -49,3 +51,7 @@ class AppBase(_Root):
         def _set_status(self, msg: str) -> None: ...
 
         def _t(self, key: str, **values: object) -> str: ...
+
+        def _rebuild_ui(self) -> None: ...
+
+        def _reapply_styles(self) -> None: ...

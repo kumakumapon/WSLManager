@@ -6,9 +6,18 @@
 # it does not use pyinstaller_hooks/ (those hooks only collect Tcl/Tk for the GUI) and it
 # excludes tkinter, because wslmgr_cli.py and wsl_core never import it. The result is a
 # console executable, so output, redirection and exit codes behave like a normal CLI tool.
+# It shares the icon and the version information with the GUI build.
 
-from pathlib import Path
+import importlib.util
+import os
 import sys
+from pathlib import Path
+
+_support_spec = importlib.util.spec_from_file_location(
+    'wslmgr_pyinstaller_support', os.path.join(SPECPATH, 'tools', 'pyinstaller_support.py')
+)
+support = importlib.util.module_from_spec(_support_spec)
+_support_spec.loader.exec_module(support)
 
 conda_bin = Path(sys.base_prefix) / 'Library' / 'bin'
 conda_binaries = [
@@ -52,4 +61,8 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
+    icon='assets/wslmanager.ico',
+    version=support.build_version_info(
+        SPECPATH, description='WSL Manager command-line tool', internal_name='wslmgr'
+    ),
 )

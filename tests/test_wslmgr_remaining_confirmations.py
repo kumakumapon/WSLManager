@@ -20,8 +20,10 @@ import wsl_core
 
 try:
     import wslmgr
+    from wslmgr_gui.dialogs import forms
 except ImportError as exc:  # tkinter が無い環境のみ
     wslmgr = None
+    forms = None  # type: ignore[assignment]
     _IMPORT_ERROR = str(exc)
 else:
     _IMPORT_ERROR = ""
@@ -32,13 +34,20 @@ def _make_app(name: str | None = "Ubuntu") -> MagicMock:
     app._language = "en"
     app._t.side_effect = lambda key, **values: wsl_core.translate(key, "en", **values)
     app._selected_name.return_value = name
-    app._all_distros = [{"name": "Ubuntu", "version": 2}, {"name": "Debian", "version": 1}]
+    app._all_distros = [
+        {"name": "Ubuntu", "version": "2", "state": "Running", "default": True},
+        {"name": "Debian", "version": "1", "state": "Stopped", "default": False},
+    ]
+    app._selected_distro.return_value = next(
+        (d for d in app._all_distros if d["name"] == name), None
+    )
+    app._existing_names.return_value = [d["name"] for d in app._all_distros]
     return app
 
 
 @unittest.skipIf(wslmgr is None, f"wslmgr を import できません: {_IMPORT_ERROR}")
 class CloneConfirmationTests(unittest.TestCase):
-    """複製は、名前の検証・複製先の選択・内容確認を経てから始まる。"""
+    """複製は、フォーム (名前・複製先) → 名前の再検証 → 内容確認を経てから始まる。"""
 
     @staticmethod
     def _run(
@@ -47,68 +56,128 @@ class CloneConfirmationTests(unittest.TestCase):
         folder: str = "C:/wsl/clone",
         confirm: bool = True,
         name: str | None = "Ubuntu",
-    ) -> tuple[MagicMock, MagicMock, MagicMock, MagicMock]:
+    ) -> tuple[MagicMock, MagicMock, MagicMock]:
         app = _make_app(name)
         with (
             patch("wslmgr.messagebox") as mb,
-            patch("wslmgr.simpledialog") as sd,
-            patch("wslmgr.filedialog") as fd,
+            patch("wslmgr.CloneDialog") as form,
         ):
-            sd.askstring.return_value = new_name
-            fd.askdirectory.return_value = folder
+            form.ask.return_value = (
+                None if new_name is None else forms.CloneRequest(name=new_name, install_dir=folder)
+            )
             mb.askyesno.return_value = confirm
             wslmgr.WSLManager._clone_distro(app)
-        return app, mb, sd, fd
+        return app, mb, form
 
     def test_declined_confirmation_does_not_clone(self) -> None:
-        app, mb, _, _ = self._run(confirm=False)
+        app, mb, _ = self._run(confirm=False)
 
         mb.askyesno.assert_called_once()
         app._run_clone_cmd.assert_not_called()
         app._log_operation.assert_not_called()
 
     def test_confirmed_clone_runs_with_selected_values(self) -> None:
-        app, mb, _, _ = self._run(confirm=True)
+        app, mb, form = self._run(confirm=True)
 
         mb.askyesno.assert_called_once()
         app._run_clone_cmd.assert_called_once_with("Ubuntu", "Ubuntu-clone", "C:/wsl/clone", "2")
         app._log_operation.assert_called_once_with("複製", "Ubuntu", "→ Ubuntu-clone")
+        # フォームには複製元と既存の名前 (重複チェック用) を渡す
+        self.assertEqual(form.ask.call_args.args[1:], ("Ubuntu", ["Ubuntu", "Debian"]))
 
     def test_confirmation_shows_source_target_and_folder(self) -> None:
-        _, mb, _, _ = self._run(confirm=False)
+        _, mb, _ = self._run(confirm=False)
 
         message = mb.askyesno.call_args.args[1]
         for expected in ("Ubuntu", "Ubuntu-clone", "C:/wsl/clone"):
             self.assertIn(expected, message)
 
-    def test_cancelled_name_input_does_nothing(self) -> None:
-        app, mb, _, fd = self._run(new_name=None)
+    def test_cancelled_form_does_nothing(self) -> None:
+        app, mb, _ = self._run(new_name=None)
 
-        fd.askdirectory.assert_not_called()
         mb.askyesno.assert_not_called()
         app._run_clone_cmd.assert_not_called()
 
-    def test_name_that_already_exists_is_rejected_before_asking_for_a_folder(self) -> None:
-        app, mb, _, fd = self._run(new_name="Debian")  # 既存の名前
+    def test_name_that_already_exists_is_rejected_before_confirming(self) -> None:
+        app, mb, _ = self._run(new_name="Debian")  # 既存の名前 (フォームをすり抜けた場合)
 
         mb.showwarning.assert_called_once()
-        fd.askdirectory.assert_not_called()
-        mb.askyesno.assert_not_called()
-        app._run_clone_cmd.assert_not_called()
-
-    def test_cancelled_folder_selection_does_not_prompt_or_clone(self) -> None:
-        app, mb, _, _ = self._run(folder="")
-
         mb.askyesno.assert_not_called()
         app._run_clone_cmd.assert_not_called()
 
     def test_without_selection_neither_prompts_nor_clones(self) -> None:
-        app, mb, sd, _ = self._run(name=None)
+        app, mb, form = self._run(name=None)
 
         mb.showwarning.assert_called_once()
-        sd.askstring.assert_not_called()
+        form.ask.assert_not_called()
         mb.askyesno.assert_not_called()
         app._run_clone_cmd.assert_not_called()
+
+
+@unittest.skipIf(wslmgr is None, f"wslmgr を import できません: {_IMPORT_ERROR}")
+class RunCloneTests(unittest.TestCase):
+    """複製の実行: エクスポート → インポートを進捗ダイアログで順に行い、一時 tar を必ず消す。"""
+
+    def _start(self, tmp: str) -> tuple[MagicMock, MagicMock, str]:
+        app = _make_app()
+        folder = os.path.join(tmp, "clone")
+        with (
+            patch("wslmgr.TransferProgressDialog") as transfer,
+            patch("wslmgr._get_distro_vhdx_path", return_value=None),
+        ):
+            wslmgr.WSLManager._run_clone_cmd(app, "Ubuntu", "Ubuntu-clone", folder, "2")
+        return app, transfer, folder
+
+    def test_export_runs_first_into_the_destination_folder(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            _, transfer, folder = self._start(tmp)
+
+            self.assertTrue(os.path.isdir(folder))  # 複製先フォルダは先に作る
+            args = transfer.call_args.args[3]
+            self.assertEqual(args[:2], ["--export", "Ubuntu"])
+            self.assertTrue(args[2].startswith(folder))
+            self.assertFalse(os.path.exists(args[2]))  # wsl --export に既存ファイルを渡さない
+
+    def test_successful_export_starts_the_import(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            app, transfer, folder = self._start(tmp)
+            tmp_tar = transfer.call_args.args[3][2]
+            with open(tmp_tar, "wb") as f:
+                f.write(b"tar")
+            on_export_done = transfer.call_args.args[-1]
+            with patch("wslmgr.TransferProgressDialog") as second:
+                on_export_done(0, "", False)
+
+            import_args = second.call_args.args[3]
+            self.assertEqual(
+                import_args, ["--import", "Ubuntu-clone", folder, tmp_tar, "--version", "2"]
+            )
+            on_import_done = second.call_args.args[-1]
+            on_import_done(0, "", False)
+            self.assertFalse(os.path.exists(tmp_tar))  # 完了後に一時 tar を消す
+            app._refresh.assert_called()
+
+    def test_failed_export_removes_the_temporary_tar_and_reports(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            app, transfer, _ = self._start(tmp)
+            tmp_tar = transfer.call_args.args[3][2]
+            with open(tmp_tar, "wb") as f:
+                f.write(b"partial")
+            with patch("wslmgr.TransferProgressDialog") as second:
+                transfer.call_args.args[-1](1, "disk full", False)
+
+            second.assert_not_called()
+            self.assertFalse(os.path.exists(tmp_tar))
+            app._show_error.assert_called_once()
+
+    def test_cancelled_import_offers_to_unregister_the_partial_clone(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            app, transfer, _ = self._start(tmp)
+            with patch("wslmgr.TransferProgressDialog") as second:
+                transfer.call_args.args[-1](0, "", False)
+            second.call_args.args[-1](1, "", True)
+
+            app._offer_unregister_partial.assert_called_once_with("Ubuntu-clone")
 
 
 @unittest.skipIf(wslmgr is None, f"wslmgr を import できません: {_IMPORT_ERROR}")
@@ -222,23 +291,34 @@ class InstallConfirmationTests(unittest.TestCase):
         app, mb = self._run(None, True)
 
         mb.askyesno.assert_not_called()
-        app._run_wsl_cmd.assert_not_called()
+        app._run_install_cmd.assert_not_called()
 
     def test_declined_confirmation_does_not_install(self) -> None:
         app, mb = self._run("Ubuntu-24.04", False)
 
         mb.askyesno.assert_called_once()
-        app._run_wsl_cmd.assert_not_called()
+        app._run_install_cmd.assert_not_called()
 
-    def test_confirmed_installs_without_launching(self) -> None:
+    def test_confirmed_installs_the_chosen_distribution(self) -> None:
         app, mb = self._run("Ubuntu-24.04", True)
 
         mb.askyesno.assert_called_once()
         self.assertIn("Ubuntu-24.04", mb.askyesno.call_args.args[1])
-        app._run_wsl_cmd.assert_called_once()
+        app._run_install_cmd.assert_called_once_with("Ubuntu-24.04")
+
+    @patch("wslmgr.TransferProgressDialog")
+    def test_install_runs_without_launching_and_without_a_fixed_timeout(
+        self, transfer: MagicMock
+    ) -> None:
+        # ダウンロードを伴うため 60 秒で打ち切る _run_wsl_cmd ではなく、進捗ダイアログで待つ
+        app = _make_app()
+
+        wslmgr.WSLManager._run_install_cmd(app, "Ubuntu-24.04")
+
         self.assertEqual(
-            app._run_wsl_cmd.call_args.args[0], ["--install", "-d", "Ubuntu-24.04", "--no-launch"]
+            transfer.call_args.args[3], ["--install", "-d", "Ubuntu-24.04", "--no-launch"]
         )
+        app._run_wsl_cmd.assert_not_called()
 
     def test_fetch_error_is_reported_before_the_dialog(self) -> None:
         app, _ = self._run(None, False, err="network down")

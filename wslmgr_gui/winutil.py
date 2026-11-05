@@ -52,6 +52,11 @@ def _iter_distro_registry() -> list[tuple[str, str]]:
     return entries
 
 
+def _get_distro_base_paths() -> dict[str, str]:
+    """レジストリから各ディストリビューションのインストール先フォルダー (BasePath) を返します。"""
+    return dict(_iter_distro_registry())
+
+
 def _get_distro_vhdx_sizes() -> dict[str, float]:
     """レジストリから各ディストリビューションの仮想ディスクサイズ (GB) を取得します。"""
     sizes: dict[str, float] = {}

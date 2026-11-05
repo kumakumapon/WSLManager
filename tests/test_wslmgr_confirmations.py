@@ -16,8 +16,10 @@ import wsl_core
 
 try:
     import wslmgr
+    from wslmgr_gui.dialogs import forms
 except ImportError as exc:  # tkinter が無い環境のみ
     wslmgr = None
+    forms = None  # type: ignore[assignment]
     _IMPORT_ERROR = str(exc)
 else:
     _IMPORT_ERROR = ""
@@ -38,12 +40,25 @@ def _transfer_call(call: object) -> dict:
     return dict(_TRANSFER_SIGNATURE.bind(None, *call.args, **call.kwargs).arguments)
 
 
-def _make_app(name: str | None = "Ubuntu") -> MagicMock:
+def _make_app(name: str | None = "Ubuntu", version: str = "2") -> MagicMock:
     """確認プロンプト周りだけを検証する ``WSLManager`` の代役を作る。"""
     app = MagicMock()
     app._language = "en"
     app._t.side_effect = lambda key, **values: wsl_core.translate(key, "en", **values)
     app._selected_name.return_value = name
+    app._selected_distro.return_value = (
+        None
+        if name is None
+        else {
+            "name": name,
+            "state": "Running",
+            "version": version,
+            "default": False,
+            "ip": "172.20.0.5",
+        }
+    )
+    app._settings = {}
+    app._existing_names.return_value = ["Ubuntu", "Debian"]
     return app
 
 
@@ -173,9 +188,7 @@ class ConvertVersionConfirmationTests(unittest.TestCase):
     @patch("wslmgr.messagebox")
     def test_declined_does_not_start_conversion(self, mb: MagicMock, dialog: MagicMock) -> None:
         mb.askyesno.return_value = False
-        app = _make_app()
-        app._tree.selection.return_value = ["row"]
-        app._tree.item.return_value = {"values": ["Ubuntu", "Running", "", "WSL2"]}
+        app = _make_app(version="2")
 
         wslmgr.WSLManager._convert_version(app)
 
@@ -187,9 +200,7 @@ class ConvertVersionConfirmationTests(unittest.TestCase):
     @patch("wslmgr.messagebox")
     def test_confirmed_starts_conversion(self, mb: MagicMock, dialog: MagicMock) -> None:
         mb.askyesno.return_value = True
-        app = _make_app()
-        app._tree.selection.return_value = ["row"]
-        app._tree.item.return_value = {"values": ["Ubuntu", "Running", "", "WSL2"]}
+        app = _make_app(version="2")
 
         wslmgr.WSLManager._convert_version(app)
 
@@ -197,6 +208,33 @@ class ConvertVersionConfirmationTests(unittest.TestCase):
         self.assertEqual(
             _transfer_call(dialog.call_args)["wsl_args"], ["--set-version", "Ubuntu", "1"]
         )
+
+    @patch("wslmgr.TransferProgressDialog")
+    @patch("wslmgr.messagebox")
+    def test_wsl1_converts_to_wsl2_and_names_both_versions(
+        self, mb: MagicMock, dialog: MagicMock
+    ) -> None:
+        mb.askyesno.return_value = True
+        app = _make_app(version="1")
+
+        wslmgr.WSLManager._convert_version(app)
+
+        self.assertIn("WSL1", mb.askyesno.call_args.args[1])
+        self.assertIn("WSL2", mb.askyesno.call_args.args[1])
+        self.assertEqual(
+            _transfer_call(dialog.call_args)["wsl_args"], ["--set-version", "Ubuntu", "2"]
+        )
+
+    @patch("wslmgr.TransferProgressDialog")
+    @patch("wslmgr.messagebox")
+    def test_without_selection_neither_prompts_nor_converts(
+        self, mb: MagicMock, dialog: MagicMock
+    ) -> None:
+        wslmgr.WSLManager._convert_version(_make_app(name=None))
+
+        mb.showwarning.assert_called_once()
+        mb.askyesno.assert_not_called()
+        dialog.assert_not_called()
 
 
 @unittest.skipIf(wslmgr is None, f"wslmgr を import できません: {_IMPORT_ERROR}")
@@ -256,16 +294,19 @@ class SnapshotDeleteConfirmationTests(unittest.TestCase):
 
 @unittest.skipIf(wslmgr is None, f"wslmgr を import できません: {_IMPORT_ERROR}")
 class ExportConfirmationTests(unittest.TestCase):
-    """エクスポートは出力先が既存ファイルの場合に上書き確認を経由する。"""
+    """エクスポートは出力先が既存ファイルの場合に上書き確認を経由する。
+
+    形式 (tar / VHDX) と保存先は 1 画面のフォーム (``ExportDialog``) で受け取る。
+    """
 
     @staticmethod
     def _run(
-        askyesno: list[bool], save_path: str, exists: bool
-    ) -> tuple[MagicMock, MagicMock, MagicMock]:
+        askyesno: list[bool], request: object, exists: bool
+    ) -> tuple[MagicMock, MagicMock, MagicMock, MagicMock]:
         app = _make_app()
         with (
             patch("wslmgr.messagebox") as mb,
-            patch("wslmgr.filedialog") as fd,
+            patch("wslmgr.ExportDialog") as form,
             patch(
                 "wslmgr.os"
             ) as fake_os,  # wslmgr 内の os だけを差し替える (os.path はグローバルに触れない)
@@ -274,52 +315,71 @@ class ExportConfirmationTests(unittest.TestCase):
             patch("wslmgr.wsl_core.discard_partial_write") as discard,
         ):
             fake_os.path.exists.return_value = exists
+            fake_os.path.dirname.return_value = "C:/out"
             mb.askyesno.side_effect = askyesno
-            fd.asksaveasfilename.return_value = save_path
+            form.ask.return_value = request
             wslmgr.WSLManager._export_distro_image(app)
-        return mb, dialog, discard
+        return mb, dialog, discard, app
+
+    @staticmethod
+    def _request(path: str = "C:/out/u.tar", vhd: bool = False) -> object:
+        return forms.ExportRequest(path=path, vhd=vhd)
 
     def test_overwrite_declined_does_not_export(self) -> None:
-        mb, dialog, discard = self._run([False, False], "C:/out/u.tar", exists=True)
+        mb, dialog, discard, _ = self._run([False], self._request(), exists=True)
 
-        self.assertEqual(mb.askyesno.call_count, 2)  # 形式選択 + 上書き確認
+        self.assertEqual(mb.askyesno.call_count, 1)  # 上書き確認
         dialog.assert_not_called()
         discard.assert_not_called()
 
     def test_overwrite_confirmed_exports(self) -> None:
-        mb, dialog, _ = self._run([False, True], "C:/out/u.tar", exists=True)
+        mb, dialog, _, _ = self._run([True], self._request(), exists=True)
 
-        self.assertEqual(mb.askyesno.call_count, 2)
+        self.assertEqual(mb.askyesno.call_count, 1)
         dialog.assert_called_once()
         args = _transfer_call(dialog.call_args)["wsl_args"]
         self.assertEqual(args[:2], ["--export", "Ubuntu"])
         self.assertNotIn("--vhd", args)
 
     def test_new_file_skips_overwrite_prompt(self) -> None:
-        mb, dialog, _ = self._run([False], "C:/out/u.tar", exists=False)
+        mb, dialog, _, _ = self._run([], self._request(), exists=False)
 
-        self.assertEqual(mb.askyesno.call_count, 1)  # 形式選択のみ
+        mb.askyesno.assert_not_called()
         dialog.assert_called_once()
 
+    def test_export_writes_to_a_partial_file_first(self) -> None:
+        _, dialog, _, _ = self._run([], self._request(), exists=False)
+
+        destination = _transfer_call(dialog.call_args)["wsl_args"][2]
+        self.assertTrue(destination.endswith(wsl_core.PARTIAL_WRITE_SUFFIX), destination)
+
     def test_vhd_format_adds_flag(self) -> None:
-        _, dialog, _ = self._run([True], "C:/out/u.vhdx", exists=False)
+        _, dialog, _, _ = self._run([], self._request("C:/out/u.vhdx", vhd=True), exists=False)
 
         self.assertIn("--vhd", _transfer_call(dialog.call_args)["wsl_args"])
 
-    def test_cancelled_save_dialog_does_not_export(self) -> None:
-        mb, dialog, _ = self._run([False], "", exists=True)
+    def test_cancelled_form_does_not_export(self) -> None:
+        mb, dialog, _, _ = self._run([], None, exists=True)
 
-        self.assertEqual(mb.askyesno.call_count, 1)
+        mb.askyesno.assert_not_called()
         dialog.assert_not_called()
 
+    def test_export_folder_is_remembered(self) -> None:
+        _, _, _, app = self._run([], self._request(), exists=False)
+
+        self.assertEqual(app._settings["last_export_dir"], "C:/out")
+        app._save_settings.assert_called()
+
+    @patch("wslmgr.ExportDialog")
     @patch("wslmgr.TransferProgressDialog")
     @patch("wslmgr.messagebox")
     def test_without_selection_neither_prompts_nor_exports(
-        self, mb: MagicMock, dialog: MagicMock
+        self, mb: MagicMock, dialog: MagicMock, form: MagicMock
     ) -> None:
         wslmgr.WSLManager._export_distro_image(_make_app(name=None))
 
         mb.showwarning.assert_called_once()
+        form.ask.assert_not_called()
         mb.askyesno.assert_not_called()
         dialog.assert_not_called()
 
@@ -329,29 +389,34 @@ class ImportConfirmationTests(unittest.TestCase):
     """インポートは内容確認を経由し、中断時は登録解除を別途確認する。"""
 
     @staticmethod
-    def _run(askyesno: list[bool]) -> tuple[MagicMock, MagicMock, MagicMock]:
+    def _run(
+        askyesno: list[bool],
+        name: str = "NewDistro",
+        image: str = "C:/img/u.tar",
+        version: str = "2",
+    ) -> tuple[MagicMock, MagicMock, MagicMock]:
         app = _make_app()
         with (
             patch("wslmgr.messagebox") as mb,
-            patch("wslmgr.simpledialog") as sd,
-            patch("wslmgr.filedialog") as fd,
+            patch("wslmgr.ImportDialog") as form,
+            patch("wslmgr.os.makedirs"),
             patch("wslmgr.TransferProgressDialog") as dialog,
         ):
-            sd.askstring.return_value = "NewDistro"
-            fd.askopenfilename.return_value = "C:/img/u.tar"
-            fd.askdirectory.return_value = "C:/wsl/new"
+            form.ask.return_value = forms.ImportRequest(
+                name=name, image_path=image, install_dir="C:/wsl/new", version=version
+            )
             mb.askyesno.side_effect = askyesno
             wslmgr.WSLManager._import_distro_image(app)
         return app, mb, dialog
 
     def test_declined_summary_does_not_import(self) -> None:
-        _, mb, dialog = self._run([True, False])  # WSL2 を選び、内容確認で拒否
+        _, mb, dialog = self._run([False])  # 内容確認で拒否
 
-        self.assertEqual(mb.askyesno.call_count, 2)
+        self.assertEqual(mb.askyesno.call_count, 1)
         dialog.assert_not_called()
 
     def test_confirmed_summary_imports(self) -> None:
-        app, _, dialog = self._run([True, True])
+        app, mb, dialog = self._run([True])
 
         dialog.assert_called_once()
         self.assertEqual(
@@ -359,30 +424,45 @@ class ImportConfirmationTests(unittest.TestCase):
             ["--import", "NewDistro", "C:/wsl/new", "C:/img/u.tar", "--version", "2"],
         )
         app._log_operation.assert_called_once()
+        summary = mb.askyesno.call_args.args[1]
+        for expected in ("NewDistro", "C:/img/u.tar", "C:/wsl/new", "WSL2"):
+            self.assertIn(expected, summary)
 
     def test_wsl1_choice_is_passed_through(self) -> None:
-        _, _, dialog = self._run([False, True])
+        _, _, dialog = self._run([True], version="1")
 
         self.assertEqual(_transfer_call(dialog.call_args)["wsl_args"][-2:], ["--version", "1"])
 
-    @patch("wslmgr.filedialog")  # 検証漏れで先へ進んでも本物のダイアログを開かせない
-    @patch("wslmgr.simpledialog")
-    @patch("wslmgr.TransferProgressDialog")
-    @patch("wslmgr.messagebox")
-    def test_invalid_name_does_not_prompt_or_import(
-        self, mb: MagicMock, dialog: MagicMock, sd: MagicMock, fd: MagicMock
-    ) -> None:
-        sd.askstring.return_value = "a/b"  # "/" は使用できない文字
+    def test_vhdx_image_is_imported_with_the_vhd_flag(self) -> None:
+        # 以前は --vhd を付けずに渡しており、VHDX のインポートが失敗していた
+        _, _, dialog = self._run([True], image="C:/img/u.vhdx")
 
-        wslmgr.WSLManager._import_distro_image(_make_app())
+        args = _transfer_call(dialog.call_args)["wsl_args"]
+        self.assertEqual(args, ["--import", "NewDistro", "C:/wsl/new", "C:/img/u.vhdx", "--vhd"])
+
+    def test_cancelled_form_does_not_prompt_or_import(self) -> None:
+        app = _make_app()
+        with (
+            patch("wslmgr.messagebox") as mb,
+            patch("wslmgr.ImportDialog") as form,
+            patch("wslmgr.TransferProgressDialog") as dialog,
+        ):
+            form.ask.return_value = None
+            wslmgr.WSLManager._import_distro_image(app)
+
+        mb.askyesno.assert_not_called()
+        dialog.assert_not_called()
+
+    def test_invalid_name_does_not_prompt_or_import(self) -> None:
+        # フォームの検証をすり抜けても、コマンドラインに渡す前に止める
+        _, mb, dialog = self._run([True], name="a/b")  # "/" は使用できない文字
 
         mb.showwarning.assert_called_once()
-        fd.askopenfilename.assert_not_called()
         mb.askyesno.assert_not_called()
         dialog.assert_not_called()
 
     def _finish(self, returncode: int, cancelled: bool, answer: bool = False) -> tuple:
-        app, _, dialog = self._run([True, True])
+        app, _, dialog = self._run([True])
         on_done = _transfer_call(dialog.call_args)["on_done"]
         with patch("wslmgr.messagebox") as mb:
             mb.askyesno.return_value = answer

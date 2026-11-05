@@ -8,6 +8,7 @@ import tkinter as tk
 from tkinter import messagebox, ttk
 
 import wsl_core
+from wslmgr_gui.ui_queue import post_to_ui
 from wslmgr_gui.widgets import TreeviewSorter
 from wslmgr_gui.winutil import CREATE_NO_WINDOW
 
@@ -145,7 +146,7 @@ class ProcessWindow(tk.Toplevel):
 
         def _run() -> None:
             processes, err = self._fetch_processes(distro)
-            self.after(0, lambda: self._apply_result(processes, err))
+            post_to_ui(self, lambda: self._apply_result(processes, err))
 
         threading.Thread(target=_run, daemon=True).start()
 
@@ -256,7 +257,7 @@ class ProcessWindow(tk.Toplevel):
                     except tk.TclError:
                         pass
 
-                self.after(0, _on_timeout)
+                post_to_ui(self, _on_timeout)
                 return
             except OSError as e:
                 err_msg = str(e)
@@ -268,7 +269,7 @@ class ProcessWindow(tk.Toplevel):
                     except tk.TclError:
                         pass
 
-                self.after(0, _on_oserror)
+                post_to_ui(self, _on_oserror)
                 return
 
             if result.returncode != 0:
@@ -282,7 +283,7 @@ class ProcessWindow(tk.Toplevel):
                     except tk.TclError:
                         pass
 
-                self.after(0, _on_fail)
+                post_to_ui(self, _on_fail)
             else:
 
                 def _on_success() -> None:
@@ -293,7 +294,7 @@ class ProcessWindow(tk.Toplevel):
                     except tk.TclError:
                         pass
 
-                self.after(0, _on_success)
+                post_to_ui(self, _on_success)
 
         threading.Thread(target=_run, daemon=True).start()
 

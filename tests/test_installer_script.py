@@ -230,7 +230,12 @@ class InstallerCiTests(unittest.TestCase):
     def test_installer_steps_end_with_an_explicit_exit_zero(self) -> None:
         # Actions の pwsh は最後に `exit $LASTEXITCODE` を付ける。最後に実行したネイティブコマンドの
         # 終了コードが残ると、検証がすべて成功していてもステップが失敗扱いになる
-        for step in ("Locate Inno Setup", "Build installer (Inno Setup)"):
+        for step in (
+            "Locate Inno Setup",
+            "Build all distribution files (build.ps1)",
+            "Verify executable artifact",
+            "Verify portable ZIP",
+        ):
             block = self.workflow.split(f"name: {step}", 1)[1].split("      - name:", 1)[0]
             # 次のステップの直前に置いたコメントは、このステップの一部ではない
             lines = [ln.strip() for ln in block.splitlines() if ln.strip()]
@@ -239,10 +244,36 @@ class InstallerCiTests(unittest.TestCase):
             self.assertEqual(lines[-1], "exit 0", step)
 
     def test_builds_the_installer_on_every_run_and_uploads_it(self) -> None:
-        self.assertIn("name: Build installer (Inno Setup)", self.workflow)
+        # インストーラは build.ps1 が作る。CI では Inno Setup が無ければ失敗させる
+        step = self.workflow.split("name: Build all distribution files (build.ps1)", 1)[1]
+        step = step.split("      - name:", 1)[0]
+        self.assertIn("-File build.ps1", step)
+        self.assertIn("-RequireInstaller", step)
+        self.assertIn("-Iscc", step)
         self.assertIn("name: WSLManager-installer", self.workflow)
         # 数値の X.Y.Z 以外のバージョンでは失敗させる (インストーラの VersionInfoVersion の前提)
         self.assertIn("numeric X.Y.Z", self.workflow)
+        build_script = (ROOT / "build.ps1").read_text(encoding="ascii")
+        self.assertIn("numeric X.Y.Z", build_script)
+        self.assertIn("installer\\WSLManager.iss", build_script)
+
+    def test_shortcuts_use_the_app_user_model_id_of_the_gui(self) -> None:
+        # ピン留めしたショートカットと起動中のウィンドウを、タスクバーで 1 つにまとめる
+        iss = ISS.read_text(encoding="ascii")
+        gui = (ROOT / "wslmgr.py").read_text(encoding="utf-8")
+        app_id = _define(iss, "AppUserModelId")
+
+        self.assertIn(f'SetCurrentProcessExplicitAppUserModelID("{app_id}")', gui)
+        icons = _code_lines(_section(iss, "Icons"))
+        self.assertTrue(icons)
+        for line in icons:
+            self.assertIn('AppUserModelID: "{#AppUserModelId}"', line)
+
+    def test_installer_has_the_application_icon(self) -> None:
+        iss = ISS.read_text(encoding="ascii")
+
+        self.assertIn("SetupIconFile=..\\assets\\wslmanager.ico", iss)
+        self.assertTrue((ROOT / "assets" / "wslmanager.ico").is_file())
 
 
 def _job(workflow: str, name: str) -> str:
@@ -279,7 +310,12 @@ class ReleaseWorkflowTests(unittest.TestCase):
         self.assertTrue(self.package, "package ジョブが無い")
         self.assertNotIn("\n    if:", self.package)
         self.assertIn("needs: [build]", self.package)
-        for artifact in ("WSLManager-exe", "wslmgr-cli-exe", "WSLManager-installer"):
+        for artifact in (
+            "WSLManager-exe",
+            "wslmgr-cli-exe",
+            "WSLManager-installer",
+            "WSLManager-portable",
+        ):
             self.assertIn(f"name: {artifact}", self.package)
 
     def test_package_checks_the_files_and_writes_verified_checksums(self) -> None:
@@ -287,8 +323,16 @@ class ReleaseWorkflowTests(unittest.TestCase):
         self.assertIn("sha256sum -c SHA256SUMS.txt", self.package)  # 書いた直後に自分で検証する
         self.assertIn("missing or empty release file", self.package)
         self.assertIn("if-no-files-found: error", self.package)
-        for expected in ("WSLManager-Setup-$version.exe", "WSLManager.exe", "wslmgr.exe"):
+        for expected in (
+            "WSLManager-Setup-$version.exe",
+            "WSLManager-$version-portable.zip",
+            "WSLManager.exe",
+            "wslmgr.exe",
+        ):
             self.assertIn(expected, self.package)
+        # チェックサムには、公開するすべてのファイルを含める
+        sums = next(ln for ln in self.package.splitlines() if "> SHA256SUMS.txt" in ln)
+        self.assertIn("portable.zip", sums)
 
     def test_a_tag_must_match_the_version(self) -> None:
         self.assertIn("refs/tags/v", self.package)
@@ -322,6 +366,7 @@ class ReleaseWorkflowTests(unittest.TestCase):
         self.assertIn("name: release-files", self.release)
         for pattern in (
             "release/WSLManager-Setup-*.exe",
+            "release/WSLManager-*-portable.zip",
             "release/WSLManager.exe",
             "release/wslmgr.exe",
             "release/SHA256SUMS.txt",
